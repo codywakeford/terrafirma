@@ -1,0 +1,61 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#pragma once
+
+#include <memory>
+#include <string>
+
+namespace irr {
+	struct SEvent;
+	namespace video { class IVideoDriver; }
+	namespace gui { class IGUIEnvironment; class ICursorControl; }
+}
+
+namespace shell {
+
+/*
+	Chromium re-launches this executable for its renderer and GPU processes.
+	Call first thing in main(): returns the exit code when this process is one
+	of those helpers, or -1 when it is the game itself.
+*/
+int runHelper(int argc, char *argv[]);
+
+enum class Mode { Menu, Game };
+
+/*
+	The web UI, drawn over every frame. One Chromium page lives for the whole
+	session; the engine tells it what state it is in, the page sends intents back.
+*/
+class Shell
+{
+public:
+	struct Opts {
+		irr::video::IVideoDriver *driver;
+		irr::gui::IGUIEnvironment *guienv;
+		irr::gui::ICursorControl *cursor;
+		std::string url;       // page to load: terra://ui/index.html, or a dev server
+		std::string ui_dir;    // served as terra://ui/
+		std::string cache_dir; // Chromium profile and log
+		float scale;           // device pixels per CSS pixel
+	};
+
+	explicit Shell(const Opts &opts);
+	~Shell();
+
+	// Once per frame, immediately before endScene(): pumps Chromium, draws the page.
+	void frame();
+	// True when the page took the event and the engine must not see it.
+	bool onEvent(const irr::SEvent &event);
+	void setMode(Mode mode);
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> m;
+};
+
+} // namespace shell
+
+// The session's shell, or null before the client starts it. The three frame
+// sites (menu, game, load screen) and the event receiver reach it here.
+extern shell::Shell *g_shell;

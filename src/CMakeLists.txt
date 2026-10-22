@@ -68,6 +68,16 @@ if(PRECOMPILE_HEADERS)
 endif()
 
 
+option(ENABLE_SHELL "Draw the UI with an embedded Chromium page (src/shell)" TRUE)
+set(USE_SHELL FALSE)
+
+if(BUILD_CLIENT AND ENABLE_SHELL)
+	include(CEF)
+	message(STATUS "Web shell enabled (CEF ${CEF_VERSION}).")
+	set(USE_SHELL TRUE)
+endif()
+
+
 option(ENABLE_CURL "Enable cURL support" TRUE)
 set(USE_CURL FALSE)
 
@@ -566,6 +576,9 @@ if (BUILD_CLIENT)
 	add_subdirectory(client)
 	add_subdirectory(gui)
 	add_subdirectory(irrlicht_changes)
+	if(USE_SHELL)
+		add_subdirectory(shell)
+	endif()
 endif(BUILD_CLIENT)
 
 list(APPEND client_SRCS
@@ -574,6 +587,7 @@ list(APPEND client_SRCS
 	${gui_SRCS}
 	${client_network_SRCS}
 	${client_irrlicht_changes_SRCS}
+	${shell_SRCS}
 	${client_SCRIPT_SRCS}
 	${test_client_SRCS}
 	${unittest_client_SRCS}
@@ -737,6 +751,14 @@ if(BUILD_CLIENT)
 		"$<$<PLATFORM_ID:Android>:${SDL2_LIBRARIES}>"
 	)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE "MT_BUILDTARGET=1")
+	if(USE_SHELL)
+		target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE "${CEF_ROOT}")
+		target_link_libraries(${PROJECT_NAME} libcef_dll_wrapper "${CEF_LIB_RELEASE}")
+		# libcef.so and its resources sit next to the executable.
+		set_target_properties(${PROJECT_NAME} PROPERTIES BUILD_RPATH "$ORIGIN")
+		add_cef_runtime("${EXECUTABLE_OUTPUT_PATH}")
+		add_dependencies(${PROJECT_NAME} cef_runtime)
+	endif()
 	if(NOT USE_LUAJIT)
 		set_target_properties(${PROJECT_NAME} PROPERTIES
 			# This is necessary for dynamic Lua modules
