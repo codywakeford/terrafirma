@@ -8,6 +8,12 @@ export type Option =
 export type Group = { name: string; options: Option[] }
 
 const percent = (v: number) => `${Math.round(v * 100)}%`
+const DETAIL = ["Low", "Medium", "High", "Ultra"]
+const detail = (v: number) => {
+    const name = DETAIL[Math.round(v) - 1]
+    if (name === undefined) throw new Error(`horizon detail ${v} is out of range`)
+    return name
+}
 
 export const GROUPS: Group[] = [
     {
@@ -19,6 +25,14 @@ export const GROUPS: Group[] = [
             { key: "fullscreen", label: "Fullscreen", kind: "toggle" },
             { key: "vsync", label: "VSync", kind: "toggle" },
             { key: "enable_dynamic_shadows", label: "Shadows", kind: "toggle" },
+        ],
+    },
+    {
+        name: "Horizon",
+        options: [
+            { key: "far_view", label: "Distant terrain", kind: "toggle" },
+            { key: "far_view_detail", label: "Horizon detail", kind: "slider", min: 1, max: 4, step: 1, format: detail },
+            { key: "far_view_max", label: "Furthest view", kind: "slider", min: 2000, max: 64000, step: 1000, format: (v) => `${v / 1000} km` },
         ],
     },
     {

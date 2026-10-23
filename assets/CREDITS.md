@@ -16,3 +16,15 @@ Since sprint 9 the textures are fetched by `scripts/assets/goodvibes.py` from th
 
 Several leaf and plant textures are greyscale in the pack (meant to be tinted per biome); the game multiplies them by a green at runtime.
 
+
+## Weather particles
+
+`tf_weather_rain.png`, `tf_weather_snow.png` and `tf_weather_ash.png` (in `games/terrafirma/mods/tf_weather/textures`) are original to Terra Firma: a few pixels each, drawn for this game in sprint 12.
+
+## Fire tools
+
+`tf_matter_fire_drill.png`, `tf_matter_bellows_side.png` and `tf_matter_bellows_front.png` (in `games/terrafirma/mods/tf_matter/textures`) are original to Terra Firma, drawn for this game in sprint 17. Charcoal and fired clay retint the Good Vibes gravel and clay (derived, as above).
+
+## Substances and lab tools
+
+`tf_matter_substance.png`, `tf_matter_liquid.png`, `tf_matter_heat_gun.png` and `tf_matter_probe.png` (in `games/terrafirma/mods/tf_matter/textures`) are original to Terra Firma, drawn for this game in sprint 18; substance blocks tint the first two per substance.

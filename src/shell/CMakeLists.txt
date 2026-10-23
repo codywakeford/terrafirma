@@ -20,6 +20,7 @@ set(shell_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/lab.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/system.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/matter.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/wiki.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/surface.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/worlds.cpp
 )

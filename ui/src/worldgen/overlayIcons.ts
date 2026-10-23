@@ -29,8 +29,24 @@ export const OVERLAY_ICONS: Record<OverlayId, Icon> = {
         rows: ["SSSSSSSSS", "LLLLLLLLL", "SSSSSSSSS", "HHHHHHHHH", "HHHHHHHHH", "GGGGOGGGG", "GGGOOOGGG", "GGGGOGGGG", "GGGGGGGGG"],
         palette: { S: "#c9b88a", L: "#d6cfb4", H: "#7a6a5e", G: "#b07060", O: "#e0b040" },
     },
+    weather: {
+        rows: [".........", "...CCC...", "..CCCCCC.", ".CCCCCCCC", ".DDDDDDD.", "..B.B.B..", ".B.B.B...", "..B.B.B..", "........."],
+        palette: { C: "#e6eaee", D: "#9aa4ae", B: "#4a86e0" },
+    },
     moisture: {
         rows: ["....B....", "...BBB...", "...BBB...", "..BBBBB..", "..BWBBB..", ".BWBBBBB.", ".BBBBBBB.", "..BBBBB..", "...BBB..."],
         palette: { B: "#3a8ad6", W: "#bfe0ff" },
+    },
+    seasons: {
+        rows: ["RRRRRRRRR", "RRRRRRRRR", "RRRRRRRRR", "GGGGGGGGG", "GGGGGGGGG", "GGGGGGGGG", "BBBBBBBBB", "BBBBBBBBB", "BBBBBBBBB"],
+        palette: { R: "#e0603d", G: "#9a9a9a", B: "#4a76d0" },
+    },
+    currents: {
+        rows: ["WWWWWWWWW", "WRRRRRWWW", "WRWWWRWWW", "WRWLWRWWW", "WRWLWBWWW", "WRWWWBWWW", "WRBBBBWWW", "WWWWWWWWW", "WWWWWWWWW"],
+        palette: { W: "#1e4478", R: "#e0603d", B: "#6aa0e8", L: "#9a8f80" },
+    },
+    fertility: {
+        rows: [".........", "....L....", "...LLL...", "..LLSLL..", "....S....", "....S....", "DDDDSDDDD", "DDDDDDDDD", "BBBBBBBBB"],
+        palette: { L: "#5aa83c", S: "#3c7a2c", D: "#6a4a30", B: "#4a3424" },
     },
 }

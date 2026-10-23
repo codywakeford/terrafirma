@@ -8,18 +8,21 @@ core.register_node("tf_world:snow", {
 	description = "Snow",
 	tiles = { "tf_goodvibes_snow.png" },
 	groups = { crumbly = 3 },
+	_matter = { matter = "water", share = 0.15 } -- snow is mostly air,
 })
 
 core.register_node("tf_world:ice", {
 	description = "Ice",
 	tiles = { "tf_goodvibes_packed_ice.png" },
 	groups = { cracky = 3 },
+	_matter = { matter = "water", share = 1 } -- the polar wall: ice, but never the form water freezes into,
 })
 
 core.register_node("tf_world:gravel", {
 	description = "Gravel",
 	tiles = { "tf_goodvibes_gravel.png" },
 	groups = { crumbly = 3, falling_node = 1 },
+	_matter = { matter = "gravel", share = 0.6 },
 })
 
 core.register_node("tf_world:dry_grass", {
@@ -28,6 +31,7 @@ core.register_node("tf_world:dry_grass", {
 		"tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png^[colorize:#b49b5a:100" },
 	groups = { crumbly = 3 },
+	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
 
@@ -37,6 +41,7 @@ core.register_node("tf_world:tundra", {
 		"tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png^[colorize:#879a83:100" },
 	groups = { crumbly = 3 },
+	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
 
@@ -62,12 +67,15 @@ biome("seaice", { node_top = "tf_world:gravel", depth_top = 1, node_filler = "tf
 -- the land
 biome("beach", { node_top = "tf_world:sand", depth_top = 2, node_filler = "tf_world:sand", depth_filler = 2, heat_point = 50, humidity_point = 50 })
 biome("desert", { node_top = "tf_world:sand", depth_top = 2, node_filler = "tf_world:sandstone", depth_filler = 6, heat_point = 90, humidity_point = 10 })
-biome("savanna", { node_top = "tf_world:dry_grass", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 3, heat_point = 80, humidity_point = 40 })
-biome("grassland", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 3, heat_point = 50, humidity_point = 50 })
-biome("forest", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 3, heat_point = 60, humidity_point = 80 })
-biome("jungle", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 4, heat_point = 90, humidity_point = 90 })
-biome("taiga", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 3, heat_point = 15, humidity_point = 55 })
-biome("tundra", { node_top = "tf_world:tundra", depth_top = 1, node_filler = "tf_world:dirt", depth_filler = 2, heat_point = 10, humidity_point = 30 })
+biome("savanna", { node_top = "tf_world:dry_grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 3, heat_point = 80, humidity_point = 40 })
+biome("grassland", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 3, heat_point = 50, humidity_point = 50 })
+biome("forest", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 3, heat_point = 60, humidity_point = 80 })
+biome("jungle", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 4, heat_point = 90, humidity_point = 90 })
+-- the seasonal climates: monsoon forest (a wet summer, a dry winter), Mediterranean scrub (the reverse)
+biome("monsoon", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 4, heat_point = 85, humidity_point = 70 })
+biome("mediterranean", { node_top = "tf_world:dry_grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 2, heat_point = 65, humidity_point = 35 })
+biome("taiga", { node_top = "tf_world:grass", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 3, heat_point = 15, humidity_point = 55 })
+biome("tundra", { node_top = "tf_world:tundra", depth_top = 1, node_filler = "tf_world:soil", depth_filler = 2, heat_point = 10, humidity_point = 30 })
 biome("rock", { node_top = "tf_world:stone", depth_top = 1, node_filler = "tf_world:stone", depth_filler = 0,
 	node_riverbed = "tf_world:gravel", heat_point = 40, humidity_point = 30 })
 biome("snow", { node_top = "tf_world:snow", depth_top = 1, node_filler = "tf_world:stone", depth_filler = 0,

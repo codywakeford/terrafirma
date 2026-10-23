@@ -63,6 +63,39 @@ const Json::Value &Items::describe(const std::string &name)
 	return m_described.emplace(name, info).first->second;
 }
 
+Json::Value Items::catalog()
+{
+	std::set<std::string> names;
+	m_opts.client->idef()->getAll(names);
+	Json::Value result(Json::arrayValue);
+	for (const std::string &name : names) {
+		const ItemDefinition &def = m_opts.client->idef()->get(name);
+		if (name.empty() || def.name != name || def.type == ITEM_NONE || def.description.empty() ||
+				name.ends_with("_flowing") ||
+				def.groups.count("not_in_creative_inventory"))
+			continue;
+		Json::Value item = describe(name);
+		item["item"] = name;
+		item["stackMax"] = def.stack_max;
+		if (def.groups.count("creative_matter"))
+			item["category"] = "matter"; // a block of a substance (tf_matter)
+		else if (def.groups.count("creative_nature") || def.groups.count("tree") ||
+				def.groups.count("leaves") || def.groups.count("plant") ||
+				def.groups.count("crumbly") || def.groups.count("liquid"))
+			item["category"] = "nature";
+		else if (def.groups.count("creative_functional"))
+			item["category"] = "functional";
+		else if (def.type == ITEM_NODE)
+			item["category"] = "building";
+		else if (def.type == ITEM_TOOL)
+			item["category"] = "tools";
+		else
+			item["category"] = "items";
+		result.append(item);
+	}
+	return result;
+}
+
 std::string Items::iconTexture(const ItemDefinition &def) const
 {
 	if (!def.inventory_image.name.empty()) {

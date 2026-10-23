@@ -26,6 +26,7 @@ public:
 	void testHeatGated();
 	void testRocksAndOres();
 	void testAlloysAndCraft();
+	void testMeltingTakesTime();
 };
 
 static TestMatter g_test_instance;
@@ -47,6 +48,7 @@ void TestMatter::runTests(IGameDef *gamedef)
 	TEST(testHeatGated);
 	TEST(testRocksAndOres);
 	TEST(testAlloysAndCraft);
+	TEST(testMeltingTakesTime);
 }
 
 void TestMatter::testLoads()
@@ -240,9 +242,30 @@ void TestMatter::testAlloysAndCraft()
 	UASSERT(run({ { "tin", 9 }, { "lead", 1 } }, 700, 120).amounts[m.index("pewter")] > 0.5);
 
 	Mixture kiln = run({ { "wood", 2 }, { "oxygen", 0.5 } }, 700, 1800); // short of air
-	UASSERT(kiln.amounts[m.index("carbon")] > 6);
+	UASSERT(kiln.amounts[m.index("carbon")] > 3); // most of the wood charred: 3 charcoal from each (the rest leaves as gas)
 	UASSERT(run({ { "silica", 1 }, { "soda_ash", 1 } }, 1400, 1800).amounts[m.index("glass")] > 0.5);
 	UASSERT(run({ { "silica", 1 }, { "soda_ash", 1 } }, 293, 1800).amounts[m.index("glass")] < 1e-9); // Arrhenius: negligible, never quite 0
 	UASSERT(run({ { "lime", 1 }, { "water", 2 } }, 293, 600).amounts[m.index("slaked_lime")] > 0.5);
 	UASSERT(run({ { "slaked_lime", 1 }, { "carbon_dioxide", 2 } }, 293, 86400 * 3).amounts[m.index("calcite")] > 0.2);
+}
+
+// Ice in a warm room sits at its melting point while it melts, part solid
+// and part liquid, until the heat to melt all of it has come in.
+void TestMatter::testMeltingTakesTime()
+{
+	Matter m = table();
+	size_t water = m.index("water");
+	Mixture ice(m);
+	ice.temperature = 263;
+	ice.add(water, State::Solid, 10); // 180 g
+	ice.run(30, Conditions{ 293.15, ATMOSPHERE, 0, 0 }); // warms to 0 °C in ~12 s; melting all of it takes ~60 s more
+	UASSERT(std::fabs(ice.temperature - 273.15) < 0.05);
+	UASSERT(ice.in(water, State::Solid) > 0 && ice.in(water, State::Liquid) > 0);
+	ice.run(3600, Conditions{ 293.15, ATMOSPHERE, 0, 0 });
+	UASSERT(ice.in(water, State::Solid) < 1e-9 && ice.temperature > 274);
+	// and back: water in a freezer holds at 0 °C while it freezes
+	ice.run(60, Conditions{ 250, ATMOSPHERE, 0, 0 });
+	ice.run(60, Conditions{ 250, ATMOSPHERE, 0, 0 });
+	if (ice.in(water, State::Solid) > 0 && ice.in(water, State::Liquid) > 0)
+		UASSERT(std::fabs(ice.temperature - 273.15) < 0.05);
 }

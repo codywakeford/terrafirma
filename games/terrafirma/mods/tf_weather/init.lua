@@ -5,6 +5,8 @@
 -- the reading too (set_ui "weather"). Worlds terra didn't generate have no
 -- atmosphere and keep the stock sky.
 
+dofile(core.get_modpath("tf_weather") .. "/world.lua") -- snow cover and ice, from the weather
+
 if not core.terra.enabled() then
 	return
 end
@@ -61,7 +63,12 @@ local function update(player)
 	if w.ash > 0.1 then
 		fall(player, "ash", w.ash, w.wind)
 	end
-	player:set_ui("weather", w)
+	-- events go only when there are any (an empty Lua table has no JSON shape)
+	player:set_ui("weather", {
+		temperature = w.temperature, humidity = w.humidity, precipitation = w.precipitation,
+		snow = w.snow, wind = w.wind, pressure = w.pressure,
+		events = #w.events > 0 and w.events or nil,
+	})
 end
 
 core.register_on_joinplayer(update)

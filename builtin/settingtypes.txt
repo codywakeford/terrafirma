@@ -131,7 +131,7 @@ enable_build_where_you_stand (Build inside player) bool false
 aux1_descends (Aux1 key for climbing/descending) bool false
 
 #    Double-tapping the jump key toggles fly mode.
-doubletap_jump (Double tap jump for fly) bool false
+doubletap_jump (Double tap jump for fly) bool true
 
 #    If disabled, "Aux1" key is used to fly fast if both fly and fast mode are
 #    enabled.
@@ -189,15 +189,18 @@ keymap_dig (Dig/punch/use) key KEY_LBUTTON|GAMEPAD_AXIS_PLUS_5
 #    (Note: The actual meaning might vary on a per-game basis.)
 keymap_place (Place/use) key KEY_RBUTTON|GAMEPAD_AXIS_PLUS_4
 
-keymap_inventory (Open inventory) key SYSTEM_SCANCODE_12|GAMEPAD_BUTTON_3
+keymap_inventory (Open inventory) key SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3
 keymap_lab (Open the Lab panel, in the Lab) key SYSTEM_SCANCODE_15
+
+#    Open the wiki: what everything is made of and how it behaves (where the world's rules allow it).
+keymap_wiki (Open the wiki) key SYSTEM_SCANCODE_10
 
 #    Key for opening the pause menu in-game.
 #    Pressing the escape key always opens the pause menu.
 keymap_pause (Open pause menu) key GAMEPAD_BUTTON_6
 
 #    Key for moving fast in fast mode.
-keymap_aux1 (Aux1) key SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_2
+keymap_aux1 (Aux1) key SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2
 
 keymap_chat (Open chat) key SYSTEM_SCANCODE_23
 
@@ -252,9 +255,9 @@ keymap_toggle_chat (Toggle chat log) key SYSTEM_SCANCODE_59
 
 keymap_console (Toggle large chat console) key SYSTEM_SCANCODE_67
 
-keymap_toggle_fog (Toggle fog) key SYSTEM_SCANCODE_60
+keymap_toggle_fog (Toggle fog) key
 
-keymap_toggle_debug (Toggle debug info) key SYSTEM_SCANCODE_62
+keymap_toggle_debug (Toggle debug info) key SYSTEM_SCANCODE_60
 
 #    Key for toggling the display of the profiler. Used for development.
 keymap_toggle_profiler (Toggle profiler) key SYSTEM_SCANCODE_63
@@ -262,7 +265,7 @@ keymap_toggle_profiler (Toggle profiler) key SYSTEM_SCANCODE_63
 #    Key for toggling the display of mapblock boundaries.
 keymap_toggle_block_bounds (Toggle block bounds) key
 
-keymap_camera_mode (Toggle camera mode) key SYSTEM_SCANCODE_6
+keymap_camera_mode (Toggle camera mode) key SYSTEM_SCANCODE_62
 
 keymap_increase_viewing_range_min (Increase view range) key SYSTEM_SCANCODE_46
 

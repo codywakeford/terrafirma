@@ -3,6 +3,8 @@ import { computed } from "vue"
 import Crosshair from "./Crosshair.vue"
 import Hotbar from "./Hotbar.vue"
 import LabStrip from "../lab/LabStrip.vue"
+import WeatherStrip from "./WeatherStrip.vue"
+import ProbeCard from "./ProbeCard.vue"
 import StatBar from "./StatBar.vue"
 import { useStore } from "./store"
 
@@ -22,6 +24,9 @@ const hotbar = computed(() => {
     <div v-if="hud?.visible && store.screen !== 'lab'" class="hud">
         <Crosshair v-if="hud.crosshair" />
         <LabStrip />
+        <!-- a panel over the world (the wiki, the inventory) hides the strip; it covered the panel's Close -->
+        <WeatherStrip v-if="!store.screen" />
+        <ProbeCard v-if="!store.screen" />
         <div class="bottom">
             <div v-if="player" class="stats">
                 <StatBar v-if="hud.health" kind="heart" :value="player.hp" :max="player.hpMax" />

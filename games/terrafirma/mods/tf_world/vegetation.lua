@@ -17,7 +17,8 @@ local function log(id, label, side, top)
 		paramtype2 = "facedir",
 		on_place = core.rotate_node,
 		groups = { choppy = 2, tree = 1 },
-		_matter = "wood",
+		-- ~40% wood by volume, the rest air in its pores; oak's log is the form wood takes
+		_matter = { matter = "wood", share = 0.4, form = id == "log" },
 	})
 end
 
@@ -30,6 +31,7 @@ local function leaves(id, label, texture, tint)
 		paramtype = "light",
 		waving = 2,
 		groups = { snappy = 3, leaves = 1 },
+		_matter = { matter = "wood", share = 0.05 }, -- a loose tangle: tinder
 	})
 end
 
@@ -48,6 +50,10 @@ log("palm_log", "Palm log", "palm_log", "palm_log_top")
 leaves("palm_leaves", "Palm fronds", "palm_leaves", "#7fae4a")
 log("willow_log", "Willow log", "willow_log", "willow_log_top")
 leaves("willow_leaves", "Willow leaves", "willow_leaves", "#6a9a4a")
+-- the seasonal climates' trees, on the pack's foliage in their own greens
+leaves("teak_leaves", "Teak leaves", "oak_leaves", "#86a03c")
+leaves("olive_leaves", "Olive leaves", "acacia_leaves", "#9aa888")
+leaves("cypress_leaves", "Cypress leaves", "spruce_leaves", "#6f8f62")
 
 core.register_node("tf_world:cactus", {
 	description = "Cactus",
@@ -112,12 +118,21 @@ local SHAPES = {
 		angle = 30, iterations = 1, random_level = 1, trunk_type = "single", thin_branches = true },
 	palm = { axiom = "FFFFFFFA", rules_a = "[&&&fff][++&&&fff][----&&&fff][++++++&&&fff][--&&&fff]", angle = 60,
 		iterations = 1, random_level = 0, trunk_type = "single", thin_branches = true },
+	teak = { axiom = "FFFFFFFAFB", rules_a = "[&&&FFFF&&ffff][&&&++++FFFF&&ffff][&&&----FFFF&&ffff]",
+		rules_b = "[&&fff][++&&fff][----&&fff]", angle = 30, iterations = 2, random_level = 1,
+		trunk_type = "single", thin_branches = true },
+	olive = { axiom = "FFF[&&FFA][&&++++FFA][&&----FFA]", rules_a = "[&ff][+&ff][-&ff][++&ff]f",
+		angle = 35, iterations = 1, random_level = 1, trunk_type = "single", thin_branches = true },
+	cypress = { axiom = "FFAFAFAFAF", rules_a = "[&f][++&f][----&f][++++++&f]", angle = 60, iterations = 1,
+		random_level = 0, trunk_type = "single", thin_branches = true },
 	willow = { axiom = "FFFFFA", rules_a = "[&&&FFFF&&&ffff][++&&&FFFF&&&ffff][----&&&FFFF&&&ffff][++++++&&&FFFF&&&ffff]",
 		angle = 45, iterations = 1, random_level = 1, trunk_type = "single", thin_branches = true },
 }
 
 -- ---- species: niche → shape ---------------------------------------------
--- heat and wet are the column's climate (−1..1; heat falls with height).
+-- heat and wet are the column's climate (−1..1; heat falls with height);
+-- season is when its rain falls (1 all in summer .. −1 all in winter), for
+-- the trees of monsoon and Mediterranean lands.
 -- `bank` means it grows only beside rivers and lakes, `shore` only at the
 -- coast or at an oasis (low sand, or a bank); `on` the soils it takes.
 
@@ -132,30 +147,24 @@ local SPECIES = {
 	{ name = "jungle", heat = { 0.35, 1 }, wet = { 0.15, 1 }, trunk = "tf_world:jungle_log", leaves = "tf_world:jungle_leaves", on = SOIL },
 	{ name = "acacia", heat = { 0.25, 1 }, wet = { -0.45, 0.2 }, trunk = "tf_world:acacia_log", leaves = "tf_world:acacia_leaves", on = SOIL },
 	{ name = "palm", heat = { 0.3, 1 }, wet = { -1, 1 }, shore = true, trunk = "tf_world:palm_log", leaves = "tf_world:palm_leaves", on = SAND },
+	{ name = "teak", heat = { 0.2, 1 }, wet = { 0, 1 }, season = { 0.45, 1 }, trunk = "tf_world:jungle_log", leaves = "tf_world:teak_leaves", on = SOIL },
+	{ name = "olive", heat = { 0, 0.4 }, wet = { -0.7, 0.4 }, season = { -1, -0.25 }, trunk = "tf_world:log", leaves = "tf_world:olive_leaves", on = SOIL },
+	{ name = "cypress", heat = { 0, 0.4 }, wet = { -0.4, 0.4 }, season = { -1, -0.25 }, trunk = "tf_world:spruce_log", leaves = "tf_world:cypress_leaves", on = SOIL },
 }
+
+-- The engine chooses among them (core.terra.species: of the species that
+-- fit, one by the column's roll; banks favour willows), so the far view
+-- grows the same trees the world does.
+for _, s in ipairs(SPECIES) do
+	core.terra.register_species({
+		name = s.name, heat = s.heat, wet = s.wet, season = s.season, bank = s.bank, shore = s.shore,
+		on = s.on, trunk = s.trunk, leaves = s.leaves, shape = SHAPES[s.name],
+	})
+end
 
 -- the coast: sand barely above the sea (terragen elevation; 0.03 ≈ 5 blocks)
 local function shore(c, i)
 	return c.elevation[i] < 0.03 or c.bank[i]
-end
-
-local function fits(s, c, i, ground)
-	local h, w = c.heat[i], c.wet[i]
-	return h >= s.heat[1] and h <= s.heat[2] and w >= s.wet[1] and w <= s.wet[2]
-		and (not s.bank or c.bank[i]) and (not s.shore or shore(c, i)) and s.on[ground]
-end
-
--- of the species that fit, one chosen by the column's roll (banks favour willows)
-local function species_for(c, i, ground)
-	local fit = {}
-	for _, s in ipairs(SPECIES) do
-		if fits(s, c, i, ground) then
-			fit[#fit + 1] = s
-			if s.bank then fit[#fit + 1] = s end
-		end
-	end
-	if #fit == 0 then return nil end
-	return fit[c.roll[i] % #fit + 1]
 end
 
 -- what covers the ground where no tree stands
@@ -205,8 +214,9 @@ if not core.terra.enabled() then
 	return -- other worlds (the Lab) have no terragen to ask
 end
 
-local trees = {}
+local trees, by_name = {}, {}
 for _, s in ipairs(SPECIES) do
+	by_name[s.name] = s
 	local def = table.copy(SHAPES[s.name])
 	def.trunk, def.leaves = s.trunk, s.leaves
 	trees[s.name] = def
@@ -238,7 +248,8 @@ core.register_on_generated(function(minp, maxp)
 				local below, above = area:index(x, y, z), area:index(x, y + 1, z)
 				if data[above] == c_air then
 					local ground = core.get_name_from_content_id(data[below])
-					local s = cover.tree[i] and species_for(cover, i, ground)
+					local name = cover.tree[i] and core.terra.species({ x = x, y = y, z = z }, ground)
+					local s = name and by_name[name]
 					if s then
 						place_trees[#place_trees + 1] = { pos = { x = x, y = y + 1, z = z }, def = trees[s.name] }
 					else

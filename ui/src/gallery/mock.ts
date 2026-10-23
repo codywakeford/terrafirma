@@ -2,11 +2,26 @@
 // intent, and emit() to push engine messages through the real store.
 
 import { inject, type InjectionKey } from "vue"
-import type { BodyCard, BodyKind, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
+import type { SandboxFrame, BodyCard, BodyKind, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
 import { decodeWorldCode } from "../worldgen/config"
-import { mockPreview } from "./mockWorld"
+import { mockPreview, mockWeather } from "./mockWorld"
 
 type Handlers = { [K in IntentKind]: (request: Intents[K]["request"]) => Intents[K]["response"] }
+
+let sandboxTime = 0
+function cannedSandbox(time: number): SandboxFrame {
+    const n = 27, bottom = (i: number) => i < 9
+    const t = Array.from({ length: n }, (_, i) => (i === 4 ? Math.min(373, 293 + time) : 293))
+    return {
+        size: [3, 3, 3], time: time,
+        main: Array.from({ length: n }, (_, i) => (bottom(i) ? 0 : -1)),
+        state: Array.from({ length: n }, () => "liquid"),
+        fill: Array.from({ length: n }, (_, i) => (bottom(i) ? 0.6 : 0)),
+        temperature: t, activity: Array.from({ length: n }, () => 0),
+        vapour: Array.from({ length: n }, (_, i) => (i === 13 && time > 80 ? 0 : -1)),
+        haze: Array.from({ length: n }, (_, i) => (i === 13 && time > 80 ? 0.4 : 0)),
+    }
+}
 
 export function MockBridge() {
     const listeners = new Set<(message: EngineMessage) => void>()
@@ -17,12 +32,13 @@ export function MockBridge() {
     const settings: Record<string, number | boolean> = {
         viewing_range: 200, fov: 72, fps_max: 60, mouse_sensitivity: 0.2, sound_volume: 0.8,
         fullscreen: false, vsync: false, enable_dynamic_shadows: true,
+        far_view: true, far_view_detail: 2, far_view_max: 16000,
     }
 
     // A tiny stand-in for the server's inventory rules: enough to click through.
     const lists: Record<string, { width: number; stacks: (Stack | null)[] }> = {
-        main: { width: 0, stacks: Array(32).fill(null) },
-        craft: { width: 3, stacks: Array(9).fill(null) },
+        main: { width: 9, stacks: Array(36).fill(null) },
+        craft: { width: 2, stacks: Array(4).fill(null) },
         craftpreview: { width: 0, stacks: [null] },
         craftresult: { width: 0, stacks: [null] },
     }
@@ -99,7 +115,7 @@ export function MockBridge() {
     const WATER: MatterSubstance = {
         id: "water", name: "Water", formula: "H₂O", kind: "compound", composition: { H: 2, O: 1 }, molar_mass: 18.015,
         triple: [273.16, 611.657], critical: [647.1, 22.064e6], boil: 373.15, fusion: 6.01, vaporization: 40.65,
-        density: { solid: 917, liquid: 1000 }, heat_capacity: 4186, approximate: false, note: "Canned for the gallery.",
+        density: { solid: 917, liquid: 1000 }, conductivity: { solid: 2.2, liquid: 0.6, gas: 0.025 }, heat_capacity: 4186, approximate: false, note: "Canned for the gallery.",
         structure: { type: "molecule", atoms: [["O", 0, 0, 0], ["H", 0.757, 0.586, 0], ["H", -0.757, 0.586, 0]], bonds: [[0, 1, 1], [0, 2, 1]] },
         curves: {
             sublimation: [[136.6, 1e-4], [180, 0.05], [220, 3], [250, 76], [273.16, 611.657]],
@@ -111,15 +127,11 @@ export function MockBridge() {
     const at = (s: SlotRef) => lists[s.list]!.stacks
     const emitAll = (message: EngineMessage) => listeners.forEach((l) => l(message))
 
-    // a 2×2 of one item anywhere in the 3×3 grid
+    // The player's 2×2 crafting grid.
     function recipe() {
         const g = lists.craft!.stacks
         for (const r of RECIPES)
-            for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
-                const square = [g[y * 3 + x], g[y * 3 + x + 1], g[(y + 1) * 3 + x], g[(y + 1) * 3 + x + 1]]
-                const others = g.filter((s, i) => s && ![y * 3 + x, y * 3 + x + 1, (y + 1) * 3 + x, (y + 1) * 3 + x + 1].includes(i))
-                if (square.every((s) => s?.item === r.needs) && others.length === 0) return { recipe: r, x: x, y: y }
-            }
+            if (g.every((s) => s?.item === r.needs)) return { recipe: r }
         return null
     }
 
@@ -189,6 +201,16 @@ export function MockBridge() {
             return null
         },
         "ui.send": (event) => {
+            if (event.name === "creative.take") {
+                lists.main!.stacks[event.payload.slot] = { item: event.payload.item, count: event.payload.count, wear: 0 }
+                publish()
+                return null
+            }
+            if (event.name === "creative.clear") {
+                lists.main!.stacks[event.payload.slot] = null
+                publish()
+                return null
+            }
             if (!lab) return null
             switch (event.name) {
                 case "lab.control": if (event.payload.value !== null) lab.values[event.payload.id] = event.payload.value; break
@@ -211,8 +233,14 @@ export function MockBridge() {
         "matter.list": () => ({ elements: ELEMENTS, substances: [WATER], reactions: [], rocks: [] }),
         // the mixture comes back as it went in: the gallery runs no chemistry
         "matter.react": ({ amounts, temperature }) => ({ amounts: amounts, temperature: temperature, states: {}, rates: {} }),
+        // a canned sandbox: a pool of water warming under a heater (the gallery has no physics)
+        "sandbox.create": () => { sandboxTime = 0; return { id: 1 } },
+        "sandbox.step": ({ seconds }) => { sandboxTime += seconds; return cannedSandbox(sandboxTime) },
+        "sandbox.set": () => cannedSandbox(sandboxTime),
+        "sandbox.drop": () => null,
         "matter.state": () => ({ state: "liquid", boils_at: 373.15, melts_at: 273.15 }),
         "worldgen.preview": ({ code, date, resolution }) => mockPreview(decodeWorldCode(code), date, resolution),
+        "weather.preview": ({ snapshots }) => mockWeather(snapshots),
         "screen.close": () => {
             queueMicrotask(() => listeners.forEach((l) => l({ kind: "screen", screen: null })))
             return null
@@ -223,6 +251,13 @@ export function MockBridge() {
             return null
         },
         "game.quit": () => null,
+		"creative.list": (): CreativeItem[] => [
+			{ item: "tf_world:grass", description: "Grass", icon: swatch("#5fa83a", "#6b4a2b"), stackMax: 64, category: "nature" },
+			{ item: "tf_world:dirt", description: "Dirt", icon: swatch("#7a5533", "#6b4a2b"), stackMax: 64, category: "nature" },
+			{ item: "tf_world:stone", description: "Stone", icon: swatch("#8a8a8a", "#6e6e6e"), stackMax: 64, category: "building" },
+			{ item: "tf_world:sand", description: "Sand", icon: swatch("#e3d39a", "#cdbb7e"), stackMax: 64, category: "nature" },
+			{ item: "tf_world:stone_bricks", description: "Stone Bricks", icon: swatch("#7a7a82", "#5d5d64"), stackMax: 64, category: "building" },
+		],
         "inventory.move": ({ from, to, count }) => {
             const moving = take(from, count)
             if (!moving) return null
@@ -237,7 +272,7 @@ export function MockBridge() {
                 if (!found) break
                 const r = lists.craftresult!.stacks[0]
                 if (r && r.item !== found.recipe.makes.item) break
-                for (const i of [found.y * 3 + found.x, found.y * 3 + found.x + 1, (found.y + 1) * 3 + found.x, (found.y + 1) * 3 + found.x + 1])
+                for (const i of [0, 1, 2, 3])
                     take({ list: "craft", index: i }, 1)
                 put("craftresult", 0, { ...found.recipe.makes })
             }

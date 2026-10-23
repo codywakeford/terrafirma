@@ -27,6 +27,7 @@ src/terragen/     OURS — the world model: a pure, fixed-point function of the 
 scripts/assets/   texture import: Good Vibes at a pinned revision, plus derived rocks and ores
 src/matter/       OURS — elements and substances, and the state they're in at any temperature and pressure
 matter/           OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
+src/far/          OURS — the far view: terrain beyond the loaded blocks to the horizon, from the world code
 src/mapgen/mapgen_terra.*  OURS — the `terra` map generator: terrain/climate/biome from terragen
 ui/               OURS — the Vue app (Vite + TypeScript): menus, HUD, in-game screens, gallery
 games/terrafirma/ OURS — the game, in Lua: blocks, items, recipes, biomes, trees, survival systems
@@ -51,8 +52,11 @@ cd ui && bun run typecheck               # UI types (vue-tsc; TypeScript is pinn
 ./bin/luanti --test-module TestTerragen   # terragen unit tests (--run-unittests for the whole engine)
 bun check:terragen      # world generation end to end: probed world == standalone terragen, + unit tests
 bun check:lab           # every Lab scenario built headless; each `expect` checked
+bun check:wiki          # every wiki demo (reactions + Lab) run in the engine sandbox; reactions must make their products
+bun check:matter        # a clay fire pit lit on a live server: the world's matter burns, flames, records reactions, saves
+bun check:far           # the far view against the world: generated chunks vs core.terra.surface, column by column
 # tuning by eye: render a code's grid (relief, lakes, rivers) to a PNG and look at it
-g++ -std=c++17 -O2 -Isrc src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF2.dGVycmE out.png
+g++ -std=c++17 -O2 -Isrc src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 ```
 
 **How agents verify:** build the engine, typecheck and build the UI, boot the
@@ -73,7 +77,10 @@ runs it and shares screenshots. Say plainly what was and wasn't run.
   inventory keys, per-frame update), three draw sites (`game.cpp`,
   `guiEngine.cpp`, `renderingengine.cpp`), `inputhandler.cpp`, `hud.cpp` and
   `render/plain.cpp` (native HUD parts off), `defaultsettings.cpp`, CMake;
-  `mapgen.cpp/.h` register the `terra` generator (enum + name + factory).
+  `mapgen.cpp/.h` register the `terra` generator (enum + name + factory);
+  `game.cpp` creates and updates the far view (`far_view`); `server.cpp`
+  sends `TOCLIENT_HORIZON` on join; `clientmap.h` lists the blocks it
+  draws (`forEachDrawn`).
 - Upstream C++ keeps upstream style. Our C++ (`src/shell`, `src/terragen`)
   follows "Code standards" below within C++ idiom: one concern per class,
   pimpl to keep CEF out of engine headers, RAII.
@@ -555,6 +562,97 @@ own solar system comes out as itself (unit-tested). Served by
 `system.preview`; the create screen's System tab holds causes only
 (`ui/src/system/`). Direction: `planning/systems-and-bodies.md`.
 
+**Built (sprint 19, `planning/sprint-19-families.md`):** material
+families. A block is a family plus a composition in its `param2`, coloured
+by a palette. Soil is a point on the texture triangle with organic matter
+(198 points; terragen's `soilPoint`/`soilIndex`, chosen per column by parent
+rock, weathering, floodplains, slope and cold), named by USDA texture class.
+Rocks are 16-step blends toward a geological neighbour. The world's matter
+reads families through `core.matter.register_family`. Heat-made liquids pour
+and spill.
+
+**Built (sprint 18, `planning/sprint-18-creative.md`):** the inventory as
+Minecraft's (`ui/src/game/inventory`: `carry.ts` holds every click and drag
+rule; the creative and survival panels; a fixed frame with icon tabs and an
+always-visible search; E or Esc closes it), Minecraft's keys (Ctrl or
+double-tap W sprints, double-tap jump flies, F3 debug, F5 camera), a block
+of every substance (`tf_matter/substances.lua`), a heat gun, and a probe
+(a HUD card).
+
+**Built (sprint 20, `planning/sprint-20-horizon.md`):** the horizon. The
+far view is the world itself at a lower resolution, as blocks. The
+generator decides every block with one rule, `terra::Columns::node`
+(`src/mapgen/terra_column.*`); tree species are engine data
+(`core.terra.register_species`, chosen by `core.terra.species`;
+`src/mapgen/terra_species.*`). The server sends both to the client
+(`TOCLIENT_HORIZON`, protocol 56), which builds tiles of block columns
+with the same code (`src/far`): trees regrown with treegen as the world
+grows them, meshed as block faces in each block's texture colours and lit
+as the near world is. It's a quadtree of tiles, finer near the near
+world's edge, and it draws exactly where the near world's map blocks
+don't (`ClientMap::forEachDrawn`). The curve is drawn, not stored
+(R = 8 × world size), with haze from the seam out. `core.terra.surface(pos)`
+gives a column as the generator makes it, without generating it.
+`bun check:far` compares the two. Settings ▸ Horizon.
+
+**Built (sprint 17, `planning/sprint-17-world-as-sandbox.md`):** the world
+is the sandbox. `src/sandbox/physics.*` holds the rules between blocks, and
+both the wiki's `Sandbox` and the world's `WorldMatter` use them. Blocks
+declare `_matter` (a substance or rock, its share of the volume, its state,
+whether it's that matter's form); `tf_matter` registers them and runs
+`core.matter`. Awake blocks exist only around activity, and asleep air is
+the room. Wood breaks down into charcoal and fuel gas that burns as the
+flame, clay walls insulate, lava cools to basalt, ice melts. There's a fire
+drill (lights what's light enough: thermal mass) and a bellows; hot items
+stay hot; discovery greys unseen reactions in the in-game wiki.
+`bun check:matter` lights a real fire on a live server.
+
+**Built (sprint 16, `planning/sprint-16-wiki.md`):** the wiki
+(`ui/src/wiki`, key G in game where the world's rules allow it): Matter,
+Reactions, Reactor and Lab, each with a list, a live view and the facts.
+Its demos run in the **sandbox engine** (`src/sandbox`): a grid of
+`matter::Mixture` blocks with conduction, gases that mix, rise and are drawn
+in, falling liquids, and heat carried with matter. That's the same physics
+as the game, and it's meant to become the world's block physics. Mixture
+phase changes are now gradual: matter holds at its transition temperature
+while it changes. Every reaction's demo is generated from its data;
+`bun check:wiki` runs them all in the engine. `tf_player` grants fly, fast
+and noclip in creative worlds and adds sprint.
+
+**Built (sprint 15, `planning/sprint-15-weather-on-the-world.md`):** the
+weather acts on the world. `tf_weather/world.lua` lays snow where it falls
+and melts it, and freezes and thaws open water, all by one rule over
+`core.terra.weather` (`tf_weather.weather_on`), run by ABMs around players.
+
+**Built (sprint 14, `planning/sprint-14-ocean.md`):** ocean currents in the
+climate. Wind-driven gyres warm the sea off east coasts and chill it off
+west coasts (reversed in the subpolar band). The heat reaches the coasts
+and cold water dries the air above it, which makes coastal deserts. Shown in
+the Ocean currents overlay. TF5.
+
+**Built (sprint 13, `planning/sprint-13-climate.md`):** the climate makes
+the land. terragen solves the long-run climate (`terragen/climate.*`: the
+same circulation as the weather, two seasons, moisture marched along the
+mean winds, rain where air rises), and rain drives erosion, rivers, lakes
+and biomes. Biomes are a niche table of heat × wetness × seasonality,
+including monsoon (summer rain) and mediterranean (winter rain). Fertility
+comes from rock supply, river silt and leaching. The live weather's rain is
+anchored to this climate. TF4.
+
+**Built (sprint 12, `planning/sprint-12-weather.md`):** weather as a
+general **fluid layer on a spinning sphere** (`src/fluid`): the body's
+numbers in (size, gravity, spin, tilt, sunlight, the air's gases from the
+matter library, whichever substance condenses there), circulation by rule
+(Held–Hou Hadley reach, Rhines jets: the bands follow the spin), heat,
+vapour and ash moved on a lon–lat grid, rain wherever air rises and cools,
+storms as a list, events as threshold data. Earth's instance
+(`src/weather`) is built from terragen's ground and anchored to its climate
+(a sample's temperature is terragen's for that column plus the layer's
+departure); live state saved as `<world>/weather.bin`, replayed exactly
+from the last save. `core.terra.weather(pos)`; `tf_weather` shows clouds,
+rain, snow and ash; the HUD strip; the create screen's Weather overlay
+(`weather.preview`, a settled year).
+
 **Built (sprint 11, `planning/sprint-11-alloys.md`):** early craft
 chemistry as data. Alloys are substances made by reactions that need their
 metals molten (bronze, pewter, cast iron, steel by blowing air through cast
@@ -714,3 +812,71 @@ Default art: `tf_world` uses selected Good Vibes textures (Acaitart, CC BY 4.0)
 with source revision and attribution in `assets/CREDITS.md`. The user still
 needs to review the look in-game and share screenshots for any colour or water
 tuning. Add new blocks in the same visual style and record new asset sources.
+## Game Philosophy
+
+**Terra Firma is an open-world sandbox about discovering, understanding, and mastering a living, physically coherent universe.**
+
+The goal is not to recreate Minecraft with more realism, nor to build a scientific simulator for its own sake. It is to create a rich, accessible, and consistently enjoyable world where meaningful gameplay emerges from the interaction of understandable systems rather than arbitrary recipes, progression gates, and scripted objectives.
+
+### Core Principles
+
+**1. Emergence over prescription**
+
+Build a relatively small set of powerful, interacting primitives from which complex behaviour can emerge. Chemistry, materials, geology, climate, ecology, and physics should provide consistent foundations for gameplay. Prefer general rules over special-case mechanics.
+
+**2. Realism in service of gameplay**
+
+Simulate enough reality to create interesting possibilities, constraints, and decisions—not unnecessary chores. Approximation is encouraged where it preserves meaningful relationships. Greater simulation complexity must justify itself through gameplay value.
+
+**3. Knowledge is progression**
+
+Players should be rewarded for curiosity, experimentation, and understanding the world. Real-world intuition should generally produce sensible results. Rather than memorizing arbitrary recipes, players discover properties, processes, and techniques through observation and experimentation. Failures should be understandable and informative.
+
+**4. Problems create purpose**
+
+The environment should naturally create reasons to build. Climate motivates shelter, distance motivates transport, scarcity motivates exploration, and resource processing motivates industry. Roads, farms, workshops, machines, and settlements should become useful solutions rather than optional decoration.
+
+**5. Mastery eliminates repetition**
+
+Early tasks may require manual effort, but players should progressively develop tools, machinery, infrastructure, and automation that solve recurring problems. Progression should expand capabilities and ambitions rather than simply introduce more grinding.
+
+**6. Freedom through construction**
+
+Players should be able to invent solutions, not merely assemble predefined objects. Explore variable-resolution construction, material shaping, reusable components, mechanical assemblies, and blueprints. Balance approachable LEGO-like building with optional engineering depth.
+
+**7. A living, persistent universe**
+
+Worlds should evolve independently of the player. Planetary conditions shape weather, oceans, terrain, resources, and ecosystems. Ecologies may grow, compete, adapt, and recover. Simulations should operate at appropriate spatial and temporal scales without requiring every organism or process to be tracked individually.
+
+**8. Progression without a prescribed path**
+
+From primitive survival to industry, civilization, and interplanetary exploration, progression should emerge through capabilities and dependencies rather than rigid technology trees. Support multiple solutions, alternative starting ages, and different play styles, from Arcade to Realistic.
+
+**9. Scientific foundations, playful possibilities**
+
+The universe should behave coherently without being constrained to a perfect recreation of reality. Encourage wonder, discovery, experimentation, unusual creatures, unexpected interactions, and ambitious engineering. Grounded systems should enable creativity, not suppress it.
+
+**10. Open, moddable, and extensible**
+
+Terra Firma should provide a strong, independently playable baseline rather than attempt to contain every possible game. Simulation primitives belong in the engine; gameplay and mods consume and interact with them through stable interfaces. Modding, self-hosting, and community creativity are first-class concerns.
+
+### Guiding Design Questions
+
+When introducing a system or mechanic, ask:
+
+- **What new possibilities or meaningful decisions does this create?**
+- Can players understand its behaviour through observation and experimentation?
+- Does it interact naturally with existing systems rather than require isolated special cases?
+- Does it encourage invention, exploration, construction, or discovery?
+- Can players eventually automate away its repetitive aspects?
+- Is it enjoyable at an appropriate level of abstraction?
+
+### Long-Term Direction
+
+Build a world in which a player can begin with nothing, establish shelter, discover materials, develop tools, construct machinery, automate industry, build a civilization, and eventually explore other worlds—all within a coherent set of underlying rules.
+
+Potential directions include emergent metallurgy and chemistry, functional construction and vehicles, evolving ecosystems, environmental engineering, planetary exploration, and physically grounded orbital mechanics.
+
+These are possibilities, not mandatory features or a fixed development roadmap.
+
+**The measure of success is not simulation fidelity or the number of implemented systems. It is whether players continually discover interesting things to understand, problems worth solving, and ambitions worth pursuing.**

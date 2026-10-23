@@ -12,10 +12,15 @@
 #include "terragen/geology.h"
 #include "terragen/sun.h"
 #include "terragen/world.h"
+#include "mapgen/terra_species.h"
+#include "mapgen/mapgen_terra.h"
+#include "far/terrain.h"
+#include "nodedef.h"
 #include "weather/weather.h"
 #include "filesys.h"
 #include "porting.h"
 #include <memory>
+#include <deque>
 
 using namespace terragen;
 
@@ -165,7 +170,8 @@ int ModApiTerra::l_sun(lua_State *L)
 	return 1;
 }
 
-// core.terra.climate(pos) → { temperature (°C, now), biome, heat, wet }:
+// core.terra.climate(pos) → { temperature (°C, now), biome, heat, wet, rain
+// (the year's, relative to the median over land), season (1 summer-wet .. −1 winter-wet) }:
 // the climate of today's season at that column.
 int ModApiTerra::l_climate(lua_State *L)
 {
@@ -176,11 +182,13 @@ int ModApiTerra::l_climate(lua_State *L)
 	Calendar c = today(getServer(L), w);
 	fix v = w.v(z);
 	Column column = w.column(w.u(x), v, w.sunlight(v, c.date));
-	lua_createtable(L, 0, 4);
+	lua_createtable(L, 0, 6);
 	setNumber(L, "temperature", toDouble(w.temperature(x, z, c.date, hourNow(getServer(L)))));
 	setstringfield(L, -1, "biome", BIOME_NAMES[(int)column.biome]);
 	setNumber(L, "heat", toDouble(column.heat));
 	setNumber(L, "wet", toDouble(column.wet));
+	setNumber(L, "rain", toDouble(column.rain));
+	setNumber(L, "season", toDouble(column.season));
 	return 1;
 }
 
@@ -235,8 +243,9 @@ int ModApiTerra::l_geology(lua_State *L)
 }
 
 // core.terra.cover(minp, maxp) → for every column of the area (x inner, z
-// outer, from 1): { density, heat, wet, elevation, slope, bank, tree, roll } as parallel
-// arrays. What can grow and where trees stand; the game picks what grows.
+// outer, from 1): { density, heat, wet, season, elevation, slope, fertility, bank, tree, roll } as parallel
+// arrays, plus season (when the rain falls: 1 summer .. −1 winter) and
+// fertility (0..1). What can grow and where trees stand; the game picks what grows.
 // For map-generation callbacks: one call per chunk.
 int ModApiTerra::l_cover(lua_State *L)
 {
@@ -245,8 +254,8 @@ int ModApiTerra::l_cover(lua_State *L)
 	v3s16 a = check_v3s16(L, 1), b = check_v3s16(L, 2);
 	if (b.X < a.X || b.Z < a.Z || (b.X - a.X + 1) * (b.Z - a.Z + 1) > 160 * 160)
 		throw LuaError("core.terra.cover: the area must run min to max, at most 160 × 160 columns");
-	const char *const NAMES[] = { "density", "heat", "wet", "elevation", "slope", "bank", "tree", "roll" };
-	lua_createtable(L, 0, 8);
+	const char *const NAMES[] = { "density", "heat", "wet", "season", "elevation", "slope", "fertility", "bank", "tree", "roll" };
+	lua_createtable(L, 0, 10);
 	int out = lua_gettop(L);
 	for (const char *name : NAMES) {
 		lua_createtable(L, (b.X - a.X + 1) * (b.Z - a.Z + 1), 0);
@@ -259,25 +268,211 @@ int ModApiTerra::l_cover(lua_State *L)
 		fix v = w.v(z);
 		fix sun = beyond ? 0 : w.sunlight(v, std::nullopt);
 		for (int32_t x = a.X; x <= b.X; x++, n++) {
-			Cover c{ 0, 0, false, false, 0 };
-			fix heat = 0, wet = 0, elevation = 0;
+			Cover c{ 0, 0, 0, false, false, 0 };
+			fix heat = 0, wet = 0, season = 0, elevation = 0;
 			if (!beyond) {
 				Ground g = w.ground(x, z, sun);
 				c = w.cover(x, z, g);
 				heat = g.column.heat;
 				wet = g.column.wet;
+				season = g.column.season;
 				elevation = g.column.elevation;
 			}
 			auto put = [&](const char *name) { lua_getfield(L, out, name); };
 			put("density"); lua_pushnumber(L, toDouble(c.density)); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("heat"); lua_pushnumber(L, toDouble(heat)); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("wet"); lua_pushnumber(L, toDouble(wet)); lua_rawseti(L, -2, n); lua_pop(L, 1);
+			put("season"); lua_pushnumber(L, toDouble(season)); lua_rawseti(L, -2, n); lua_pop(L, 1);
+			put("fertility"); lua_pushnumber(L, toDouble(c.fertility)); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("elevation"); lua_pushnumber(L, toDouble(elevation)); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("slope"); lua_pushnumber(L, toDouble(c.slope)); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("bank"); lua_pushboolean(L, c.bank); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("tree"); lua_pushboolean(L, c.tree); lua_rawseti(L, -2, n); lua_pop(L, 1);
 			put("roll"); lua_pushinteger(L, c.roll); lua_rawseti(L, -2, n); lua_pop(L, 1);
 		}
+	}
+	return 1;
+}
+
+// A {lo, hi} pair from field `name` of the table at `idx`.
+static void readRange(lua_State *L, int idx, const char *name, const std::string &species, double out[2])
+{
+	lua_getfield(L, idx, name);
+	if (!lua_istable(L, -1))
+		throw LuaError("core.terra.register_species '" + species + "': " + name + " must be { low, high }");
+	for (int k = 0; k < 2; k++) {
+		lua_rawgeti(L, -1, k + 1);
+		if (!lua_isnumber(L, -1))
+			throw LuaError("core.terra.register_species '" + species + "': " + name + " must be { low, high }");
+		out[k] = lua_tonumber(L, -1);
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+}
+
+static std::string needString(lua_State *L, int idx, const char *name, const std::string &species)
+{
+	std::string out;
+	if (!getstringfield(L, idx, name, out) || out.empty())
+		throw LuaError("core.terra.register_species '" + species + "': " + name + " is required");
+	return out;
+}
+
+// core.terra.register_species(def): a tree species. def = { name, heat = { lo, hi },
+// wet = { lo, hi }, season = { lo, hi } (optional), bank, shore, on = { [block] = true, … },
+// trunk, leaves, shape = an L-system as core.spawn_tree takes }. The climate is
+// core.terra.cover's. In registration order, the first that fits doesn't win:
+// core.terra.species picks among all that fit by the column's roll.
+int ModApiTerra::l_register_species(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	luaL_checktype(L, 1, LUA_TTABLE);
+	terra::SpeciesDef d{};
+	d.name = needString(L, 1, "name", "?");
+	for (const terra::SpeciesDef &other : terra::registered())
+		if (other.name == d.name)
+			throw LuaError("core.terra.register_species: '" + d.name + "' is registered twice");
+	readRange(L, 1, "heat", d.name, d.niche.heat);
+	readRange(L, 1, "wet", d.name, d.niche.wet);
+	lua_getfield(L, 1, "season");
+	d.niche.seasonal = !lua_isnil(L, -1);
+	lua_pop(L, 1);
+	if (d.niche.seasonal)
+		readRange(L, 1, "season", d.name, d.niche.season);
+	d.niche.bank = getboolfield_default(L, 1, "bank", false);
+	d.niche.shore = getboolfield_default(L, 1, "shore", false);
+	d.trunk = needString(L, 1, "trunk", d.name);
+	d.leaves = needString(L, 1, "leaves", d.name);
+
+	lua_getfield(L, 1, "on");
+	if (!lua_istable(L, -1))
+		throw LuaError("core.terra.register_species '" + d.name + "': on must be a set of blocks");
+	lua_pushnil(L);
+	while (lua_next(L, -2)) {
+		if (lua_type(L, -2) == LUA_TSTRING && lua_toboolean(L, -1))
+			d.on.push_back(lua_tostring(L, -2));
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	std::sort(d.on.begin(), d.on.end());
+
+	lua_getfield(L, 1, "shape");
+	if (!lua_istable(L, -1))
+		throw LuaError("core.terra.register_species '" + d.name + "': shape is required");
+	int shape = lua_gettop(L);
+	terra::Shape &s = d.shape;
+	s.axiom = needString(L, shape, "axiom", d.name);
+	getstringfield(L, shape, "rules_a", s.rules_a);
+	getstringfield(L, shape, "rules_b", s.rules_b);
+	getstringfield(L, shape, "rules_c", s.rules_c);
+	getstringfield(L, shape, "rules_d", s.rules_d);
+	s.trunk_type = "single";
+	getstringfield(L, shape, "trunk_type", s.trunk_type);
+	s.angle = getintfield_default(L, shape, "angle", 0);
+	s.iterations = getintfield_default(L, shape, "iterations", 0);
+	s.random_level = getintfield_default(L, shape, "random_level", 0);
+	s.thin_branches = getboolfield_default(L, shape, "thin_branches", false);
+	lua_pop(L, 1);
+
+	terra::registered().push_back(std::move(d));
+	return 0;
+}
+
+// core.terra.species(pos, ground) → the name of the tree species that grows at
+// the column of pos on `ground` (a block name), or nil. Ask where
+// core.terra.cover says a tree stands.
+int ModApiTerra::l_species(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	Server *server = getServer(L);
+	const World &w = world(server);
+	v3s16 p = check_v3s16(L, 1);
+	std::string ground_name = luaL_checkstring(L, 2);
+	const NodeDefManager *ndef = server->getNodeDefManager();
+	content_t ground = ndef->getId(ground_name);
+	if (ground == CONTENT_IGNORE)
+		throw LuaError("core.terra.species: no block called '" + ground_name + "'");
+
+	static std::vector<terra::Species> s_species;
+	static size_t s_registered = 0;
+	if (s_registered != terra::registered().size()) {
+		s_species = terra::resolve(terra::registered(), ndef);
+		s_registered = terra::registered().size();
+	}
+
+	int32_t half = w.code().size / 2;
+	if (p.Z >= half || p.Z <= -half)
+		return 0; // beyond the polar edge: nothing grows
+	Ground g = w.ground(p.X, p.Z, w.sunlight(w.v(p.Z), std::nullopt));
+	const terra::Species *s = terra::choose(s_species, terra::spotAt(g, w.cover(p.X, p.Z, g)), ground);
+	if (!s)
+		return 0;
+	lua_pushstring(L, s->name.c_str());
+	return 1;
+}
+
+// The far view's generator, built from what the server sends its clients.
+static const far::Generator &surfaceGenerator(Server *server)
+{
+	static std::unique_ptr<far::Generator> s_generator;
+	static size_t s_species = 0;
+	const World &w = world(server);
+	if (!s_generator || s_generator->horizon().code != w.code().text || s_species != terra::registered().size()) {
+		const MapgenParams *params = server->getEmergeManager()->mgparams;
+		far::Horizon h;
+		h.code = w.code().text;
+		h.water_level = params->water_level;
+		h.blocks = terraBlocks(server->getEmergeManager()->getBiomeManager(), server->getNodeDefManager());
+		h.species = terra::resolve(terra::registered(), server->getNodeDefManager());
+		s_generator = std::make_unique<far::Generator>(h);
+		s_species = terra::registered().size();
+	}
+	return *s_generator;
+}
+
+// core.terra.surface(pos) → { ground, top, water, liquid, trunk, canopy }: the
+// column at pos as the generator makes it, without generating it. ground is
+// the top solid block's y and top its name; water and liquid the surface of
+// any water or lava over it; trunk and canopy, if a tree stands there,
+// { low, high, name } (its blocks low to high). What the far view draws.
+int ModApiTerra::l_surface(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	Server *server = getServer(L);
+	const far::Generator &g = surfaceGenerator(server);
+	v3s16 p = check_v3s16(L, 1);
+	// one level-0 tile around the column: its trees are grown exactly
+	far::TileKey key{ 0, (s32)std::floor(p.X / (double)far::TILE), (s32)std::floor(p.Z / (double)far::TILE) };
+	// neighbouring columns share tiles: keep the last few
+	static std::deque<far::Tile> s_tiles;
+	auto it = std::find_if(s_tiles.begin(), s_tiles.end(), [&](const far::Tile &t) { return t.key == key; });
+	if (it == s_tiles.end()) {
+		s_tiles.push_front(g.build(key));
+		if (s_tiles.size() > 16)
+			s_tiles.pop_back();
+		it = s_tiles.begin();
+	}
+	const far::Tile &tile = *it;
+	const far::Cell &c = tile.at(p.X - key.x * far::TILE, p.Z - key.z * far::TILE);
+	const NodeDefManager *ndef = server->getNodeDefManager();
+	lua_createtable(L, 0, 6);
+	setNumber(L, "ground", c.ground);
+	lua_pushstring(L, ndef->get(c.top).name.c_str());
+	lua_setfield(L, -2, "top");
+	if (c.water > c.ground) {
+		setNumber(L, "water", c.water);
+		lua_pushstring(L, ndef->get(c.liquid).name.c_str());
+		lua_setfield(L, -2, "liquid");
+	}
+	for (auto [name, run] : { std::pair{ "trunk", &c.trunk }, std::pair{ "canopy", &c.canopy } }) {
+		if (run->empty())
+			continue;
+		lua_createtable(L, 0, 3);
+		setNumber(L, "low", run->low);
+		setNumber(L, "high", run->high);
+		lua_pushstring(L, ndef->get(run->node).name.c_str());
+		lua_setfield(L, -2, "name");
+		lua_setfield(L, -2, name);
 	}
 	return 1;
 }
@@ -319,6 +514,25 @@ int ModApiTerra::l_weather(lua_State *L)
 	return 1;
 }
 
+// core.terra.soil_points() → { { sand, silt, clay, organic }, … } (index + 1 =
+// the soil block's param2 + 1): the compositions a soil block can hold. Pure:
+// works on any world (the game registers its soil from it).
+int ModApiTerra::l_soil_points(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	lua_createtable(L, SOIL_POINTS, 0);
+	for (int32_t i = 0; i < SOIL_POINTS; i++) {
+		Soil s = soilPoint((uint8_t)i);
+		lua_createtable(L, 0, 4);
+		setNumber(L, "sand", toDouble(s.sand));
+		setNumber(L, "silt", toDouble(s.silt));
+		setNumber(L, "clay", toDouble(s.clay));
+		setNumber(L, "organic", toDouble(s.organic));
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
+
 void ModApiTerra::Initialize(lua_State *L, int top)
 {
 	lua_newtable(L);
@@ -331,7 +545,11 @@ void ModApiTerra::Initialize(lua_State *L, int top)
 		{ "climate", l_climate },
 		{ "geology", l_geology },
 		{ "cover", l_cover },
+		{ "register_species", l_register_species },
+		{ "species", l_species },
+		{ "surface", l_surface },
 		{ "weather", l_weather },
+		{ "soil_points", l_soil_points },
 	};
 	for (const luaL_Reg &f : functions) {
 		lua_pushcfunction(L, f.func);

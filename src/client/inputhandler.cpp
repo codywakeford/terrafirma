@@ -54,6 +54,7 @@ void MyEventReceiver::reloadKeybindings()
 	keybindings[KeyType::DROP] = getKeySetting("keymap_drop");
 	keybindings[KeyType::INVENTORY] = getKeySetting("keymap_inventory");
 	keybindings[KeyType::LAB] = getKeySetting("keymap_lab");
+	keybindings[KeyType::WIKI] = getKeySetting("keymap_wiki");
 	keybindings[KeyType::CHAT] = getKeySetting("keymap_chat");
 	keybindings[KeyType::CMD] = getKeySetting("keymap_cmd");
 	keybindings[KeyType::CMD_LOCAL] = getKeySetting("keymap_cmd_local");

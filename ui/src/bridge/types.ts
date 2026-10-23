@@ -1,4 +1,5 @@
 import type { PreviewWire } from "../worldgen/fields"
+import type { WeatherWire } from "../worldgen/weather"
 
 // The contract between the engine (src/shell/) and the UI.
 // Change both sides together: intents are answered by verbs registered with
@@ -7,7 +8,7 @@ import type { PreviewWire } from "../worldgen/fields"
 export type Mode = "menu" | "game"
 
 /** In-game screens the engine can open (src/shell/screens.cpp: SCREENS). */
-export type ScreenName = "pause" | "inventory" | "lab"
+export type ScreenName = "pause" | "inventory" | "lab" | "wiki"
 
 /** A slot in the local player's inventory. */
 export type SlotRef = { list: string; index: number }
@@ -16,6 +17,7 @@ export type World = { name: string; path: string }
 
 /** How to show an item; icon is null when it has nothing to draw. */
 export type ItemInfo = { description: string; icon: string | null }
+export type CreativeItem = ItemInfo & { item: string; stackMax: number; category: "building" | "nature" | "functional" | "tools" | "items" }
 
 export type Stack = { item: string; count: number; wear: number }
 
@@ -89,6 +91,7 @@ export type MatterSubstance = {
     boil: number | null; sublime?: number                // at 1 atm
     fusion: number; vaporization: number                 // kJ/mol
     density: { solid: number; liquid: number }           // kg/m³
+    conductivity: { solid: number; liquid: number; gas: number } // W/(m·K)
     heat_capacity: number                                // J/(kg·K)
     hardness?: number                                    // Mohs
     approximate: boolean
@@ -123,6 +126,38 @@ export type MatterMixture = {
     temperature: number             // kelvin
 }
 
+/** One block of a sandbox, as the page sets it (src/shell/wiki.cpp): solids or liquids by share of its volume, or a gas by mole share. */
+export type SandboxBlock = {
+    at: [number, number, number] // y is up
+    fill?: Record<string, number>
+    gas?: Record<string, number>
+    temperature?: number // K
+    heater?: number      // W, kept on until set again
+}
+
+/** A sandbox to make: blocks along each side (1..16), a block's edge (m), the room around it. */
+export type SandboxSpec = {
+    size: [number, number, number]
+    block: number
+    ambient: number  // K
+    pressure: number // Pa
+    air: Record<string, number> // the room's gas by mole share
+    blocks: SandboxBlock[]
+}
+
+/** What a sandbox looks like now: per block, x fastest, then z, then y from the bottom. */
+export type SandboxFrame = {
+    size: [number, number, number]
+    time: number          // s simulated
+    main: number[]        // index into matter.list's substances, −1: only gas
+    state: MatterState[]  // of `main`
+    fill: number[]        // share of the block that's solid or liquid
+    temperature: number[] // K
+    activity: number[]    // W of reaction heat (+ released)
+    vapour: number[]      // the gas most unlike the room's air, −1: none
+    haze: number[]        // 0..1: how much of the block's gas that is
+}
+
 /** A Lab scenario control, as a mod's lab.json declares it (games/terrafirma/mods/tf_lab/registry.lua). */
 export type LabControl =
     | { id: string; kind: "button"; label: string }
@@ -147,11 +182,30 @@ export type LabScenario = {
  * the latest per key; null clears it. Each key's owner is noted.
  */
 export type UiValues = {
+	/** tf_player: the server permits this player to use the creative catalogue. */
+	creative: boolean
     /**
      * tf_lab/panel.lua, in a scenario's world: which scenario, its control
      * values, whether the camera is orbiting it (`browsing`), and time.
      */
     lab: { id: string; values: Record<string, LabValue>; browsing: boolean; speed: number; speeds: number[] }
+    /** tf_player: the world's rules give this player the wiki (key G) */
+    wiki: boolean
+    /** tf_matter: the reactions this player has seen happen in the world (ids) */
+    discovered: string[]
+    /** tf_matter: the last block the probe (or heat gun) read (core.matter.inspect) */
+    probe: { node: string; empty?: boolean; temperature?: number; substance?: string; state?: string; fill?: number
+        activity?: number; vapour?: string; haze?: number; awake?: boolean }
+    /** tf_weather: the weather where the player stands (core.terra.weather) */
+    weather: {
+        temperature: number // °C
+        humidity: number    // 0..1
+        precipitation: number // mm/h
+        snow: boolean
+        wind: { x: number; z: number } // m/s, east and north
+        pressure: number    // hPa
+        events?: string[]   // thunderstorm, blizzard, fog, hurricane, drought, ashfall
+    }
 }
 
 export type UiMessage = {
@@ -160,6 +214,9 @@ export type UiMessage = {
 
 /** Events the page sends game Lua (core.register_on_ui_event), by name. */
 export type UiEvents = {
+	/** Replace one hotbar slot from the catalogue; tf_player validates on the server. */
+	"creative.take": { item: string; slot: number; count: number }
+	"creative.clear": { slot: number }
     /** A control changed (a button press carries no value). */
     "lab.control": { id: string; value: LabValue | null }
     /** Build the scenario again with its current values. */
@@ -191,9 +248,16 @@ export type Intents = {
     "worlds.create": { request: { name: string; code: string; settings: Record<string, string | number | boolean> }; response: World }
     /** terragen's preview of a world code; date 0..1 through the year (src/shell/menu.cpp) */
     "worldgen.preview": { request: { code: string; date: number | null; resolution: number }; response: PreviewWire }
+    /** a settled year of the world's weather, `snapshots` maps through it (src/shell/menu.cpp) */
+    "weather.preview": { request: { code: string; snapshots: number }; response: WeatherWire }
     "worlds.delete": { request: { path: string }; response: null }
     /** The building blocks: every element, and every substance with its phase curves (src/shell/matter.cpp) */
     "matter.list": { request: {}; response: { elements: MatterElement[]; substances: MatterSubstance[]; reactions: MatterReaction[]; rocks: MatterRock[] } }
+    /** The wiki's sandboxes: tiny pieces of the universe run with the game's physics (src/sandbox) */
+    "sandbox.create": { request: SandboxSpec; response: { id: number } }
+    "sandbox.step": { request: { id: number; seconds: number }; response: SandboxFrame }
+    "sandbox.set": { request: SandboxBlock & { id: number }; response: SandboxFrame }
+    "sandbox.drop": { request: { id: number }; response: null }
     /** Step a mixture for `seconds` in its surroundings: what it's become, the states of what's in it, and each running reaction's rate (per second) */
     "matter.react": {
         request: MatterMixture & { surroundings: number; pressure: number; power: number; light: number; seconds: number; spark: boolean }
@@ -219,6 +283,7 @@ export type Intents = {
     "screen.close": { request: {}; response: null }
     "game.leave": { request: {}; response: null }
     "game.quit": { request: {}; response: null }
+	"creative.list": { request: {}; response: CreativeItem[] }
     /** No `to.index`: the first slot in the list that fits. */
     "inventory.move": { request: { from: SlotRef; to: { list: string; index?: number }; count: number }; response: null }
     /** Craft from the grid into craftresult; `collect` moves the result straight into main. */

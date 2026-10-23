@@ -24,8 +24,10 @@ public:
 	Json::Value state(const Json::Value &intent); // throws Refused
 	Json::Value react(const Json::Value &intent); // throws Refused
 
-private:
+	// The tables, loaded on first use.
 	const matter::Matter &table();
+
+private:
 	std::optional<matter::Matter> m_table;
 };
 

@@ -1,6 +1,6 @@
 import { FailureCode, type EngineMessage, type IntentKind, type Intents } from "./types"
 
-export type { BodyCard, BodyCausesWire, BodyKind, EngineMessage, IntentKind, Intents, ItemInfo, LabControl, LabScenario, LabValue, MatterElement, MatterMixture, MatterReaction, MatterRock, MatterState, MatterStructure, MatterSubstance, Mode, ScreenName, SlotRef, Stack, StateSections, UiEvent, UiEvents, UiValues, World } from "./types"
+export type { BodyCard, BodyCausesWire, BodyKind, CreativeItem, EngineMessage, IntentKind, Intents, ItemInfo, LabControl, LabScenario, LabValue, MatterElement, MatterMixture, MatterReaction, MatterRock, MatterState, MatterStructure, MatterSubstance, Mode, SandboxBlock, SandboxFrame, SandboxSpec, ScreenName, SlotRef, Stack, StateSections, UiEvent, UiEvents, UiValues, World } from "./types"
 export { FailureCode } from "./types"
 
 type Listener = (message: EngineMessage) => void

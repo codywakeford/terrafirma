@@ -46,7 +46,7 @@ void Layer::storm(double dt, double date)
 			double edge = pole > 0 ? std::min(M_PI / 2, itcz + c.hadley) : -std::max(-M_PI / 2, itcz - c.hadley);
 			double band = (M_PI / 2 - edge) / (2 * c.jets);
 			double lat = pole * (edge + band * (0.5 + 0.6 * (roll() - 0.5)));
-			double depth = roll() < 0.6 ? -1200 : 1000; // more lows than highs
+			double depth = roll() < 0.6 ? -1600 : 1200; // more lows than highs
 			m_storms.push_back({ StormKind::Front, roll() * 2 * M_PI, lat, 0.18 * o.planet.radius, depth, 0 });
 		}
 	}
@@ -112,7 +112,7 @@ void Layer::stormWind(int32_t cell, double &u, double &v, double &w, double &dp)
 		double inward = s.depth < 0 ? 0.3 : -0.3;                   // friction spirals air into a low
 		u += speed * (-turn * north / d - inward * east / d);
 		v += speed * (turn * east / d - inward * north / d);
-		w += -s.depth / 1500 * 1.5 * m_circulation.lift * shape;
+		w += -s.depth / 1500 * 2.5 * m_circulation.lift * shape; // a low lifts its air hard enough to stand out from the bands
 	}
 }
 

@@ -7,24 +7,167 @@
 
 namespace matter {
 
-static constexpr double VESSEL = 1000.0;       // J/K: the pot itself, so a few moles don't swing wildly
-static constexpr double EXCHANGE = 50.0;       // W/K with the surroundings
 static constexpr double LONGEST_STEP = 10.0;   // seconds
 static constexpr int MOST_STEPS = 400000;      // a run that needs more is stiff beyond reason
+static constexpr double FAST = 1e-3;           // s: a reaction that would finish within this goes all the way each step
 
 Mixture::Mixture(const Matter &table) :
 	amounts(table.substances().size(), 0.0), temperature(293.15), m_table(table)
 {
 }
 
+static bool gaseous(State s)
+{
+	return s == State::Gas || s == State::Supercritical;
+}
+
+static bool same(State a, State b)
+{
+	return a == b || (gaseous(a) && gaseous(b));
+}
+
+void Mixture::track(double pressure)
+{
+	const auto &subs = m_table.substances();
+	while (m_states.size() < amounts.size()) {
+		State s = subs[m_states.size()].state(temperature, pressure);
+		m_states.push_back(s);
+		m_from.push_back(s);
+		m_lagging.push_back(0);
+	}
+}
+
 State Mixture::state(size_t i, double pressure) const
 {
-	return m_table.substances()[i].state(temperature, pressure);
+	if (i >= m_states.size())
+		return m_table.substances()[i].state(temperature, pressure);
+	return m_lagging[i] * 2 > amounts[i] ? m_from[i] : m_states[i];
+}
+
+double Mixture::in(size_t i, State s) const
+{
+	if (i >= m_states.size())
+		throw MatterError("Mixture::in before the mixture has run or been added to: its states aren't known");
+	double lag = std::min(m_lagging[i], amounts[i]);
+	return (same(m_from[i], s) && lag > 0 ? lag : 0) + (same(m_states[i], s) ? amounts[i] - lag : 0);
+}
+
+// Joules per mole to bring a substance from one state to another (negative gives heat back).
+static double latent(const Substance &s, State from, State to)
+{
+	auto level = [&](State st) {
+		return st == State::Solid ? 0.0 : st == State::Liquid ? s.fusion * 1000.0 : (s.fusion + s.vaporization) * 1000.0;
+	};
+	return level(to) - level(from);
+}
+
+void Mixture::add(size_t i, State s, double moles)
+{
+	if (moles <= 0)
+		return;
+	track(ATMOSPHERE);
+	if (amounts[i] <= 0) {
+		m_states[i] = m_from[i] = s;
+		m_lagging[i] = 0;
+	} else if (!same(s, m_states[i])) {
+		if (m_lagging[i] > 0 && !same(s, m_from[i])) {
+			// a third state: charge its change into the bulk's state now
+			temperature -= moles * latent(m_table.substances()[i], s, m_states[i]) / heatCapacity();
+		} else {
+			m_from[i] = s; // it arrives as the lagging part; settle() resolves it
+			m_lagging[i] += moles;
+		}
+	}
+	amounts[i] += moles;
+}
+
+void Mixture::take(size_t i, State s, double moles)
+{
+	track(ATMOSPHERE);
+	moles = std::min(moles, in(i, s));
+	if (moles <= 0)
+		return;
+	if (m_lagging[i] > 0 && same(m_from[i], s) && !same(m_states[i], s))
+		m_lagging[i] -= moles;
+	amounts[i] = std::max(0.0, amounts[i] - moles);
+	m_lagging[i] = std::min(m_lagging[i], amounts[i]);
+}
+
+// The temperature where a substance passes between two states at a pressure.
+static double boundary(const Substance &s, State a, State b, double p)
+{
+	if (gaseous(a)) std::swap(a, b);
+	if (a == State::Solid && b == State::Liquid) return s.meltingPoint(std::max(p, s.triple.p));
+	if (a == State::Liquid && gaseous(b)) return s.boilingPoint(p).value_or(s.critical.t);
+	// solid and gas: where the sublimation curve reaches p
+	double lo = 1, hi = s.triple.t;
+	for (int k = 0; k < 60; k++) {
+		double mid = (lo + hi) / 2;
+		(s.sublimationPressure(mid) < p ? lo : hi) = mid;
+	}
+	return (lo + hi) / 2;
+}
+
+void Mixture::settle(double pressure)
+{
+	track(pressure);
+	const auto &subs = m_table.substances();
+	for (size_t i = 0; i < amounts.size(); i++) {
+		if (amounts[i] <= 0) {
+			m_lagging[i] = 0;
+			m_states[i] = m_from[i] = subs[i].state(temperature, pressure);
+			continue;
+		}
+		const Substance &s = subs[i];
+		if (m_lagging[i] <= 0) {
+			State now = s.state(temperature, pressure);
+			if (same(now, m_states[i])) {
+				m_states[i] = now;
+				continue;
+			}
+			// begin a change: all of it in the old state, heading for the next one
+			// toward `now` (solid melts before it boils, where there can be liquid)
+			State old = m_states[i];
+			State next = now;
+			if (pressure > s.triple.p && ((old == State::Solid && gaseous(now)) || (gaseous(old) && now == State::Solid)))
+				next = State::Liquid;
+			m_from[i] = old;
+			m_states[i] = next;
+			m_lagging[i] = amounts[i];
+		}
+		// carry the change on as far as the heat allows, holding the temperature at the boundary
+		State a = m_from[i], b = m_states[i];
+		double heat = latent(s, a, b); // per mole, a → b
+		double lag = std::min(m_lagging[i], amounts[i]);
+		if (std::fabs(heat) < 1e-9) {
+			m_lagging[i] = 0;
+			continue;
+		}
+		double at = boundary(s, a, b, pressure), capacity = heatCapacity();
+		double surplus = (heat > 0 ? temperature - at : at - temperature) * capacity;
+		if (surplus >= 0) {
+			double x = std::min(lag, surplus / std::fabs(heat));
+			lag -= x;
+			temperature -= x * heat / capacity;
+		} else {
+			double y = std::min(amounts[i] - lag, -surplus / std::fabs(heat));
+			lag += y;
+			temperature += y * heat / capacity;
+		}
+		if (lag <= amounts[i] * 1e-12) {
+			m_lagging[i] = 0; // done: all of it in b
+		} else if (lag >= amounts[i] * (1 - 1e-12)) {
+			m_states[i] = a; // undone: all of it back in a
+			m_lagging[i] = 0;
+		} else {
+			m_lagging[i] = lag;
+		}
+	}
 }
 
 double Mixture::heatCapacity() const
 {
-	double c = VESSEL;
+	double c = vessel;
 	const auto &subs = m_table.substances();
 	for (size_t i = 0; i < amounts.size(); i++)
 		c += amounts[i] * subs[i].molar_mass / 1000.0 * subs[i].heat_capacity;
@@ -42,7 +185,7 @@ double Mixture::room(const Reaction &r) const
 bool Mixture::met(const Reaction &r, double pressure) const
 {
 	for (const Reaction::Requirement &q : r.needs)
-		if (amounts[q.substance] <= 0 || state(q.substance, pressure) != q.state)
+		if (in(q.substance, q.state) <= 0)
 			return false;
 	return true;
 }
@@ -63,44 +206,28 @@ double Mixture::rate(const Reaction &r, const Conditions &c) const
 	return 0;
 }
 
-static double latent(const Substance &s, State from, State to)
-{
-	// energy to go from one state to another, per mole (J); negative gives heat back
-	auto level = [&](State st) {
-		switch (st) {
-		case State::Solid: return 0.0;
-		case State::Liquid: return s.fusion * 1000.0;
-		case State::Gas:
-		case State::Supercritical: return (s.fusion + s.vaporization) * 1000.0;
-		}
-		return 0.0;
-	};
-	return level(to) - level(from);
-}
-
 std::vector<double> Mixture::run(double seconds, const Conditions &c)
 {
 	const auto &reactions = m_table.reactions();
-	const auto &subs = m_table.substances();
 	std::vector<double> done(reactions.size(), 0.0);
-	if (m_states.size() != amounts.size()) {
-		m_states.clear();
-		for (size_t i = 0; i < amounts.size(); i++)
-			m_states.push_back(state(i, c.pressure));
-	}
+	settle(c.pressure); // whatever arrived since the last run
 
 	double left = seconds;
 	int steps = 0;
 	std::vector<double> rates(reactions.size());
+	std::vector<bool> fast(reactions.size());
 	while (left > 1e-9) {
 		if (++steps > MOST_STEPS)
 			throw MatterError("a mixture needed more than " + std::to_string(MOST_STEPS) + " steps for " +
 					std::to_string(seconds) + " s");
 		// how fast everything goes now, and how long a step that keeps it honest is
-		double dt = std::min(left, LONGEST_STEP), heat = EXCHANGE * (c.surroundings - temperature);
+		// a reaction that would use up what it needs within FAST completes within
+		// the step (a flame), and doesn't hold every other one to its pace
+		double dt = std::min(left, LONGEST_STEP), heat = c.exchange * (c.surroundings - temperature);
 		for (size_t j = 0; j < reactions.size(); j++) {
 			rates[j] = rate(reactions[j], c);
-			if (rates[j] > 0) {
+			fast[j] = rates[j] > 0 && room(reactions[j]) / rates[j] < FAST;
+			if (rates[j] > 0 && !fast[j]) {
 				dt = std::min(dt, 0.1 * room(reactions[j]) / rates[j] + 1e-6);
 				if (reactions[j].energy == Energy::None)
 					heat += rates[j] * reactions[j].heat * 1000.0;
@@ -112,12 +239,12 @@ std::vector<double> Mixture::run(double seconds, const Conditions &c)
 		dt = std::max(dt, 1e-6);
 
 		// react, never past what's there
-		double released = EXCHANGE * (c.surroundings - temperature) * dt;
+		double released = c.exchange * (c.surroundings - temperature) * dt;
 		for (size_t j = 0; j < reactions.size(); j++) {
 			if (rates[j] <= 0)
 				continue;
 			const Reaction &r = reactions[j];
-			double extent = std::min(rates[j] * dt, room(r));
+			double extent = fast[j] ? room(r) : std::min(rates[j] * dt, room(r));
 			for (const Reaction::Term &t : r.reactants)
 				amounts[t.substance] = std::max(0.0, amounts[t.substance] - t.count * extent);
 			for (const Reaction::Term &t : r.products)
@@ -128,16 +255,8 @@ std::vector<double> Mixture::run(double seconds, const Conditions &c)
 		}
 		temperature = std::max(1.0, temperature + released / heatCapacity());
 
-		// latent heat as substances change state
-		double latent_heat = 0;
-		for (size_t i = 0; i < amounts.size(); i++) {
-			State now = state(i, c.pressure);
-			if (now != m_states[i]) {
-				latent_heat += amounts[i] * latent(subs[i], m_states[i], now);
-				m_states[i] = now;
-			}
-		}
-		temperature = std::max(1.0, temperature - latent_heat / heatCapacity());
+		// changes of state, at their own pace
+		settle(c.pressure);
 		left -= dt;
 	}
 	for (double &d : done)

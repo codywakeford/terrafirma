@@ -5,6 +5,7 @@ import type { SystemPreviewHandle } from "../../system/preview"
 import { BodySurfaceCache } from "../../worldgen/bodySurface"
 import { paint } from "../../worldgen/fields"
 import { Previewer } from "../../worldgen/previewer"
+import { WeatherPreview } from "../../worldgen/weather"
 import type { WorldDraftHandle } from "./draft"
 
 /**
@@ -17,6 +18,10 @@ export function Looks(opts: { bridge: BridgeHandle; draft: WorldDraftHandle; car
     const date = ref(0.25) // northern midsummer
     const terrain = Previewer({ bridge: opts.bridge, resolution: 192 })
     watch(() => [draft.config, date.value], () => terrain.request(draft.config, date.value), { deep: true, immediate: true })
+    // the weather only when asked for (about a second per world): the overlay calls want()
+    const weather = WeatherPreview({ bridge: opts.bridge })
+    const wanted = ref(false)
+    watch(() => [draft.config, wanted.value], () => { if (wanted.value) weather.request(draft.config) }, { deep: true })
 
     const cache = BodySurfaceCache()
     const terrainImage = computed(() => (terrain.fields.value ? paint(terrain.fields.value, "terrain") : null))
@@ -35,7 +40,14 @@ export function Looks(opts: { bridge: BridgeHandle; draft: WorldDraftHandle; car
         return surfaces.value.get(id)?.image ?? null
     }
 
-    return { date: date, terrain: terrain, surfaces: surfaces, image: image }
+    return {
+        date: date,
+        terrain: terrain,
+        weather: weather,
+        wantWeather() { wanted.value = true },
+        surfaces: surfaces,
+        image: image,
+    }
 }
 
 export type LooksHandle = ReturnType<typeof Looks>

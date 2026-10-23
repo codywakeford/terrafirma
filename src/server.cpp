@@ -46,6 +46,8 @@
 #include "emerge.h"
 #include "mapgen/mapgen.h"
 #include "mapgen/mg_biome.h"
+#include "mapgen/mapgen_terra.h"
+#include "far/horizon.h"
 
 // Modding
 #include "modchannels.h"
@@ -4589,6 +4591,21 @@ void Server::setUi(RemotePlayer *player, const std::string &key, const std::stri
 	NetworkPacket pkt(TOCLIENT_UI, 0, player->getPeerId());
 	pkt << key;
 	pkt.putLongString(value_json);
+	Send(&pkt);
+}
+
+void Server::SendHorizon(session_t peer_id)
+{
+	const MapgenParams *params = m_emerge->mgparams;
+	if (params->mgtype != MAPGEN_TERRA)
+		return;
+	far::Horizon h;
+	h.code = static_cast<const MapgenTerraParams *>(params)->code;
+	h.water_level = params->water_level;
+	h.blocks = terraBlocks(m_emerge->getBiomeManager(), m_nodedef);
+	h.species = terra::resolve(terra::registered(), m_nodedef);
+	NetworkPacket pkt(TOCLIENT_HORIZON, 0, peer_id);
+	far::write(pkt, h);
 	Send(&pkt);
 }
 

@@ -20,7 +20,11 @@ private:
 	static int l_climate(lua_State *L);
 	static int l_geology(lua_State *L);
 	static int l_cover(lua_State *L);
+	static int l_register_species(lua_State *L);
+	static int l_species(lua_State *L);
+	static int l_surface(lua_State *L);
 	static int l_weather(lua_State *L);
+	static int l_soil_points(lua_State *L);
 
 public:
 	static void Initialize(lua_State *L, int top);

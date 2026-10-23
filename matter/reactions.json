@@ -17,6 +17,21 @@
    "note": "Natural gas in air: once lit, its own heat keeps it going until the fuel or the oxygen runs out."
   },
   {
+   "id": "carbon_monoxide_burns",
+   "name": "Carbon monoxide burns",
+   "reactants": {
+    "carbon_monoxide": 2,
+    "oxygen": 1
+   },
+   "products": {
+    "carbon_dioxide": 2
+   },
+   "heat": 566,
+   "activation": 120,
+   "factor": 1000000000.0,
+   "note": "The blue flame over glowing charcoal: carbon monoxide meeting air and burning on."
+  },
+  {
    "id": "hydrogen_burns",
    "name": "Hydrogen burns",
    "reactants": {
@@ -443,18 +458,20 @@
   },
   {
    "id": "wood_chars",
-   "name": "Wood chars",
+   "name": "Wood breaks down",
    "reactants": {
     "wood": 1
    },
    "products": {
-    "carbon": 6,
-    "water": 5
+    "carbon": 3,
+    "carbon_monoxide": 2,
+    "methane": 1,
+    "water": 3
    },
    "heat": -60,
    "activation": 125,
-   "factor": 400000000.0,
-   "note": "Heated short of air, wood loses its water and leaves charcoal: how a charcoal kiln works."
+   "factor": 2000000.0,
+   "note": "Heated, wood breaks down: charcoal stays, and carbon monoxide, methane and steam leave it. In air those gases burn as the flame; short of air they don't, and a charcoal kiln is left with the charcoal."
   },
   {
    "id": "glassmaking",

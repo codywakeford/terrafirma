@@ -42,9 +42,19 @@ core.register_on_mods_loaded(function()
 					p.x, p.z, core.get_day_count(), core.get_timeofday(), calendar.year, calendar.day, calendar.date,
 					sun.latitude, sun.declination, sun.elevation, sun.daylight, sun.season,
 					climate.biome, climate.temperature, geology.province:gsub(" ", "_")))
-				local w = core.terra.weather(pos)
-				core.log("action", string.format("WEATHER %d %d %.4f %.4f %.4f %.4f %.4f %d",
-					p.x, p.z, w.temperature, climate.temperature, w.precipitation, w.pressure, w.cloud, #w.events))
+				local w = core.terra.weather({ x = p.x, y = math.max(y or 0, 1), z = p.z }) -- at the ground, where the climate is
+				core.log("action", string.format("WEATHER %d %d %.4f %.4f %.4f %.4f %.4f %d %d %.4f",
+					p.x, p.z, w.temperature, climate.temperature, w.precipitation, w.pressure, w.cloud, #w.events, core.get_day_count(), core.get_timeofday()))
+				-- and what that weather does to the top of the column (snow, ice), applied
+				local top = water ~= -9999 and { x = p.x, y = water, z = p.z } or (y and { x = p.x, y = y, z = p.z })
+				if top then
+					local node = core.get_node(top)
+					local here = core.terra.weather(top)
+					local action = tf_weather.act(top, node) or "none"
+					local now = core.get_node(action == "snow" and vector.offset(top, 0, 1, 0) or top).name
+					core.log("action", string.format("ACT %d %d %s %s %s %.3f %s %.4f", p.x, p.z, node.name, action, now,
+						here.temperature, tostring(here.snow), here.precipitation))
+				end
 				remaining = remaining - 1
 				if remaining == 0 then core.request_shutdown("probe done") end
 			end)

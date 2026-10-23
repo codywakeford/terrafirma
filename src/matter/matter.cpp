@@ -61,6 +61,22 @@ std::optional<double> Substance::boilingPoint(double p) const
 	return (lo + hi) / 2;
 }
 
+double Substance::density(State s, double t, double p) const
+{
+	switch (s) {
+	case State::Solid: return density_solid;
+	case State::Liquid: return density_liquid;
+	case State::Gas:
+	case State::Supercritical: return p * molar_mass / 1000.0 / (GAS_CONSTANT * t);
+	}
+	return density_liquid;
+}
+
+double Substance::conducts(State s) const
+{
+	return conductivity[s == State::Solid ? 0 : s == State::Liquid ? 1 : 2];
+}
+
 State Substance::state(double t, double p) const
 {
 	if (t >= critical.t)
@@ -151,6 +167,16 @@ Matter Matter::load(const std::string &dir)
 		x.heat_capacity = number(s, "heat_capacity", where);
 		if (x.heat_capacity <= 0)
 			throw MatterError(where + ": heat_capacity must be positive");
+		const Json::Value &density = field(s, "density", where);
+		x.density_solid = number(density, "solid", where + ".density");
+		x.density_liquid = number(density, "liquid", where + ".density");
+		const Json::Value &conducts = field(s, "conductivity", where);
+		const char *const STATES[] = { "solid", "liquid", "gas" };
+		for (int k = 0; k < 3; k++)
+			x.conductivity[k] = number(conducts, STATES[k], where + ".conductivity");
+		for (double v : { x.density_solid, x.density_liquid, x.conductivity[0], x.conductivity[1], x.conductivity[2] })
+			if (v <= 0)
+				throw MatterError(where + ": densities and conductivities must be positive");
 		x.approximate = s["approximate"].asBool();
 		if (x.triple.t >= x.critical.t || x.triple.p >= x.critical.p)
 			throw MatterError(where + ": the triple point must lie below the critical point");

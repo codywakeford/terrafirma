@@ -36,6 +36,12 @@ struct Grid
 	// which in blocks would be steps that spill across the lake.)
 	std::vector<fix> lake_level;
 	std::vector<uint8_t> polar;    // 1 in the polar edge rows
+	// the climate (climate.h), per cell: rain relative to the land's median in
+	// each season ([0] the north's summer, [1] the south's), and how fertile
+	// the ground is (0..1: what rock and rivers supply, less what rain washes out)
+	std::vector<fix> rain_season[2];
+	std::vector<fix> sea_heat; // what the ocean currents add to the heat (negative: cold water), coasts included
+	std::vector<fix> fertility;
 	int64_t river_threshold;       // drained area that makes a river (fixed cell units)
 
 	// geology (geology.h): the plates under it, each cell's province, the
@@ -47,6 +53,7 @@ struct Grid
 	std::vector<uint32_t> volcano_start;
 	std::vector<uint16_t> volcano_list;
 
+	fix rain(int32_t i) const { return (rain_season[0][i] + rain_season[1][i]) / 2; }
 	bool river(int32_t i) const { return !polar[i] && base[i] >= 0 && drained[i] >= river_threshold; }
 
 	static int32_t index(int32_t cx, int32_t cz) { return cz * GRID + cx; }
@@ -62,10 +69,8 @@ fix landmass(const WorldCode &code, fix u, fix v);
 // `belt` (0..1) is how strongly mountains rise here, `relief` what plate
 // boundaries add (rifts, ridges, trenches); both from Tectonics.
 fix elevation(const WorldCode &code, fix u, fix v, fix sea_offset, fix belt, fix relief);
-// Moisture, ~−1 arid .. 1 soaked: decides where rain falls.
-fix moisture(const WorldCode &code, fix u, fix v);
 
 // Distinct noise streams, so the fields are independent.
-enum Stream : uint32_t { CONTINENT = 0, COAST = 3, RIDGE = 7, HEAT = 13, WET = 29, DETAIL = 41 };
+enum Stream : uint32_t { CONTINENT = 0, COAST = 3, RIDGE = 7, HEAT = 13, DETAIL = 41, SOIL_NOISE = 53, BLEND = 59 };
 
 } // namespace terragen

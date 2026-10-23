@@ -12,6 +12,7 @@
 #include "terragen/preview.h"
 #include "terragen/sun.h"
 #include "terragen/world.h"
+#include "terragen/climate.h"
 #include <algorithm>
 #include <string>
 
@@ -46,6 +47,10 @@ public:
 	void testStrata();
 	void testOresAndCaves();
 	void testCover();
+	void testClimate();
+	void testClimateFromLand();
+	void testOceanCurrents();
+	void testSoil();
 	void testDeterminismGolden();
 };
 
@@ -75,14 +80,18 @@ void TestTerragen::runTests(IGameDef *gamedef)
 	TEST(testStrata);
 	TEST(testOresAndCaves);
 	TEST(testCover);
+	TEST(testClimate);
+	TEST(testClimateFromLand);
+	TEST(testOceanCurrents);
+	TEST(testSoil);
 	TEST(testDeterminismGolden);
 }
 
 // Codes for the water tests: default, a supercontinent, an archipelago (as the page encodes them).
 static const char *const WATER_CODES[] = {
-	"TF3.dGVycmE",
-	"TF3.dGVycmE.AgIAplmZgICAgICAglU",
-	"TF3.dGVycmE.AgL_QNlNgKaAgICAglU",
+	"TF5.dGVycmE",
+	"TF5.dGVycmE.AgIAplmZgICAgICAglU",
+	"TF5.dGVycmE.AgL_QNlNgKaAgICAglU",
 };
 
 static bool near(fix a, fix b, fix tolerance)
@@ -93,7 +102,7 @@ static bool near(fix a, fix b, fix tolerance)
 // Codes produced by the page's encodeWorldCode (ui/src/worldgen/config.ts).
 void TestTerragen::testDecodeDefaults()
 {
-	WorldCode w = WorldCode::decode("TF3.YWJj");
+	WorldCode w = WorldCode::decode("TF5.YWJj");
 	UASSERTEQ(std::string, w.seed, "abc");
 	UASSERTEQ(int, w.size, 8192);
 	UASSERTEQ(std::string, w.star->id, "yellow");
@@ -107,7 +116,7 @@ void TestTerragen::testDecodeDefaults()
 void TestTerragen::testDecodeParams()
 {
 	// size 4096, red dwarf, continents 6, tilt 40, everything else default
-	WorldCode w = WorldCode::decode("TF3.YWJj.AQC2ZoCAgICAgICA41U");
+	WorldCode w = WorldCode::decode("TF5.YWJj.AQC2ZoCAgICAgICA41U");
 	UASSERTEQ(int, w.size, 4096);
 	UASSERTEQ(std::string, w.star->id, "red");
 	UASSERTEQ(int, w.continents, 6);
@@ -120,9 +129,9 @@ void TestTerragen::testDecodeRejects()
 	EXCEPTION_CHECK(CodeError, WorldCode::decode("XX.YWJj"));
 	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF1.YWJj")); // an older generator: refused, not reinterpreted
 	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF2.YWJj")); // before plates and geology: refused too
-	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF3."));
-	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF3.YWJj.AAA"));
-	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF3.YW*j"));
+	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF5."));
+	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF5.YWJj.AAA"));
+	EXCEPTION_CHECK(CodeError, WorldCode::decode("TF5.YW*j"));
 }
 
 void TestTerragen::testTrig()
@@ -309,7 +318,7 @@ void TestTerragen::testBodies()
 
 void TestTerragen::testCoordinates()
 {
-	World w(WorldCode::decode("TF3.YWJj"));
+	World w(WorldCode::decode("TF5.YWJj"));
 	int32_t half = w.code().size / 2;
 	UASSERTEQ(fix, w.u(-half), 0);
 	UASSERTEQ(fix, w.u(half), 0);       // wraps
@@ -540,6 +549,152 @@ void TestTerragen::testCover()
 	if (n_ww && n_dry) UASSERT(warm_wet / n_ww > dry / n_dry);
 }
 
+// The climate of a real world: the air's bands show through, every biome
+// the climate allows turns up somewhere, and fertility follows the rock.
+void TestTerragen::testClimate()
+{
+	World w(WorldCode::decode("TF5.dGVycmE"));
+	const Grid &g = w.grid();
+	auto band = [&](double lo, double hi) {
+		int64_t sum = 0, n = 0;
+		for (int32_t cz = 0; cz < GRID; cz++) {
+			double lat = std::fabs(90 - (cz + 0.5) * 180.0 / GRID);
+			if (lat < lo || lat >= hi)
+				continue;
+			for (int32_t cx = 0; cx < GRID; cx++, n++)
+				sum += g.rain(Grid::index(cx, cz));
+		}
+		return (double)sum / n / ONE;
+	};
+	infostream << "climate: rain 0-10° " << band(0, 10) << ", 25-38° " << band(25, 38) << ", 50-65° " << band(50, 65) << std::endl;
+	UASSERT(band(0, 10) > 3 * band(25, 38)); // the ITCZ, and the dry belts under the sinking air
+	UASSERT(band(50, 65) > 2 * band(25, 38)); // the storm tracks
+	// the same code, the same climate
+	World again(WorldCode::decode("TF5.dGVycmE"));
+	UASSERT(again.grid().rain_season[0] == g.rain_season[0] && again.grid().rain_season[1] == g.rain_season[1]);
+
+	int counts[(int)Biome::Count] = {};
+	double fertile[(int)Province::Count] = {};
+	int cells[(int)Province::Count] = {};
+	for (int32_t cz = 0; cz < GRID; cz++)
+		for (int32_t cx = 0; cx < GRID; cx++) {
+			fix u = ratio(2 * cx + 1, 2 * GRID), v = ratio(2 * cz + 1, 2 * GRID);
+			counts[(int)w.column(u, v, w.sunlight(v, std::nullopt)).biome]++;
+			int32_t i = Grid::index(cx, cz);
+			if (g.eroded[i] >= 0) {
+				fertile[(int)g.province[i]] += g.fertility[i] / 65536.0;
+				cells[(int)g.province[i]]++;
+			}
+		}
+	for (Biome b : { Biome::Desert, Biome::Savanna, Biome::Forest, Biome::Jungle, Biome::Monsoon, Biome::Mediterranean })
+		UASSERT(counts[(int)b] > 0);
+	int volcanic = (int)Province::Volcanic, shield = (int)Province::Shield;
+	if (cells[volcanic] && cells[shield])
+		UASSERT(fertile[volcanic] / cells[volcanic] > fertile[shield] / cells[shield]);
+}
+
+// The climate over land we draw: a range in the westerlies has a wet side
+// and a rain shadow; a continent in the tropics gets its rain in summer.
+void TestTerragen::testClimateFromLand()
+{
+	WorldCode code = WorldCode::decode("TF5.dGVycmE");
+	std::vector<fix> e((size_t)CLIMATE * CLIMATE, -ratio(3, 10));
+	auto row = [](double lat) { return (int32_t)((90 - lat) / 180 * CLIMATE); };
+	// a north–south range at 38–58° N, with lowland either side
+	for (int32_t y = row(58); y <= row(38); y++)
+		for (int32_t x = 50; x <= 74; x++)
+			e[y * CLIMATE + x] = x >= 60 && x <= 63 ? ratio(6, 10) : ratio(5, 100);
+	// a continent across 8–30° N
+	for (int32_t y = row(30); y <= row(8); y++)
+		for (int32_t x = 10; x <= 40; x++)
+			e[y * CLIMATE + x] = ratio(8, 100);
+	Climate c = climate(code, e);
+	double windward = 0, leeward = 0, summer = 0, winter = 0;
+	for (int32_t y = row(55); y <= row(42); y++) {
+		for (int32_t x = 55; x <= 59; x++)
+			windward += c.rain[0][y * CLIMATE + x] + c.rain[1][y * CLIMATE + x];
+		for (int32_t x = 64; x <= 68; x++)
+			leeward += c.rain[0][y * CLIMATE + x] + c.rain[1][y * CLIMATE + x];
+	}
+	for (int32_t y = row(24); y <= row(12); y++)
+		for (int32_t x = 12; x <= 38; x++) {
+			summer += c.rain[0][y * CLIMATE + x];
+			winter += c.rain[1][y * CLIMATE + x];
+		}
+	infostream << "climate: windward " << windward / ONE << " leeward " << leeward / ONE
+			<< "; tropical land summer " << summer / ONE << " winter " << winter / ONE << std::endl;
+	UASSERT(windward > 1.5 * leeward);
+	UASSERT(summer > 2 * winter);
+	EXCEPTION_CHECK(std::invalid_argument, climate(code, std::vector<fix>(10, 0)));
+}
+
+// An ocean between two continents: a warm current up its western side (off
+// the first continent's east coast), a cold one down its eastern side (off
+// the second's west coast), which leaves that coast drier.
+void TestTerragen::testOceanCurrents()
+{
+	WorldCode code = WorldCode::decode("TF5.dGVycmE");
+	std::vector<fix> e((size_t)CLIMATE * CLIMATE, -ratio(3, 10));
+	auto row = [](double lat) { return (int32_t)((90 - lat) / 180 * CLIMATE); };
+	for (int32_t y = row(55); y <= row(5); y++)
+		for (int32_t x = 0; x < CLIMATE; x++)
+			if ((x >= 20 && x <= 40) || (x >= 70 && x <= 90))
+				e[y * CLIMATE + x] = ratio(6, 100);
+	Climate c = climate(code, e);
+	double warm = 0, cold = 0, east_coast = 0, west_coast = 0;
+	for (int32_t y = row(35); y <= row(20); y++) {
+		warm += c.sea[y * CLIMATE + 42];
+		cold += c.sea[y * CLIMATE + 68];
+		for (int32_t x : { 38, 39, 40 })
+			east_coast += c.rain[0][y * CLIMATE + x] + c.rain[1][y * CLIMATE + x];
+		for (int32_t x : { 70, 71, 72 })
+			west_coast += c.rain[0][y * CLIMATE + x] + c.rain[1][y * CLIMATE + x];
+	}
+	infostream << "currents: off the east coast " << warm / ONE << ", off the west coast " << cold / ONE
+			<< "; rain on the east coast " << east_coast / ONE << ", west coast " << west_coast / ONE << std::endl;
+	UASSERT(warm > 0 && cold < 0);
+	UASSERT(east_coast > west_coast);
+}
+
+// Soil as a composition: every point round-trips through its index, and the
+// soils follow why they differ: weathering makes clay where it's warm and
+// wet, dry ground keeps sand, cold wet ground keeps peat.
+void TestTerragen::testSoil()
+{
+	for (int32_t i = 0; i < SOIL_POINTS; i++) {
+		Soil s = soilPoint((uint8_t)i);
+		UASSERT(soilIndex(s) == i);
+		UASSERT(std::abs(s.sand + s.silt + s.clay - ONE) < 8);
+	}
+	EXCEPTION_CHECK(std::invalid_argument, soilPoint((uint8_t)SOIL_POINTS));
+
+	World w(WorldCode::decode("TF5.dGVycmE"));
+	int32_t size = w.code().size;
+	double wet_clay = 0, dry_clay = 0, cold_organic = 0, warm_organic = 0, steep_sand = 0, flat_sand = 0;
+	int n_wet = 0, n_dry = 0, n_cold = 0, n_warm = 0, n_steep = 0, n_flat = 0;
+	for (int32_t k = 0; k < 4000; k++) {
+		int32_t x = (k * 7919) % size - size / 2, z = (k * 104729) % (size * 8 / 10) - size * 4 / 10;
+		Ground g = w.ground(x, z, w.sunlight(w.v(z), std::nullopt));
+		if (g.kind != Water::None || g.column.polar)
+			continue;
+		Soil s = w.soil(x, z, g, w.strata(x, z, g));
+		Cover c = w.cover(x, z, g);
+		double clay = s.clay / 65536.0, sand = s.sand / 65536.0, organic = s.organic / 65536.0;
+		if (g.column.heat > ratio(30, 100) && g.column.wet > ratio(30, 100)) { wet_clay += clay; n_wet++; }
+		if (g.column.wet < -ratio(30, 100)) { dry_clay += clay; n_dry++; }
+		if (g.column.heat < -ratio(20, 100) && g.column.wet > ratio(10, 100)) { cold_organic += organic; n_cold++; }
+		if (g.column.heat > ratio(30, 100)) { warm_organic += organic; n_warm++; }
+		if (c.slope > ratio(8, 10)) { steep_sand += sand; n_steep++; }
+		if (c.slope < ratio(1, 10)) { flat_sand += sand; n_flat++; }
+	}
+	infostream << "soil: clay where warm and wet " << wet_clay / std::max(n_wet, 1) << " (" << n_wet << "), dry " << dry_clay / std::max(n_dry, 1)
+			<< " (" << n_dry << "); organic cold-wet " << cold_organic / std::max(n_cold, 1) << ", warm " << warm_organic / std::max(n_warm, 1)
+			<< "; sand steep " << steep_sand / std::max(n_steep, 1) << ", flat " << flat_sand / std::max(n_flat, 1) << std::endl;
+	if (n_wet && n_dry) UASSERT(wet_clay / n_wet > dry_clay / n_dry);
+	if (n_cold && n_warm) UASSERT(cold_organic / n_cold > warm_organic / n_warm);
+	if (n_steep && n_flat) UASSERT(steep_sand / n_steep > flat_sand / n_flat);
+}
+
 void TestTerragen::testRiversOnLand()
 {
 	for (const char *text : WATER_CODES) {
@@ -573,9 +728,9 @@ static void describe(const char *code)
 // for an existing code needs a new code version, not a silent update.
 void TestTerragen::testDeterminismGolden()
 {
-	describe("TF3.YWJj");
-	describe("TF3.dGVycmE");
-	World w(WorldCode::decode("TF3.YWJj.AQC2ZoCAgICAgICA41U"));
+	describe("TF5.YWJj");
+	describe("TF5.dGVycmE");
+	World w(WorldCode::decode("TF5.YWJj.AQC2ZoCAgICAgICA41U"));
 	Preview p = preview(w, std::nullopt, 48);
 	uint32_t h = 2166136261u;
 	auto mix = [&](uint32_t v) { h = (h ^ v) * 16777619u; };
@@ -583,6 +738,8 @@ void TestTerragen::testDeterminismGolden()
 		mix((uint16_t)p.elevation[i]);
 		mix((uint8_t)p.heat[i]);
 		mix((uint8_t)p.wet[i]);
+		mix((uint8_t)p.season[i]);
+		mix(p.fertility[i]);
 		mix(p.biome[i]);
 	}
 	// and what's underground: province, rock and ore down a few columns
@@ -610,5 +767,5 @@ void TestTerragen::testDeterminismGolden()
 	for (int b = 0; b < (int)Biome::Count; b++)
 		infostream << " " << BIOME_NAMES[b] << "=" << counts[b];
 	infostream << std::endl;
-	UASSERTEQ(uint32_t, h, 1213676375u); // TF3: plates, volcanoes, strata, ores, caves
+	UASSERTEQ(uint32_t, h, 2757000011u); // TF5: the climate with ocean currents
 }

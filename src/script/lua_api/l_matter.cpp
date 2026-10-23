@@ -1,0 +1,439 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "lua_api/l_matter.h"
+#include "common/c_converter.h"
+#include "filesys.h"
+#include "lua_api/l_internal.h"
+#include "map.h"
+#include "nodedef.h"
+#include "porting.h"
+#include "sandbox/sandbox.h"
+#include "sandbox/world.h"
+#include "server.h"
+#include "serverenvironment.h"
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
+
+using namespace sandbox;
+
+/*
+	The server's world matter: made at the first registration, loaded from
+	disk at its first use (once every kind is registered), and from then on
+	closed to new kinds. Server Lua runs on one thread.
+*/
+struct ServerMatter
+{
+	matter::Matter table;
+	std::unique_ptr<WorldMatter> world;
+	Server *server; // its environment comes after mods load: looked up when the map is touched
+	std::string path;
+	std::vector<int32_t> kind_of;     // by content id: the (first) kind, or −1
+	std::vector<int32_t> points_of;   // by content id: how many kinds its param2 picks between (1: a plain block)
+	std::vector<std::pair<content_t, u8>> node_of; // by kind: the node and param2 that are it
+	std::unordered_map<int64_t, double> ambient; // by 16-block cube
+	bool started = false;
+};
+
+static std::unique_ptr<ServerMatter> s_matter;
+
+static int64_t cube(Pos p)
+{
+	auto c = [](int32_t v) { return (int64_t)((v >= 0 ? v : v - 15) / 16) & 0x1FFFFF; };
+	return (c(p.x) << 42) | (c(p.y) << 21) | c(p.z);
+}
+
+static ServerMatter &made(lua_State *L)
+{
+	if (s_matter)
+		return *s_matter;
+	Server *server = ModApiBase::getServer(L);
+	auto m = std::make_unique<ServerMatter>(ServerMatter{
+		matter::Matter::load(porting::path_share + DIR_DELIM "matter"), nullptr, server,
+		server->getWorldPath() + DIR_DELIM "matter.bin", {}, {}, {}, {} });
+	ServerMatter *sm = m.get();
+	WorldMatter::Ground ground{
+		[sm](Pos p) {
+			MapNode n = sm->server->getEnv().getMap().getNode(v3s16(p.x, p.y, p.z));
+			content_t c = n.getContent();
+			if (c >= sm->kind_of.size() || sm->kind_of[c] < 0)
+				return -1; // unloaded (ignore) and unregistered: sealed
+			// a family's param2 is which of its points it is
+			return sm->kind_of[c] + std::min<int32_t>(n.param2, sm->points_of[c] - 1);
+		},
+		[sm](Pos p, int32_t kind) {
+			const auto &[c, param2] = sm->node_of.at(kind);
+			sm->server->getEnv().swapNode(v3s16(p.x, p.y, p.z), MapNode(c, 0, param2));
+		},
+		[sm](Pos p) {
+			auto it = sm->ambient.find(cube(p));
+			return it != sm->ambient.end() ? it->second : 288.15; // a temperate default until the weather says
+		},
+	};
+	m->world = std::make_unique<WorldMatter>(WorldMatter::Opts{ m->table, 101325,
+		{ { "nitrogen", 0.79 }, { "oxygen", 0.21 } }, ground });
+	s_matter = std::move(m);
+	return *s_matter;
+}
+
+// The world matter once every kind is in: loads what was awake when the server last stopped.
+static ServerMatter &started(lua_State *L)
+{
+	ServerMatter &m = made(L);
+	if (m.started)
+		return m;
+	m.started = true;
+	std::ifstream in(m.path, std::ios::binary);
+	if (in) {
+		std::stringstream bytes;
+		bytes << in.rdbuf();
+		m.world->load(bytes.str());
+	}
+	return m;
+}
+
+static Pos pos(lua_State *L, int index)
+{
+	v3s16 p = check_v3s16(L, index);
+	return { p.X, p.Y, p.Z };
+}
+
+static void setNumber(lua_State *L, const char *key, double value)
+{
+	lua_pushnumber(L, value);
+	lua_setfield(L, -2, key);
+}
+
+// Runs `f`, turning the world matter's errors into Lua errors.
+template <typename F>
+static int guarded(lua_State *L, const char *name, F f)
+{
+	try {
+		return f();
+	} catch (const SandboxError &e) {
+		throw LuaError(std::string("core.matter.") + name + ": " + e.what());
+	} catch (const matter::MatterError &e) {
+		throw LuaError(std::string("core.matter.") + name + ": " + e.what());
+	}
+}
+
+int ModApiMatter::l_register_block(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "register_block", [&] {
+		ServerMatter &m = made(L);
+		if (m.started)
+			throw LuaError("core.matter.register_block: the world's matter has started; register blocks as mods load");
+		std::string node = luaL_checkstring(L, 1);
+		luaL_checktype(L, 2, LUA_TTABLE);
+		std::string id = getstringfield_default(L, 2, "matter", "");
+		if (id.empty())
+			throw LuaError("core.matter.register_block: " + node + " needs a matter");
+		double share = getfloatfield_default(L, 2, "share", 1.0f);
+		std::string state = getstringfield_default(L, 2, "state", "solid");
+		if (state != "solid" && state != "liquid")
+			throw LuaError("core.matter.register_block: " + node + "'s state is solid or liquid");
+		bool form = getboolfield_default(L, 2, "form", false);
+		bool flowing = getboolfield_default(L, 2, "flowing", false);
+		content_t c = getServer(L)->ndef()->getId(node);
+		if (c == CONTENT_IGNORE)
+			throw LuaError("core.matter.register_block: no node called " + node);
+		int32_t kind = m.world->kind({ node, id, {}, share, state == "solid" ? matter::State::Solid : matter::State::Liquid, form, flowing });
+		if (m.kind_of.size() <= c) {
+			m.kind_of.resize(c + 1, -1);
+			m.points_of.resize(c + 1, 1);
+		}
+		m.kind_of[c] = kind;
+		m.points_of[c] = 1;
+		m.node_of.push_back({ c, 0 });
+		lua_pushinteger(L, kind);
+		return 1;
+	});
+}
+
+int ModApiMatter::l_substances(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "substances", [&] {
+		const matter::Matter &t = made(L).table;
+		lua_createtable(L, (int)t.substances().size(), 0);
+		int n = 1;
+		for (const matter::Substance &s : t.substances()) {
+			lua_createtable(L, 0, 6);
+			lua_pushstring(L, s.id.c_str());
+			lua_setfield(L, -2, "id");
+			lua_pushstring(L, s.name.c_str());
+			lua_setfield(L, -2, "name");
+			lua_pushstring(L, s.formula.c_str());
+			lua_setfield(L, -2, "formula");
+			lua_pushstring(L, matter::STATE_NAMES[(int)s.state(293.15, matter::ATMOSPHERE)]);
+			lua_setfield(L, -2, "state");
+			setNumber(L, "melts", s.meltingPoint(std::max(matter::ATMOSPHERE, s.triple.p)));
+			if (std::optional<double> b = s.boilingPoint(matter::ATMOSPHERE))
+				setNumber(L, "boils", *b);
+			lua_rawseti(L, -2, n++);
+		}
+		return 1;
+	});
+}
+
+int ModApiMatter::l_touch(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "touch", [&] {
+		started(L).world->touch(pos(L, 1), luaL_checknumber(L, 2));
+		return 0;
+	});
+}
+
+int ModApiMatter::l_inspect(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "inspect", [&] {
+		ServerMatter &m = started(L);
+		Pos p = pos(L, 1);
+		std::optional<WorldMatter::Awake> a = m.world->inspect(p);
+		if (!a) {
+			lua_pushnil(L);
+			return 1;
+		}
+		lua_createtable(L, 0, 8);
+		setNumber(L, "temperature", a->temperature);
+		setNumber(L, "activity", a->activity);
+		setNumber(L, "fill", a->fill);
+		setNumber(L, "haze", a->haze);
+		if (a->main >= 0) {
+			lua_pushstring(L, m.table.substances()[a->main].id.c_str());
+			lua_setfield(L, -2, "substance");
+			lua_pushstring(L, matter::STATE_NAMES[(int)a->state]);
+			lua_setfield(L, -2, "state");
+		}
+		if (a->vapour >= 0) {
+			lua_pushstring(L, m.table.substances()[a->vapour].id.c_str());
+			lua_setfield(L, -2, "vapour");
+		}
+		std::vector<WorldMatter::Awake> one = m.world->awake(p, p);
+		lua_pushboolean(L, !one.empty());
+		lua_setfield(L, -2, "awake");
+		return 1;
+	});
+}
+
+int ModApiMatter::l_register_family(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "register_family", [&] {
+		ServerMatter &m = made(L);
+		if (m.started)
+			throw LuaError("core.matter.register_family: the world's matter has started; register blocks as mods load");
+		std::string node = luaL_checkstring(L, 1);
+		luaL_checktype(L, 2, LUA_TTABLE);
+		double share = getfloatfield_default(L, 2, "share", 1.0f);
+		std::string state = getstringfield_default(L, 2, "state", "solid");
+		if (state != "solid" && state != "liquid")
+			throw LuaError("core.matter.register_family: " + node + "'s state is solid or liquid");
+		bool form = getboolfield_default(L, 2, "form", false); // its first point is the form its matter takes
+		content_t c = getServer(L)->ndef()->getId(node);
+		if (c == CONTENT_IGNORE)
+			throw LuaError("core.matter.register_family: no node called " + node);
+		lua_getfield(L, 2, "points");
+		if (!lua_istable(L, -1))
+			throw LuaError("core.matter.register_family: " + node + " needs points");
+		int count = (int)lua_objlen(L, -1);
+		if (count < 1 || count > 256)
+			throw LuaError("core.matter.register_family: " + node + " has 1..256 points (its param2)");
+		int32_t first = -1;
+		for (int i = 1; i <= count; i++) {
+			lua_rawgeti(L, -1, i);
+			if (!lua_istable(L, -1))
+				throw LuaError("core.matter.register_family: " + node + "'s points are { id = share, … }");
+			std::vector<std::pair<std::string, double>> parts;
+			lua_pushnil(L);
+			while (lua_next(L, -2)) {
+				parts.push_back({ luaL_checkstring(L, -2), luaL_checknumber(L, -1) });
+				lua_pop(L, 1);
+			}
+			std::sort(parts.begin(), parts.end()); // pairs() has no order: the mix is the same either way
+			lua_pop(L, 1);
+			int32_t kind = m.world->kind({ node + "#" + std::to_string(i - 1), "", parts, share,
+				state == "solid" ? matter::State::Solid : matter::State::Liquid, form && i == 1, false });
+			if (first < 0)
+				first = kind;
+			m.node_of.push_back({ c, (u8)(i - 1) });
+		}
+		lua_pop(L, 1);
+		if (m.kind_of.size() <= c) {
+			m.kind_of.resize(c + 1, -1);
+			m.points_of.resize(c + 1, 1);
+		}
+		m.kind_of[c] = first;
+		m.points_of[c] = count;
+		lua_pushinteger(L, first);
+		return 1;
+	});
+}
+
+int ModApiMatter::l_heat(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "heat", [&] {
+		started(L).world->heat(pos(L, 1), luaL_checknumber(L, 2));
+		return 0;
+	});
+}
+
+int ModApiMatter::l_blow(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "blow", [&] {
+		started(L).world->blow(pos(L, 1), luaL_checknumber(L, 2));
+		return 0;
+	});
+}
+
+int ModApiMatter::l_step(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "step", [&] {
+		started(L).world->step(luaL_checknumber(L, 1));
+		return 0;
+	});
+}
+
+int ModApiMatter::l_ambient(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	double k = luaL_checknumber(L, 2);
+	if (k <= 0)
+		throw LuaError("core.matter.ambient: a temperature above 0 K");
+	made(L).ambient[cube(pos(L, 1))] = k;
+	return 0;
+}
+
+int ModApiMatter::l_temperature(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "temperature", [&] {
+		lua_pushnumber(L, started(L).world->temperature(pos(L, 1)));
+		return 1;
+	});
+}
+
+int ModApiMatter::l_capacity(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "capacity", [&] {
+		double c = started(L).world->capacity(pos(L, 1));
+		if (c < 0)
+			lua_pushnil(L);
+		else
+			lua_pushnumber(L, c);
+		return 1;
+	});
+}
+
+int ModApiMatter::l_awake(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "awake", [&] {
+		ServerMatter &m = started(L);
+		std::vector<WorldMatter::Awake> all = m.world->awake(pos(L, 1), pos(L, 2));
+		lua_createtable(L, (int)all.size(), 0);
+		int n = 1;
+		for (const WorldMatter::Awake &a : all) {
+			lua_createtable(L, 0, 8);
+			push_v3s16(L, v3s16(a.pos.x, a.pos.y, a.pos.z));
+			lua_setfield(L, -2, "pos");
+			setNumber(L, "temperature", a.temperature);
+			setNumber(L, "activity", a.activity);
+			if (a.main >= 0) {
+				lua_pushstring(L, m.table.substances()[a.main].id.c_str());
+				lua_setfield(L, -2, "substance");
+				lua_pushstring(L, matter::STATE_NAMES[(int)a.state]);
+				lua_setfield(L, -2, "state");
+			}
+			setNumber(L, "fill", a.fill);
+			if (a.vapour >= 0) {
+				lua_pushstring(L, m.table.substances()[a.vapour].id.c_str());
+				lua_setfield(L, -2, "vapour");
+			}
+			setNumber(L, "haze", a.haze);
+			lua_rawseti(L, -2, n++);
+		}
+		return 1;
+	});
+}
+
+int ModApiMatter::l_happened(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "happened", [&] {
+		ServerMatter &m = started(L);
+		std::vector<std::pair<Pos, size_t>> all = m.world->happened();
+		lua_createtable(L, (int)all.size(), 0);
+		int n = 1;
+		for (const auto &[p, j] : all) {
+			lua_createtable(L, 0, 2);
+			push_v3s16(L, v3s16(p.x, p.y, p.z));
+			lua_setfield(L, -2, "pos");
+			lua_pushstring(L, m.table.reactions()[j].id.c_str());
+			lua_setfield(L, -2, "reaction");
+			lua_rawseti(L, -2, n++);
+		}
+		return 1;
+	});
+}
+
+int ModApiMatter::l_count(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	lua_pushinteger(L, s_matter ? (lua_Integer)s_matter->world->awakeCount() : 0);
+	return 1;
+}
+
+int ModApiMatter::l_save(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	if (!s_matter || !s_matter->started)
+		return 0; // nothing has run: nothing to save
+	std::string tmp = s_matter->path + ".tmp";
+	{
+		std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+		std::string bytes = s_matter->world->save();
+		out.write(bytes.data(), bytes.size());
+		if (!out)
+			throw LuaError("core.matter.save: couldn't write " + tmp);
+	}
+	if (std::rename(tmp.c_str(), s_matter->path.c_str()) != 0)
+		throw LuaError("core.matter.save: couldn't replace " + s_matter->path);
+	return 0;
+}
+
+void ModApiMatter::Initialize(lua_State *L, int top)
+{
+	lua_newtable(L);
+	int t = lua_gettop(L);
+	luaL_Reg functions[] = {
+		{ "register_block", l_register_block },
+		{ "register_family", l_register_family },
+		{ "substances", l_substances },
+		{ "heat", l_heat },
+		{ "touch", l_touch },
+		{ "inspect", l_inspect },
+		{ "blow", l_blow },
+		{ "step", l_step },
+		{ "ambient", l_ambient },
+		{ "temperature", l_temperature },
+		{ "capacity", l_capacity },
+		{ "awake", l_awake },
+		{ "happened", l_happened },
+		{ "count", l_count },
+		{ "save", l_save },
+	};
+	for (const luaL_Reg &f : functions) {
+		lua_pushcfunction(L, f.func);
+		lua_setfield(L, t, f.name);
+	}
+	lua_setfield(L, top, "matter");
+}

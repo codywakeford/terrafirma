@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "grid.h"
+#include "climate.h"
 #include "noise.h"
 #include "world.h"
 #include <algorithm>
@@ -36,11 +37,6 @@ fix elevation(const WorldCode &c, fix u, fix v, fix sea_offset, fix belt, fix re
 	// a boundary, low in plate interiors); rifts sink, never below the sea
 	fix range = mul(mul(mul(mul(ridge, ridge), c.mountains), inland), mul(belt, ratio(16, 10)));
 	return std::max<fix>(plains + range + relief, ratio(1, 160));
-}
-
-fix moisture(const WorldCode &c, fix u, fix v)
-{
-	return fbm(u, v, c.seed_hash + WET, 3, 3, HALF) + mul(c.humidity, ratio(6, 10));
 }
 
 namespace {
@@ -243,6 +239,50 @@ void keepRealLakes(Grid &g)
 	}
 }
 
+/*
+	How fertile the ground is: what the rock under it supplies (fresh volcanic
+	ash and young mountains give minerals; old shields little), what rivers
+	lay down on their plains, less what warm rain washes out of it. Tropical
+	rainforest soils come out poor (their life is in the plants, not the
+	ground), volcanic slopes and floodplains rich.
+*/
+const fix SUPPLY[(int)Province::Count] = {
+	ratio(20, 100), // shield
+	ratio(45, 100), // orogen
+	ratio(80, 100), // arc
+	ratio(65, 100), // rift
+	ratio(55, 100), // basin
+	ONE,            // volcanic
+	0,              // ocean floor
+};
+
+std::vector<fix> fertility(const WorldCode &code, const Grid &g)
+{
+	size_t n = (size_t)GRID * GRID;
+	std::vector<fix> out(n, 0);
+	for (int32_t cz = 0; cz < GRID; cz++) {
+		fix v = ratio(2 * cz + 1, 2 * GRID);
+		fix sun = sunlight(code, v, std::nullopt);
+		for (int32_t cx = 0; cx < GRID; cx++) {
+			int32_t i = Grid::index(cx, cz);
+			fix e = g.eroded[i];
+			if (e < 0)
+				continue;
+			fix supply = SUPPLY[(int)g.province[i]];
+			// rivers spread silt over the low land they cross
+			fix flood = e < ratio(12, 100) && g.river_threshold != INT64_MAX
+					? mul(ratio(35, 100), (fix)std::min<int64_t>(ONE, ((g.drained[i] << FRAC) / g.river_threshold)))
+					: 0;
+			fix heat = heatAt(code, ratio(2 * cx + 1, 2 * GRID), v, sun, e) + g.sea_heat[i];
+			// leaching grows with wetness (log₂ of the rain, like the biomes') and warmth
+			fix wet = clamp(log2(maxx(g.rain(i), ratio(1, 100))) / 2, -ONE, ONE);
+			fix leached = mul(mul(maxx(0, wet + ratio(5, 10)), maxx(0, heat + ratio(3, 10))), ratio(45, 100));
+			out[i] = clamp(supply + flood - leached, 0, ONE);
+		}
+	}
+	return out;
+}
+
 std::shared_ptr<Grid> build(const WorldCode &code)
 {
 	auto g = std::make_shared<Grid>();
@@ -256,8 +296,6 @@ std::shared_ptr<Grid> build(const WorldCode &code)
 			fix u = ratio(2 * cx + 1, 2 * GRID);
 			int32_t i = Grid::index(cx, cz);
 			mass[i] = landmass(code, u, v);
-			// rain where it's wet; a little everywhere so every slope runs
-			rain[i] = clamp(ONE + moisture(code, u, v), ratio(2, 10), toFix(2));
 			g->polar[i] = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
 		}
 	}
@@ -281,6 +319,39 @@ std::shared_ptr<Grid> build(const WorldCode &code)
 			g->base[i] = elevation(code, ratio(2 * cx + 1, 2 * GRID), ratio(2 * cz + 1, 2 * GRID), g->sea_offset,
 					g->tectonics.belt[i], g->tectonics.relief[i]);
 		}
+
+	// The climate over the land as made: where rain falls, which wears the
+	// land and feeds the rivers (a little everywhere, so every slope runs)
+	{
+		const int32_t k = GRID / CLIMATE;
+		std::vector<fix> coarse((size_t)CLIMATE * CLIMATE);
+		for (int32_t cz = 0; cz < CLIMATE; cz++)
+			for (int32_t cx = 0; cx < CLIMATE; cx++) {
+				int64_t sum = 0;
+				for (int32_t dz = 0; dz < k; dz++)
+					for (int32_t dx = 0; dx < k; dx++)
+						sum += g->base[Grid::index(cx * k + dx, cz * k + dz)];
+				coarse[cz * CLIMATE + cx] = (fix)(sum / (k * k));
+			}
+		Climate cl = climate(code, coarse);
+		// up to the grid: each cell's centre, in climate cells, between their centres
+		auto upsample = [&](const std::vector<fix> &from, std::vector<fix> &to) {
+			to.resize(n);
+			for (int32_t cz = 0; cz < GRID; cz++)
+				for (int32_t cx = 0; cx < GRID; cx++) {
+					fix x = ratio(2 * cx + 1, 2 * k) - HALF, z = clamp(ratio(2 * cz + 1, 2 * k) - HALF, 0, toFix(CLIMATE - 1));
+					int32_t x0 = floorInt(x), z0 = floorInt(z), z1 = std::min(z0 + 1, CLIMATE - 1);
+					auto at = [&](int32_t ax, int32_t az) { return from[az * CLIMATE + ((ax % CLIMATE) + CLIMATE) % CLIMATE]; };
+					to[Grid::index(cx, cz)] = lerp(lerp(at(x0, z0), at(x0 + 1, z0), fraction(x)),
+							lerp(at(x0, z1), at(x0 + 1, z1), fraction(x)), fraction(z));
+				}
+		};
+		upsample(cl.rain[0], g->rain_season[0]);
+		upsample(cl.rain[1], g->rain_season[1]);
+		upsample(cl.sea, g->sea_heat);
+		for (size_t i = 0; i < n; i++)
+			rain[i] = clamp(g->rain((int32_t)i), ratio(15, 100), toFix(3));
+	}
 
 	// Erosion, implicit stream power (Braun & Willett 2013), n = 1: from each
 	// outlet upstream, h ← (h + F·h_down) / (1 + F), F = K·√area. Lakes don't
@@ -346,6 +417,7 @@ std::shared_ptr<Grid> build(const WorldCode &code)
 		}
 	}
 	g->province = provinces(code, *g);
+	g->fertility = fertility(code, *g);
 	return g;
 }
 

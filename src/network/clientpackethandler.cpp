@@ -3,6 +3,7 @@
 // Copyright (C) 2015 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
 
 #include "client/client.h"
+#include "far/horizon.h"
 
 #include "exceptions.h"
 #include "irr_v2d.h"
@@ -1934,4 +1935,9 @@ void Client::handleCommand_Ui(NetworkPacket *pkt)
 	std::string key;
 	*pkt >> key;
 	m_ui_values.emplace_back(key, pkt->readLongString());
+}
+
+void Client::handleCommand_Horizon(NetworkPacket *pkt)
+{
+	m_horizon = far::read(*pkt);
 }

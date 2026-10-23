@@ -58,7 +58,7 @@ static LayerOpts world(F land)
 	for (int r = 0; r < N; r++)
 		for (int c = 0; c < N; c++) {
 			double h = land(c, r);
-			o.ground.push_back({ h, h <= 0, 0.5, 0 });
+			o.ground.push_back({ h, h <= 0, 0.5, 0, 0 });
 		}
 	return o;
 }
@@ -218,7 +218,7 @@ void TestFluid::testSaveAndDeterminism()
 
 void TestFluid::testTerraWeather()
 {
-	terragen::World world(terragen::WorldCode::decode("TF3.dGVycmE"));
+	terragen::World world(terragen::WorldCode::decode("TF5.dGVycmE"));
 	std::string path = fs::TempPath() + DIR_DELIM "tf_weather_test.bin";
 	fs::DeleteSingleFileOrEmptyDirectory(path);
 	double day = 86400, now = weather::clock(3, 0.5);
@@ -238,7 +238,18 @@ void TestFluid::testTerraWeather()
 	again->advance(now + 2.5 * day);
 	UASSERT(w->layer().save() == again->layer().save());
 	// another world's file is refused
-	terragen::World other(terragen::WorldCode::decode("TF3.YWJj"));
+	terragen::World other(terragen::WorldCode::decode("TF5.YWJj"));
 	EXCEPTION_CHECK(FluidError, weather::Weather::open({ other, table(), path }, now));
 	fs::DeleteSingleFileOrEmptyDirectory(path);
+
+	// the create screen's year: a map per snapshot, and the seasons in it
+	auto year = weather::Weather::year(world, table(), 4);
+	UASSERTEQ(size_t, year.size(), 4u);
+	UASSERTEQ(size_t, year[0].t.size(), 64u * 64u);
+	double north_summer = 0, north_winter = 0;
+	for (int c = 0; c < 64; c++) {
+		north_summer += year[1].t[12 * 64 + c]; // ~56° N, a quarter through the year
+		north_winter += year[3].t[12 * 64 + c];
+	}
+	UASSERT(north_summer > north_winter);
 }

@@ -71,7 +71,9 @@ Json::Value State::inventory(LocalPlayer &player)
 				stacks.append(Json::nullValue);
 				continue;
 			}
-			if (!m_opts.items.known(stack.name))
+			// The catalogue may have generated this icon before the player ever
+			// held the item. Still send its metadata to the page once.
+			if (m_sent_items.insert(stack.name).second)
 				m_new_items[stack.name] = m_opts.items.describe(stack.name);
 			Json::Value s;
 			s["item"] = stack.name;

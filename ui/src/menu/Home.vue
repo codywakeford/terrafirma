@@ -2,22 +2,16 @@
 import PixelIcon from "../game/PixelIcon.vue"
 import { Button, IconTile } from "../kit"
 import { useBridge } from "../bridge/use"
-import { useLab } from "../lab/flow"
 import type { Screen } from "./screens"
 
 defineEmits<{ go: [screen: Screen] }>()
 const bridge = useBridge()
-const lab = useLab()
 
-// 9×9 pictograms for the workshop row: a flask, an atom
+// a 9×9 pictogram for the workshop row: an open book
 const TOOL_ICONS = {
-    lab: {
-        rows: ["...WWW...", "....G....", "....G....", "...G.G...", "..G...G..", ".GLLLLLG.", ".GLLLLLG.", ".GLLLLLG.", "..GGGGG.."],
-        palette: { W: "#c9d4dc", G: "#c9d4dc", L: "#40b8ec" },
-    },
-    matter: {
-        rows: ["...O.O...", "..O...O..", ".O.....O.", "O...N...O", "O..NNN..O", "O...N...O", ".O.....O.", "..O...O..", "...O.O..."],
-        palette: { O: "#c9d4dc", N: "#ff8a3d" },
+    wiki: {
+        rows: [".........", "BBBB.BBBB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BBBBBBBBB", "....B...."],
+        palette: { B: "#c9d4dc", P: "#f0ead8", L: "#8a8478" },
     },
 } as const
 
@@ -49,11 +43,8 @@ const REPO = "https://github.com/codywakeford/terrafirma"
 
         <!-- the workshop: places to see the engine's building blocks and mechanics -->
         <nav class="tools" aria-label="Workshop">
-            <IconTile label="Lab — every mechanic, live" side="left" @click="lab.open()">
-                <PixelIcon :rows="TOOL_ICONS.lab.rows" :palette="TOOL_ICONS.lab.palette" style="--u: 3px" />
-            </IconTile>
-            <IconTile label="Matter — elements and substances" side="left" @click="$emit('go', 'matter')">
-                <PixelIcon :rows="TOOL_ICONS.matter.rows" :palette="TOOL_ICONS.matter.palette" style="--u: 3px" />
+            <IconTile label="Wiki — what everything is made of, and how it behaves" side="left" @click="$emit('go', 'wiki')">
+                <PixelIcon :rows="TOOL_ICONS.wiki.rows" :palette="TOOL_ICONS.wiki.palette" style="--u: 3px" />
             </IconTile>
         </nav>
 

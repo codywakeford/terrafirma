@@ -30,6 +30,7 @@ static const ScreenKind SCREENS[] = {
 	{ "pause", true, nullptr, nullptr },
 	{ "inventory", false, "keymap_inventory", nullptr },
 	{ "lab", false, "keymap_lab", "lab" },
+	{ "wiki", false, "keymap_wiki", "wiki" }, // offered by tf_player where the world's rules allow it
 };
 
 static const ScreenKind &find(const std::string &name)

@@ -7,7 +7,10 @@
     "build": "cmake --build build -j && cd ui && bun run build",
     "components": "cd ui && bun run gallery",
     "check:terragen": "bash scripts/terragen-check.sh",
-    "check:lab": "bash scripts/lab-check.sh"
+    "check:lab": "bash scripts/lab-check.sh",
+    "check:wiki": "bash scripts/wiki-check.sh",
+    "check:matter": "bash scripts/matter-check.sh",
+    "check:far": "bash scripts/far-check.sh"
   },
   "devDependencies": {
     "@types/bun": "latest"

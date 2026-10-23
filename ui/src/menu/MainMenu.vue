@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { defineAsyncComponent, ref } from "vue"
 import CreateWorld from "./create/CreateWorld.vue"
 import Home from "./Home.vue"
-import MatterScreen from "../matter/MatterScreen.vue"
 import Settings from "./Settings.vue"
 import type { Screen } from "./screens"
 import WorldSelect from "./WorldSelect.vue"
+
+// the wiki brings three.js: loaded when first opened
+const WikiScreen = defineAsyncComponent(() => import("../wiki/WikiScreen.vue"))
 
 defineProps<{ error: string | null }>()
 defineEmits<{ dismiss: [] }>()
@@ -25,7 +27,7 @@ const screen = ref<Screen>("home")
             <WorldSelect v-else-if="screen === 'worlds'" @go="screen = $event" />
             <CreateWorld v-else-if="screen === 'create'" @go="screen = $event" />
             <Settings v-else-if="screen === 'settings'" @go="screen = $event" />
-            <MatterScreen v-else-if="screen === 'matter'" @go="screen = $event" />
+            <WikiScreen v-else-if="screen === 'wiki'" place="menu" @close="screen = 'home'" />
         </Transition>
     </main>
 </template>

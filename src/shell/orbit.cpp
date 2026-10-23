@@ -292,7 +292,7 @@ static std::string menuCode()
 			s.erase(std::remove(s.begin(), s.end(), '='), s.end());
 			return s;
 		};
-		return "TF3." + url(base64_encode(seed)) + "." +
+		return "TF5." + url(base64_encode(seed)) + "." +
 				url(base64_encode(std::string_view((const char *)params.data(), params.size())));
 	}();
 	return code;

@@ -554,6 +554,8 @@ private:
 
 	virtual void SendChatMessage(session_t peer_id, const ChatMessage &message);
 	void SendTimeOfDay(session_t peer_id, u16 time, f32 time_speed);
+	// Terra Firma: what the far view needs, on a terra world
+	void SendHorizon(session_t peer_id);
 
 	void SendLocalPlayerAnimations(session_t peer_id, v2f animation_frames[4],
 		f32 animation_speed);

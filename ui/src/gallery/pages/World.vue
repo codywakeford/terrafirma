@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { WorldDraft } from "../../menu/create/draft"
 import GameTab from "../../menu/create/GameTab.vue"
-import SystemTab from "../../menu/create/SystemTab.vue"
+import DynamicsTab from "../../menu/create/DynamicsTab.vue"
 import Viewer from "../../menu/create/Viewer.vue"
 import WorldTab from "../../menu/create/WorldTab.vue"
 import Specimen from "../Specimen.vue"
@@ -17,7 +17,7 @@ const draft = WorldDraft()
         <div class="col">
             <Specimen name="Game tab"><div class="col"><GameTab :draft="draft" /></div></Specimen>
             <Specimen name="World tab"><div class="col"><WorldTab :draft="draft" /></div></Specimen>
-            <Specimen name="System tab" note="select a body in the Viewer"><div class="col"><SystemTab :draft="draft" /></div></Specimen>
+            <Specimen name="Dynamics tab"><div class="col"><DynamicsTab :draft="draft" /></div></Specimen>
         </div>
     </div>
 </template>

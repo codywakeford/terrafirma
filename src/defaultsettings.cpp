@@ -85,6 +85,10 @@ void set_default_settings()
 	settings->setDefault("shell_url", "terra://ui/index.html");
 	settings->setDefault("game_id", "terrafirma");
 	settings->setDefault("shell_gpu", "true");
+	// Terra Firma: the far view (planning/sprint-20-horizon.md)
+	settings->setDefault("far_view", "true");
+	settings->setDefault("far_view_detail", "2");
+	settings->setDefault("far_view_max", "16000");
 	settings->setDefault("remote_port", "30000");
 #if defined(__unix__) && !defined(__APPLE__) && !defined (__ANDROID__)
 	// On Linux+X11 (not Linux+Wayland or Linux+XWayland), I've encountered a bug
@@ -145,10 +149,11 @@ void set_default_settings()
 	settings->setDefault("keymap_place", "MOUSE_BUTTON_3|GAMEPAD_AXIS_PLUS_4"); // RMB|Gamepad LT
 	settings->setDefault("keymap_drop", "SYSTEM_SCANCODE_20|GAMEPAD_BUTTON_12"); // KEY_KEY_Q|D-Pad Down
 	settings->setDefault("keymap_zoom", "SYSTEM_SCANCODE_29|GAMEPAD_BUTTON_11"); // KEY_KEY_Z|D-Pad Up
-	settings->setDefault("keymap_inventory", "SYSTEM_SCANCODE_12|GAMEPAD_BUTTON_3"); // KEY_KEY_I|Gamepad North
+	settings->setDefault("keymap_inventory", "SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3"); // KEY_KEY_E|Gamepad North
 	settings->setDefault("keymap_lab", "SYSTEM_SCANCODE_15"); // KEY_KEY_L (Terra Firma: the Lab panel)
+	settings->setDefault("keymap_wiki", "SYSTEM_SCANCODE_10"); // KEY_KEY_G (Terra Firma: the wiki)
 	settings->setDefault("keymap_pause", "GAMEPAD_BUTTON_6"); // Gamepad Start
-	settings->setDefault("keymap_aux1", "SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_2"); // KEY_KEY_E|Gamepad West
+	settings->setDefault("keymap_aux1", "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2"); // KEY_LCONTROL|Gamepad West (Terra Firma: sprint, as Minecraft; E is the inventory)
 	settings->setDefault("keymap_chat", "SYSTEM_SCANCODE_23"); // KEY_KEY_T
 	settings->setDefault("keymap_cmd", "SYSTEM_SCANCODE_56"); // /
 	settings->setDefault("keymap_cmd_local", "SYSTEM_SCANCODE_55"); // .
@@ -171,15 +176,15 @@ void set_default_settings()
 	settings->setDefault("keymap_toggle_block_bounds", "");
 	settings->setDefault("keymap_toggle_hud", "SYSTEM_SCANCODE_58"); // KEY_F1
 	settings->setDefault("keymap_toggle_chat", "SYSTEM_SCANCODE_59"); // KEY_F2
-	settings->setDefault("keymap_toggle_fog", "SYSTEM_SCANCODE_60"); // KEY_F3
+	settings->setDefault("keymap_toggle_fog", ""); // (Terra Firma: F3 is the debug screen, as Minecraft)
 #ifndef NDEBUG
 	settings->setDefault("keymap_toggle_update_camera", "SYSTEM_SCANCODE_61"); // KEY_F4
 #else
 	settings->setDefault("keymap_toggle_update_camera", "");
 #endif
-	settings->setDefault("keymap_toggle_debug", "SYSTEM_SCANCODE_62"); // KEY_F5
+	settings->setDefault("keymap_toggle_debug", "SYSTEM_SCANCODE_60"); // KEY_F3 (Terra Firma, as Minecraft)
 	settings->setDefault("keymap_toggle_profiler", "SYSTEM_SCANCODE_63"); // KEY_F6
-	settings->setDefault("keymap_camera_mode", "SYSTEM_SCANCODE_6"); // KEY_KEY_C
+	settings->setDefault("keymap_camera_mode", "SYSTEM_SCANCODE_62"); // KEY_F5 (Terra Firma, as Minecraft)
 	settings->setDefault("keymap_camera_yaw_left", "GAMEPAD_AXIS_MINUS_2"); // Right Joystick
 	settings->setDefault("keymap_camera_yaw_right", "GAMEPAD_AXIS_PLUS_2"); // Right Joystick
 	settings->setDefault("keymap_camera_pitch_up", "GAMEPAD_AXIS_MINUS_3"); // Right Joystick
@@ -379,7 +384,7 @@ void set_default_settings()
 	settings->setDefault("safe_dig_and_place", "false");
 	settings->setDefault("random_input", "false");
 	settings->setDefault("aux1_descends", "false");
-	settings->setDefault("doubletap_jump", "false");
+	settings->setDefault("doubletap_jump", "true"); // Terra Firma: double-tap jump flies, as Minecraft (where flying is allowed)
 	settings->setDefault("always_fly_fast", "true");
 	settings->setDefault("toggle_sneak_key", "false");
 	settings->setDefault("toggle_aux1_key", "false");

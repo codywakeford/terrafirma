@@ -8,7 +8,7 @@ import ItemSlot from "../ItemSlot.vue"
  * cursor is holding: the slot shows what's left behind.
  */
 const props = defineProps<{ stack: Stack | null; lifted?: number; result?: boolean }>()
-const emit = defineEmits<{ press: [button: "left" | "right", shift: boolean]; hover: [inside: boolean] }>()
+const emit = defineEmits<{ press: [button: "left" | "right", shift: boolean, event: MouseEvent]; hover: [inside: boolean] }>()
 
 const shown = computed(() => {
     if (!props.stack || !props.lifted) return props.stack
@@ -18,7 +18,7 @@ const shown = computed(() => {
 
 function down(e: MouseEvent) {
     if (e.button !== 0 && e.button !== 2) return
-    emit("press", e.button === 2 ? "right" : "left", e.shiftKey)
+	emit("press", e.button === 2 ? "right" : "left", e.shiftKey, e)
 }
 </script>
 

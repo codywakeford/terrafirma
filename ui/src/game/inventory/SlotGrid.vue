@@ -13,7 +13,7 @@ const props = defineProps<{
     end?: number
     held: Held | null
 }>()
-const emit = defineEmits<{ press: [slot: SlotRef, stack: Stack | null, button: "left" | "right", shift: boolean]; hover: [stack: Stack | null] }>()
+const emit = defineEmits<{ press: [slot: SlotRef, stack: Stack | null, button: "left" | "right", shift: boolean, event: MouseEvent]; hover: [over: { slot: SlotRef; stack: Stack | null } | null] }>()
 
 const range = computed(() => {
     const from = props.start ?? 0
@@ -31,8 +31,9 @@ function lifted(index: number, stack: Stack | null) {
 <template>
     <div class="grid" :style="{ gridTemplateColumns: `repeat(${columns}, auto)` }">
         <Slot v-for="i in range" :key="i" :stack="stacks[i] ?? null" :lifted="lifted(i, stacks[i] ?? null)"
-            @press="(button, shift) => emit('press', { list: list, index: i }, stacks[i] ?? null, button, shift)"
-            @hover="(inside) => emit('hover', inside ? stacks[i] ?? null : null)" />
+            :data-list="list" :data-index="i"
+            @press="(button, shift, event) => emit('press', { list: list, index: i }, stacks[i] ?? null, button, shift, event)"
+            @hover="(inside) => emit('hover', inside ? { slot: { list: list, index: i }, stack: stacks[i] ?? null } : null)" />
     </div>
 </template>
 

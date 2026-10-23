@@ -33,6 +33,8 @@ public:
 	bool known(const std::string &name) const { return m_described.count(name) != 0; }
 	// Main thread only: may render the icon.
 	const Json::Value &describe(const std::string &name);
+	// All visible registered items, with icons generated on the main thread.
+	Json::Value catalog();
 
 private:
 	std::string iconTexture(const ItemDefinition &def) const;

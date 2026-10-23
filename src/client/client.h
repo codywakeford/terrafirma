@@ -15,9 +15,11 @@
 #include "network/peerhandler.h"
 #include "util/numeric.h"
 #include "util/string.h" // StringMap
+#include "far/terrain.h" // Terra Firma: far::Horizon
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <unordered_set>
@@ -190,6 +192,7 @@ public:
 	void handleCommand_SpawnParticle(NetworkPacket* pkt);
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
+	void handleCommand_Horizon(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -242,6 +245,8 @@ public:
 	// player's page (key, JSON), oldest first, taken once; and events back.
 	std::vector<std::pair<std::string, std::string>> takeUiValues();
 	void sendUiEvent(const std::string &name, const std::string &payload_json);
+	// Terra Firma: set once the server says this is a terra world (the far view's input).
+	const std::optional<far::Horizon> &getHorizon() const { return m_horizon; }
 
 	ClientEnvironment& getEnv() { return m_env; }
 	ITextureSource *tsrc() { return getTextureSource(); }
@@ -467,6 +472,7 @@ public:
 
 private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
+	std::optional<far::Horizon> m_horizon;
 
 	struct PendingMediaDownload {
 		// Tokens to ack to the server. multiple because server can send duplicate

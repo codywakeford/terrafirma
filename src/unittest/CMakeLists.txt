@@ -31,8 +31,10 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_noderesolver.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_noise.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_fluid.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_sandbox.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_matter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_far.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_objdef.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_profiler.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_random.cpp

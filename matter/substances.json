@@ -24,6 +24,11 @@
     "solid": 917,
     "liquid": 1000
    },
+   "conductivity": {
+    "solid": 2.2,
+    "liquid": 0.6,
+    "gas": 0.025
+   },
    "heat_capacity": 4186,
    "structure": {
     "type": "molecule",
@@ -87,6 +92,11 @@
    "density": {
     "solid": 1562,
     "liquid": 1101
+   },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.087,
+    "gas": 0.0166
    },
    "heat_capacity": 840,
    "structure": {
@@ -152,6 +162,11 @@
    "density": {
     "solid": 522,
     "liquid": 422
+   },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.19,
+    "gas": 0.034
    },
    "heat_capacity": 2220,
    "structure": {
@@ -239,6 +254,11 @@
     "solid": 817,
     "liquid": 682
    },
+   "conductivity": {
+    "solid": 0.5,
+    "liquid": 0.5,
+    "gas": 0.025
+   },
    "heat_capacity": 4700,
    "structure": {
     "type": "molecule",
@@ -313,6 +333,11 @@
     "solid": 1027,
     "liquid": 808
    },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.14,
+    "gas": 0.026
+   },
    "heat_capacity": 1040,
    "structure": {
     "type": "molecule",
@@ -364,6 +389,11 @@
    "density": {
     "solid": 1426,
     "liquid": 1141
+   },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.15,
+    "gas": 0.026
    },
    "heat_capacity": 918,
    "structure": {
@@ -417,6 +447,11 @@
     "solid": 86,
     "liquid": 71
    },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.1,
+    "gas": 0.18
+   },
    "heat_capacity": 14300,
    "structure": {
     "type": "molecule",
@@ -469,6 +504,11 @@
    "density": {
     "solid": 1600,
     "liquid": 1460
+   },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.2,
+    "gas": 0.0096
    },
    "heat_capacity": 640,
    "structure": {
@@ -534,6 +574,11 @@
    "density": {
     "solid": 1900,
     "liquid": 1830
+   },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.3,
+    "gas": 0.02
    },
    "heat_capacity": 1340,
    "approximate": true,
@@ -642,6 +687,11 @@
     "solid": 7874,
     "liquid": 6980
    },
+   "conductivity": {
+    "solid": 80,
+    "liquid": 40,
+    "gas": 0.03
+   },
    "heat_capacity": 449,
    "approximate": true,
    "structure": {
@@ -677,6 +727,11 @@
    "density": {
     "solid": 8960,
     "liquid": 8020
+   },
+   "conductivity": {
+    "solid": 400,
+    "liquid": 165,
+    "gas": 0.03
    },
    "heat_capacity": 385,
    "approximate": true,
@@ -714,6 +769,11 @@
     "solid": 7265,
     "liquid": 6990
    },
+   "conductivity": {
+    "solid": 67,
+    "liquid": 30,
+    "gas": 0.03
+   },
    "heat_capacity": 228,
    "approximate": true,
    "structure": {
@@ -749,6 +809,11 @@
    "density": {
     "solid": 19300,
     "liquid": 17310
+   },
+   "conductivity": {
+    "solid": 318,
+    "liquid": 105,
+    "gas": 0.03
    },
    "heat_capacity": 129,
    "approximate": true,
@@ -786,6 +851,11 @@
     "solid": 2700,
     "liquid": 2375
    },
+   "conductivity": {
+    "solid": 237,
+    "liquid": 90,
+    "gas": 0.03
+   },
    "heat_capacity": 897,
    "approximate": true,
    "structure": {
@@ -821,6 +891,11 @@
    "density": {
     "solid": 11340,
     "liquid": 10660
+   },
+   "conductivity": {
+    "solid": 35,
+    "liquid": 16,
+    "gas": 0.03
    },
    "heat_capacity": 129,
    "approximate": true,
@@ -858,6 +933,11 @@
     "solid": 14184,
     "liquid": 13534
    },
+   "conductivity": {
+    "solid": 30,
+    "liquid": 8.3,
+    "gas": 0.01
+   },
    "heat_capacity": 140,
    "structure": {
     "type": "crystal",
@@ -892,6 +972,11 @@
    "density": {
     "solid": 2329,
     "liquid": 2570
+   },
+   "conductivity": {
+    "solid": 150,
+    "liquid": 56,
+    "gas": 0.03
    },
    "heat_capacity": 705,
    "approximate": true,
@@ -928,6 +1013,11 @@
    "density": {
     "solid": 2266,
     "liquid": 1600
+   },
+   "conductivity": {
+    "solid": 150,
+    "liquid": 10,
+    "gas": 0.03
    },
    "heat_capacity": 710,
    "approximate": true,
@@ -966,6 +1056,11 @@
     "solid": 2165,
     "liquid": 1556
    },
+   "conductivity": {
+    "solid": 6.5,
+    "liquid": 0.5,
+    "gas": 0.03
+   },
    "heat_capacity": 880,
    "approximate": true,
    "structure": {
@@ -1002,6 +1097,11 @@
    "density": {
     "solid": 2650,
     "liquid": 2200
+   },
+   "conductivity": {
+    "solid": 3,
+    "liquid": 0.5,
+    "gas": 0.03
    },
    "heat_capacity": 740,
    "approximate": true,
@@ -1090,6 +1190,11 @@
     "solid": 929,
     "liquid": 789
    },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.15,
+    "gas": 0.025
+   },
    "heat_capacity": 1040,
    "structure": {
     "type": "molecule",
@@ -1143,6 +1248,11 @@
     "solid": 5260,
     "liquid": 4500
    },
+   "conductivity": {
+    "solid": 11,
+    "liquid": 1,
+    "gas": 0.03
+   },
    "heat_capacity": 650,
    "approximate": true,
    "structure": {
@@ -1182,6 +1292,11 @@
     "solid": 3800,
     "liquid": 3000
    },
+   "conductivity": {
+    "solid": 2.5,
+    "liquid": 1,
+    "gas": 0.03
+   },
    "heat_capacity": 760,
    "approximate": true,
    "structure": {
@@ -1218,6 +1333,11 @@
    "density": {
     "solid": 6310,
     "liquid": 5500
+   },
+   "conductivity": {
+    "solid": 3,
+    "liquid": 1,
+    "gas": 0.03
    },
    "heat_capacity": 540,
    "approximate": true,
@@ -1257,6 +1377,11 @@
     "solid": 2711,
     "liquid": 2400
    },
+   "conductivity": {
+    "solid": 3.6,
+    "liquid": 1,
+    "gas": 0.03
+   },
    "heat_capacity": 840,
    "approximate": true,
    "structure": {
@@ -1293,6 +1418,11 @@
    "density": {
     "solid": 3340,
     "liquid": 2600
+   },
+   "conductivity": {
+    "solid": 2,
+    "liquid": 1,
+    "gas": 0.03
    },
    "heat_capacity": 750,
    "approximate": true,
@@ -1331,6 +1461,11 @@
    "density": {
     "solid": 1540,
     "liquid": 1500
+   },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.2,
+    "gas": 0.03
    },
    "heat_capacity": 1240,
    "approximate": true,
@@ -1435,6 +1570,11 @@
     "solid": 3270,
     "liquid": 2800
    },
+   "conductivity": {
+    "solid": 4.5,
+    "liquid": 1.5,
+    "gas": 0.03
+   },
    "heat_capacity": 840,
    "structure": {
     "type": "molecule",
@@ -1521,6 +1661,11 @@
    "density": {
     "solid": 3200,
     "liquid": 2700
+   },
+   "conductivity": {
+    "solid": 4,
+    "liquid": 1.5,
+    "gas": 0.03
    },
    "heat_capacity": 800,
    "structure": {
@@ -1610,6 +1755,11 @@
     "solid": 2560,
     "liquid": 2300
    },
+   "conductivity": {
+    "solid": 2.3,
+    "liquid": 1.2,
+    "gas": 0.03
+   },
    "heat_capacity": 710,
    "structure": {
     "type": "crystal",
@@ -1648,6 +1798,11 @@
    "density": {
     "solid": 2620,
     "liquid": 2300
+   },
+   "conductivity": {
+    "solid": 2,
+    "liquid": 1.2,
+    "gas": 0.03
    },
    "heat_capacity": 710,
    "structure": {
@@ -1689,6 +1844,11 @@
     "solid": 2830,
     "liquid": 2400
    },
+   "conductivity": {
+    "solid": 0.7,
+    "liquid": 0.5,
+    "gas": 0.03
+   },
    "heat_capacity": 760,
    "structure": {
     "type": "crystal",
@@ -1727,6 +1887,11 @@
     "solid": 2600,
     "liquid": 2200
    },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.5,
+    "gas": 0.03
+   },
    "heat_capacity": 940,
    "structure": {
     "type": "crystal",
@@ -1764,6 +1929,11 @@
     "solid": 2500,
     "liquid": 2200
    },
+   "conductivity": {
+    "solid": 0.5,
+    "liquid": 0.5,
+    "gas": 0.03
+   },
    "heat_capacity": 900,
    "structure": {
     "type": "crystal",
@@ -1799,6 +1969,11 @@
    "density": {
     "solid": 5170,
     "liquid": 4500
+   },
+   "conductivity": {
+    "solid": 5,
+    "liquid": 1.5,
+    "gas": 0.03
    },
    "heat_capacity": 650,
    "structure": {
@@ -1838,6 +2013,11 @@
     "solid": 4200,
     "liquid": 3800
    },
+   "conductivity": {
+    "solid": 6,
+    "liquid": 1.5,
+    "gas": 0.03
+   },
    "heat_capacity": 540,
    "structure": {
     "type": "crystal",
@@ -1874,6 +2054,11 @@
    "density": {
     "solid": 6950,
     "liquid": 6000
+   },
+   "conductivity": {
+    "solid": 30,
+    "liquid": 2,
+    "gas": 0.03
    },
    "heat_capacity": 350,
    "structure": {
@@ -1912,6 +2097,11 @@
     "solid": 7600,
     "liquid": 7000
    },
+   "conductivity": {
+    "solid": 2.3,
+    "liquid": 1,
+    "gas": 0.03
+   },
    "heat_capacity": 210,
    "structure": {
     "type": "crystal",
@@ -1948,6 +2138,11 @@
    "density": {
     "solid": 9530,
     "liquid": 8500
+   },
+   "conductivity": {
+    "solid": 1.5,
+    "liquid": 1,
+    "gas": 0.03
    },
    "heat_capacity": 230,
    "structure": {
@@ -1986,6 +2181,11 @@
     "solid": 5010,
     "liquid": 4500
    },
+   "conductivity": {
+    "solid": 20,
+    "liquid": 2,
+    "gas": 0.03
+   },
    "heat_capacity": 520,
    "structure": {
     "type": "crystal",
@@ -2022,6 +2222,11 @@
     "solid": 2070,
     "liquid": 1819
    },
+   "conductivity": {
+    "solid": 0.27,
+    "liquid": 0.15,
+    "gas": 0.02
+   },
    "heat_capacity": 710,
    "structure": {
     "type": "crystal",
@@ -2057,6 +2262,11 @@
    "density": {
     "solid": 8800,
     "liquid": 7900
+   },
+   "conductivity": {
+    "solid": 50,
+    "liquid": 30,
+    "gas": 0.03
    },
    "heat_capacity": 380,
    "structure": {
@@ -2096,6 +2306,11 @@
     "solid": 7200,
     "liquid": 6900
    },
+   "conductivity": {
+    "solid": 50,
+    "liquid": 30,
+    "gas": 0.03
+   },
    "heat_capacity": 460,
    "structure": {
     "type": "crystal",
@@ -2133,6 +2348,11 @@
    "density": {
     "solid": 7850,
     "liquid": 7000
+   },
+   "conductivity": {
+    "solid": 45,
+    "liquid": 30,
+    "gas": 0.03
    },
    "heat_capacity": 470,
    "structure": {
@@ -2172,6 +2392,11 @@
     "solid": 7300,
     "liquid": 7000
    },
+   "conductivity": {
+    "solid": 50,
+    "liquid": 25,
+    "gas": 0.03
+   },
    "heat_capacity": 220,
    "structure": {
     "type": "crystal",
@@ -2209,6 +2434,11 @@
     "solid": 7140,
     "liquid": 6570
    },
+   "conductivity": {
+    "solid": 116,
+    "liquid": 50,
+    "gas": 0.03
+   },
    "heat_capacity": 388,
    "structure": {
     "type": "crystal",
@@ -2232,20 +2462,25 @@
     "O": 5
    },
    "triple": [
-    600,
+    3000,
     1
    ],
    "critical": [
-    1500,
+    4000,
     5000000.0
    ],
-   "boil": 1000,
+   "boil": 3500,
    "fusion": 30,
    "vaporization": 100,
    "melt_slope": 0.05,
    "density": {
-    "solid": 600,
-    "liquid": 600
+    "solid": 1500,
+    "liquid": 1500
+   },
+   "conductivity": {
+    "solid": 0.15,
+    "liquid": 0.2,
+    "gas": 0.03
    },
    "heat_capacity": 1700,
    "structure": {
@@ -2305,7 +2540,7 @@
      ]
     ]
    },
-   "note": "Cellulose, as far as chemistry cares: burns in air; heated without enough air it chars to charcoal. (It chars long before it could melt.)",
+   "note": "Cellulose, as far as chemistry cares: burns in air; heated without enough air it chars to charcoal. (It chars long before it could melt.) It never melts: it chars or burns long before (its melting and boiling points are placeholders far above any fire).",
    "approximate": true,
    "kind": "compound",
    "hardness": 2
@@ -2334,6 +2569,11 @@
    "density": {
     "solid": 2540,
     "liquid": 1970
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.5,
+    "gas": 0.03
    },
    "heat_capacity": 1040,
    "structure": {
@@ -2372,6 +2612,11 @@
    "density": {
     "solid": 2400,
     "liquid": 2300
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 1,
+    "gas": 0.03
    },
    "heat_capacity": 840,
    "structure": {
@@ -2461,6 +2706,11 @@
    "density": {
     "solid": 2210,
     "liquid": 2000
+   },
+   "conductivity": {
+    "solid": 0.8,
+    "liquid": 0.5,
+    "gas": 0.03
    },
    "heat_capacity": 1180,
    "structure": {

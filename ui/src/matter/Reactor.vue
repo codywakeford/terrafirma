@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import type { MatterReaction, MatterState, MatterSubstance } from "../bridge"
 import { useBridge } from "../bridge/use"
 import { Button, Segmented, Slider } from "../kit"
@@ -11,7 +11,8 @@ import { PRESETS, type Preset } from "./presets"
  * reactions are running (and how fast) all come back from `matter.react`;
  * the page only holds the mixture between steps.
  */
-const props = defineProps<{ substances: MatterSubstance[]; reactions: MatterReaction[] }>()
+// `preset`: which set-up to load (the wiki's list picks it)
+const props = defineProps<{ substances: MatterSubstance[]; reactions: MatterReaction[]; preset: string }>()
 const bridge = useBridge()
 
 const preset = ref<Preset>(PRESETS[0]!)
@@ -75,7 +76,12 @@ function strike() {
     if (!running.value) step(TICK * speed.value)
 }
 onBeforeUnmount(() => window.clearInterval(timer))
-load(PRESETS[0]!)
+function presetById(id: string): Preset {
+    const p = PRESETS.find((x) => x.id === id)
+    if (!p) throw new Error(`no Reactor preset "${id}"`)
+    return p
+}
+watch(() => props.preset, (id) => load(presetById(id)), { immediate: true })
 
 // what's in the vessel, most first, with a colour each
 const bySubstance = computed(() => new Map(props.substances.map((s) => [s.id, s])))
@@ -133,9 +139,6 @@ const clock = (s: number) => s < 120 ? `${s.toFixed(1)} s` : s < 7200 ? `${(s / 
 <template>
     <div class="reactor">
         <section class="vessel">
-            <div class="presets">
-                <button v-for="p in PRESETS" :key="p.id" :class="{ on: preset.id === p.id }" @click="load(p)">{{ p.label }}</button>
-            </div>
             <p class="hint">{{ preset.hint }}</p>
 
             <div class="readout">

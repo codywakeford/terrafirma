@@ -37,6 +37,9 @@ const opts = <T extends string>(...values: T[]) => values.map((v) => ({ value: v
             <div class="row"><span>Weather</span><Segmented v-model="draft.rules.weather" :options="opts('off', 'mild', 'wild')" /></div>
             <Toggle v-model="draft.rules.seasons" label="Seasons — winters get cold, crops have a time" />
         </Section>
+        <Section title="Knowledge">
+            <Toggle v-model="draft.rules.wiki" label="Wiki (G) — see what everything is made of, and how it behaves" />
+        </Section>
     </div>
 </template>
 

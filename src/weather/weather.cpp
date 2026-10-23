@@ -18,6 +18,7 @@ static const int32_t SPAN = GRID / CELLS;  // terragen grid cells per layer cell
 static const double STEP = 3 * 3600;       // s
 static const double DAY = 86400;
 static const double LAND_METRES = 4000;    // a unit of terragen elevation, in the air's metres
+static const double MEDIAN_RAIN = 1.6 / 24; // mm/h: the typical land's year (Earth's, ~600 mm)
 static const char MAGIC[8] = { 'T', 'F', 'W', 'S', 0, 0, 0, 1 };
 
 double clock(uint32_t day_count, double time_of_day)
@@ -62,12 +63,14 @@ static fluid::LayerOpts earth(const World &world, const matter::Matter &m)
 			int32_t x = (int32_t)((int64_t)u * code.size / ONE) - half;
 			int32_t z = half - (int32_t)((int64_t)v * code.size / ONE);
 			wet = toDouble(world.column(u, v, world.sunlight(v, std::nullopt)).wet);
-			// the annual mean: four seasons, at the hour the daily swing crosses zero
-			double anchor = 0;
+			// terragen's seasons there, at the hour the daily swing crosses zero:
+			// the annual mean and half the swing from northern winter to summer
+			double seasons[4];
 			for (int k = 0; k < 4; k++)
-				anchor += toDouble(world.temperature(x, z, ratio(k, 4), ratio(3, 8))) / 4;
-			anchor += 273.15;
-			o.ground.push_back({ water ? -1.0 : height, water, std::clamp((wet + 1) / 2, 0.0, 1.0), anchor });
+				seasons[k] = toDouble(world.temperature(x, z, ratio(k, 4), ratio(3, 8))) + 273.15;
+			double anchor = (seasons[0] + seasons[1] + seasons[2] + seasons[3]) / 4;
+			double season = (seasons[1] - seasons[3]) / 2;
+			o.ground.push_back({ water ? -1.0 : height, water, std::clamp((wet + 1) / 2, 0.0, 1.0), anchor, season });
 			double area = std::cos(M_PI / 2 - (row + 0.5) * M_PI / CELLS);
 			weighted += anchor * area;
 			weights += area;
@@ -144,7 +147,29 @@ void Weather::advance(double target)
 fluid::Sample Weather::sample(int32_t x, int32_t y, int32_t z, double now) const
 {
 	double u = toDouble(m_world.u(x)), v = std::clamp(toDouble(m_world.v(z)), 0.0, 1.0 - 1e-9);
-	return m_layer->sample(u, v, y * BLOCK_METRES, std::fmod(now / DAY, 1.0));
+	double hour = std::fmod(now / DAY, 1.0), date = dateOf(now, m_layer_opts.planet.year);
+	fluid::Sample s = m_layer->sample(u, v, y * BLOCK_METRES, hour);
+	// the temperature: terragen's climate for this very column, day and hour
+	// (what the biomes were made from), plus the layer's departure from its
+	// seasons, cooling with height above the ground
+	fix fv = m_world.v(z);
+	int32_t surface = m_world.ground(x, z, m_world.sunlight(fv, (fix)(date * ONE))).terrain + 1;
+	double climate = toDouble(m_world.temperature(x, z, (fix)(date * ONE), (fix)(hour * ONE))) + 273.15;
+	double t = climate + m_layer->departure(u, v, date)
+			- m_layer->lapse() * std::max(0, y - surface) * BLOCK_METRES;
+	// the same vapour at the new temperature
+	s.humidity = std::min(1.0, s.humidity * m_layer->saturation(s.temperature, s.pressure) / m_layer->saturation(t, s.pressure));
+	s.temperature = t;
+	s.snow = m_layer->frozen(t, s.pressure);
+	// the rain: the layer's weather, scaled so its long-run mean here is
+	// terragen's climate for this season (the biomes' rain), not its own
+	Column c = m_world.column(m_world.u(x), fv, m_world.sunlight(fv, std::nullopt));
+	double summer = std::sin(2 * M_PI * date) * (fv < HALF ? 1 : -1); // 1 at the local midsummer
+	double climate_rain = toDouble(c.rain) * (1 + toDouble(c.season) * summer) * MEDIAN_RAIN;
+	double own = std::max(m_layer->climatology(u, v), 0.01);
+	s.precipitation *= std::clamp(climate_rain / own, 0.1, 10.0);
+	s.events = m_layer->events(s, u, v);
+	return s;
 }
 
 void Weather::save() const

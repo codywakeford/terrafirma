@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from "vue"
 import { useBridge } from "./bridge/use"
 import Hud from "./game/Hud.vue"
 import InventoryScreen from "./game/inventory/InventoryScreen.vue"
@@ -8,6 +9,8 @@ import { useLab } from "./lab/flow"
 import LabView from "./lab/LabView.vue"
 import MainMenu from "./menu/MainMenu.vue"
 
+// the wiki brings three.js: loaded when first opened
+const WikiScreen = defineAsyncComponent(() => import("./wiki/WikiScreen.vue"))
 const bridge = useBridge()
 const store = useStore()
 const lab = useLab()
@@ -22,6 +25,7 @@ const lab = useLab()
         <Hud />
         <PauseScreen v-if="store.screen === 'pause'" />
         <InventoryScreen v-else-if="store.screen === 'inventory'" />
+        <WikiScreen v-else-if="store.screen === 'wiki'" place="game" @close="bridge.send('screen.close', {})" />
     </template>
 </template>
 

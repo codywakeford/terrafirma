@@ -18,7 +18,7 @@ namespace terragen {
 // sends, with the names alongside.
 enum class Biome : uint8_t {
 	Deep, Ocean, SeaIce, Beach, Desert, Savanna, Grassland, Forest, Jungle,
-	Taiga, Tundra, Rock, Snow,
+	Taiga, Tundra, Rock, Snow, Monsoon, Mediterranean,
 	Count
 };
 
@@ -28,7 +28,9 @@ struct Column
 {
 	fix elevation; // −1..~1.2, 0 = sea level; erosion included
 	fix heat;      // ~−1 frozen .. 1 scorching
-	fix wet;       // ~−1 arid .. 1 soaked
+	fix wet;       // ~−1 arid .. 1 soaked: log₂ of `rain`, halved
+	fix rain;      // the year's rain, relative to the median over land (1)
+	fix season;    // when it falls: 1 all in summer .. −1 all in winter (0 even)
 	Biome biome;
 	bool polar;    // inside the impassable polar edge
 };
@@ -41,10 +43,27 @@ struct Cover
 {
 	fix density;   // 0..1: bare to closed forest
 	fix slope;     // rise over run
+	fix fertility; // 0..1: what the ground supplies, less what rain washes out
 	bool bank;     // beside a river or lake
 	bool tree;     // a tree stands here (one spot per small cell, if the roll allows)
 	uint32_t roll; // a per-column random number, for the game's choices
 };
+
+// Soil as a composition (soil.cpp): its mineral part on the texture
+// triangle, and organic matter as a share of the whole.
+struct Soil
+{
+	fix sand, silt, clay; // shares of the mineral part, summing to ~1
+	fix organic;          // 0..1 of the soil
+};
+// The compositions a soil block can hold (its param2): sand and clay in
+// tenths, silt the rest, at three levels of organic matter.
+constexpr int32_t SOIL_ORGANIC = 3;
+constexpr int32_t SOIL_POINTS = 66 * SOIL_ORGANIC;
+uint8_t soilIndex(const Soil &s);
+Soil soilPoint(uint8_t index); // throws std::invalid_argument past SOIL_POINTS
+// How many steps a rock blends toward its neighbour (its param2).
+constexpr int32_t ROCK_BLENDS = 16;
 
 // What a cave holds where it's carved.
 enum class Cave : uint8_t { None, Air, Water, Lava };
@@ -101,8 +120,15 @@ public:
 	Rock rock(const Strata &s, int32_t depth, int32_t x, int32_t y, int32_t z) const;
 	Ore ore(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, int32_t z) const;
 	Cave cave(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, int32_t z, bool water_above) const;
+	// A grid field (Grid's per-cell vectors) at (u, v), between cell centres.
+	fix between(const std::vector<fix> &field, fix u, fix v) const;
 	// The coarse cell a column falls in.
 	int32_t cell(fix u, fix v) const;
+
+	// What the soil is made of here (soil.cpp), and how far a rock at a block
+	// blends toward its neighbour (0 .. ROCK_BLENDS − 1).
+	Soil soil(int32_t x, int32_t z, const Ground &ground, const Strata &strata) const;
+	uint8_t blend(int32_t x, int32_t y, int32_t z) const;
 
 	// What can grow here (vegetation.cpp).
 	Cover cover(int32_t x, int32_t z, const Ground &ground) const;

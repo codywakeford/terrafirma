@@ -56,6 +56,8 @@ struct Substance
 	double fusion, vaporization;             // kJ/mol
 	double melt_slope;                       // K per MPa along the melting line (negative: water)
 	double heat_capacity;                    // J/(kg·K)
+	double density_solid, density_liquid;    // kg/m³
+	double conductivity[3];                  // W/(m·K): solid, liquid, gas
 	bool approximate;                        // some anchors are estimates
 
 	State state(double t, double p) const;
@@ -64,6 +66,10 @@ struct Substance
 	double meltingPoint(double p) const;     // solid–liquid, above the triple point's pressure
 	// Where it boils at this pressure, if it can be liquid there.
 	std::optional<double> boilingPoint(double p) const;
+	// kg/m³ in a state at t and p (a gas or supercritical fluid as an ideal gas).
+	double density(State s, double t, double p) const;
+	// W/(m·K) in a state (a supercritical fluid conducts like its gas).
+	double conducts(State s) const;
 };
 
 constexpr double ATMOSPHERE = 101325.0;

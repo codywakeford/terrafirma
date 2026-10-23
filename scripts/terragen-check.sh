@@ -10,7 +10,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cmake --build "$root/build" -j > /dev/null # the engine must match the source the predictor is built from
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-code="TF3.dGVycmE"
+code="TF5.dGVycmE"
 
 g++ -std=c++17 -O1 -I"$root/src" "$root"/src/terragen/*.cpp "$root/scripts/terragen-check/predict.cpp" -o "$work/predict"
 world="$work/world"
@@ -21,7 +21,7 @@ printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_b
 printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\n[end_of_params]\n' "$code" > "$world/map_meta.txt"
 
 port=$((30200 + RANDOM % 500))
-timeout 180 "$root/bin/luanti" --server --world "$world" --port "$port" 2>&1 | grep -oE '(PROBE|TERRA|WEATHER) .*' > "$work/log.txt" || true
+timeout 180 "$root/bin/luanti" --server --world "$world" --port "$port" 2>&1 | grep -oE '(PROBE|TERRA|WEATHER|ACT) .*' > "$work/log.txt" || true
 grep '^PROBE' "$work/log.txt" > "$work/probed.txt" || true
 "$work/predict" --terra "$code" "$work/log.txt" > "$work/terra-predicted.txt"
 
@@ -35,7 +35,8 @@ predicted, probed = table("predicted.txt"), table("probed.txt")
 # 20 blocks down, the rock, ore or cave terragen's geology decided
 TOP = {"deep": "gravel", "ocean": "sand", "seaice": "gravel", "beach": "sand", "desert": "sand",
        "savanna": "dry_grass", "grassland": "grass", "forest": "grass", "jungle": "grass",
-       "taiga": "grass", "tundra": "tundra", "rock": "stone", "snow": "snow"}
+       "taiga": "grass", "tundra": "tundra", "rock": "stone", "snow": "snow",
+       "monsoon": "grass", "mediterranean": "dry_grass"}
 BED = {"rock": "gravel", "snow": "gravel"}
 bad, kinds = [], {}
 for key, (terrain, water, kind, biome, deep) in predicted.items():
@@ -81,22 +82,42 @@ if not said: wrong.append("core.terra: nothing logged")
 print(f"core.terra check: {len(said) - len(wrong)}/{len(said)} columns agree")
 for w in wrong: print("  " + w)
 
-# core.terra.weather: sane air everywhere, near the climate, and saved with the world
+# core.terra.weather: sane air everywhere, near the climate, and saved with the world.
+# Near: the weather's seasons lag the sun (land a month, sea two) while terragen's
+# climate doesn't, so just after a polar summer the air runs up to ~half that
+# season's swing (±50 K at 75°) above it
 import math, os
 storm = []
 for l in open(f"{work}/log.txt"):
     f = l.split()
     if f[0] != "WEATHER": continue
     t, climate, rain, hpa, cloud = map(float, f[3:8])
-    if not all(math.isfinite(v) for v in (t, climate, rain, hpa, cloud)) or abs(t - climate) > 20 \
+    if not all(math.isfinite(v) for v in (t, climate, rain, hpa, cloud)) or abs(t - climate) > 25 \
             or rain < 0 or not 500 < hpa < 1100 or not 0 <= cloud <= 1:
-        storm.append(f"({f[1]}, {f[2]}): {t:.1f} °C (climate {climate:.1f}), {rain:.2f} mm/h, {hpa:.0f} hPa, cloud {cloud:.2f}")
+        storm.append(f"({f[1]}, {f[2]}) day {f[9]} hour {f[10]}: {t:.1f} °C (climate {climate:.1f}), {rain:.2f} mm/h, {hpa:.0f} hPa, cloud {cloud:.2f}")
 weathered = sum(1 for l in open(f"{work}/log.txt") if l.startswith("WEATHER"))
 if not weathered: storm.append("core.terra.weather: nothing logged")
 if not os.path.exists(f"{work}/world/weather.bin"): storm.append("weather.bin wasn't saved")
 print(f"weather check: {weathered - len(storm)}/{weathered} columns sane")
 for s in storm: print("  " + s)
-sys.exit(1 if bad or wrong or storm else 0)
+
+# the weather acting on the world: what tf_weather did to each column's top, against the weather there
+acted, odd, counts = 0, [], {}
+for l in open(f"{work}/log.txt"):
+    f = l.split()
+    if f[0] != "ACT": continue
+    acted += 1
+    _, x, z, name, action, now, t, snowing, rain = f
+    t, snowing, rain = float(t), snowing == "true", float(rain)
+    counts[action] = counts.get(action, 0) + 1
+    expect = {"freeze": "tf_weather:ice", "snow": "tf_weather:snow", "thaw": "tf_world:water_source", "melt": "air"}.get(action)
+    if expect and now != expect: odd.append(f"({x}, {z}) {action}: left {now}")
+    if name == "tf_world:water_source" and t < -3 and action != "freeze": odd.append(f"({x}, {z}) water at {t:.1f} °C didn't freeze")
+    if action == "snow" and not (snowing and rain > 0.05): odd.append(f"({x}, {z}) snow settled without snow falling")
+if not acted: odd.append("tf_weather: nothing acted on")
+print(f"weather on the world: {acted - len(odd)}/{acted} columns right ({', '.join(f'{n} {k}' for k, n in sorted(counts.items()))})")
+for o in odd: print("  " + o)
+sys.exit(1 if bad or wrong or storm or odd else 0)
 PY
 
 "$root/bin/luanti" --test-module TestTerragen 2>&1 | grep -E "Results|failed tests"

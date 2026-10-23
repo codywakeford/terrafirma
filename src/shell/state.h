@@ -5,6 +5,7 @@
 
 #include <json/json.h>
 #include <string>
+#include <unordered_set>
 #include <unordered_map>
 
 class Client;
@@ -51,6 +52,7 @@ private:
 
 	Opts m_opts;
 	std::unordered_map<std::string, std::string> m_sent;
+	std::unordered_set<std::string> m_sent_items;
 	Json::Value m_new_items = Json::objectValue;
 };
 

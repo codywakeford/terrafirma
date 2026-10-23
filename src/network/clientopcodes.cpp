@@ -113,6 +113,7 @@ const ToClientCommandHandler toClientCommandTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_SET_LIGHTING",             TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SetLighting }, // 0x63,
 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SpawnParticleBatch }, // 0x64,
 	{ "TOCLIENT_UI",                       TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Ui }, // 0x65 Terra Firma
+	{ "TOCLIENT_HORIZON",                  TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Horizon }, // 0x66 Terra Firma
 };
 
 const static ServerCommandFactory null_command_factory = { nullptr, 0, false };

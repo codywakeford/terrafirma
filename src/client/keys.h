@@ -33,6 +33,7 @@ public:
 		DROP,
 		INVENTORY,
 		LAB, // Terra Firma
+		WIKI, // Terra Firma
 		CHAT,
 		CMD,
 		CMD_LOCAL,

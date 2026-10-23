@@ -16,6 +16,7 @@
 #include "client/renderingengine.h"
 #include "clientdynamicinfo.h"
 #include "clouds.h"
+#include "far/view.h"
 #include "gui/touchcontrols.h"
 #include "irr_ptr.h"
 #include "irrlichttypes_bloated.h"
@@ -338,6 +339,7 @@ private:
 	Camera *camera = nullptr;
 	irr_ptr<Clouds> clouds;
 	irr_ptr<Sky> sky;
+	irr_ptr<far::View> far_view; // Terra Firma: the horizon, on a terra world
 	Hud *hud = nullptr;
 	Minimap *mapper = nullptr;
 	GameFormSpec m_game_formspec;

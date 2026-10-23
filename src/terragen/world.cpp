@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "world.h"
+#include "climate.h"
 #include "noise.h"
 #include "sun.h"
 #include <algorithm>
@@ -10,7 +11,7 @@ namespace terragen {
 
 const char *const BIOME_NAMES[(int)Biome::Count] = {
 	"deep", "ocean", "seaice", "beach", "desert", "savanna", "grassland",
-	"forest", "jungle", "taiga", "tundra", "rock", "snow",
+	"forest", "jungle", "taiga", "tundra", "rock", "snow", "monsoon", "mediterranean",
 };
 
 World::World(const WorldCode &code) : m_code(code), m_grid(gridFor(code))
@@ -24,16 +25,38 @@ fix World::latitude(fix v)
 
 fix World::sunlight(fix v, std::optional<fix> date) const
 {
-	fix latitude = World::latitude(v);
-	fix yearly = annualInsolation(latitude, m_code.tilt);
-	if (!date)
-		return yearly;
-	// that day's sun, plus a share of the year's (land and sea store heat)
-	fix today = insolation(latitude, declination(m_code.tilt, *date));
-	return mul(today, ratio(6, 10)) + mul(yearly, ratio(4, 10));
+	return terragen::sunlight(m_code, v, date);
 }
 
-static Biome classify(fix e, fix heat, fix wet)
+/*
+	Land biomes by climate, as data: the first niche a column fits. Heat
+	(−1..1), wetness (−1..1, from the year's rain) and seasonality (1: the
+	rain all falls in summer, −1: all in winter). Monsoon forest needs hot
+	land whose rain comes in summer; Mediterranean scrub, mild land whose
+	rain comes in winter. Hot land with a dry season and less rain is savanna.
+*/
+struct Niche
+{
+	fix heat_lo, heat_hi, wet_lo, wet_hi, season_lo, season_hi;
+	Biome biome;
+};
+
+const fix ANY = toFix(9);
+
+const Niche NICHES[] = {
+	{ -ANY, -ratio(30, 100), 0, ANY, -ANY, ANY, Biome::Taiga },
+	{ -ANY, -ratio(30, 100), -ANY, ANY, -ANY, ANY, Biome::Tundra },
+	{ ratio(20, 100), ANY, ratio(5, 100), ANY, ratio(55, 100), ANY, Biome::Monsoon },
+	{ ratio(35, 100), ANY, ratio(10, 100), ANY, -ANY, ratio(55, 100), Biome::Jungle },
+	{ ratio(30, 100), ANY, -ratio(55, 100), ANY, ratio(25, 100), ANY, Biome::Savanna }, // a wet season, then a dry one
+	{ ratio(35, 100), ANY, -ANY, -ratio(15, 100), -ANY, ANY, Biome::Desert },
+	{ ratio(35, 100), ANY, -ANY, ANY, -ANY, ANY, Biome::Savanna },
+	{ 0, ratio(35, 100), -ratio(60, 100), ratio(40, 100), -ANY, -ratio(30, 100), Biome::Mediterranean },
+	{ -ANY, ANY, ratio(5, 100), ANY, -ANY, ANY, Biome::Forest },
+	{ -ANY, ANY, -ANY, ANY, -ANY, ANY, Biome::Grassland },
+};
+
+static Biome classify(fix e, fix heat, fix wet, fix season)
 {
 	if (e < 0)
 		return heat < -ratio(75, 100) ? Biome::SeaIce : e < -ratio(18, 100) ? Biome::Deep : Biome::Ocean;
@@ -43,11 +66,10 @@ static Biome classify(fix e, fix heat, fix wet)
 		return Biome::Snow;
 	if (e > ratio(50, 100))
 		return heat < -ratio(10, 100) ? Biome::Snow : Biome::Rock;
-	if (heat < -ratio(30, 100))
-		return wet > 0 ? Biome::Taiga : Biome::Tundra;
-	if (heat > ratio(35, 100))
-		return wet > ratio(15, 100) ? Biome::Jungle : wet < -ratio(15, 100) ? Biome::Desert : Biome::Savanna;
-	return wet > ratio(5, 100) ? Biome::Forest : Biome::Grassland;
+	for (const Niche &n : NICHES)
+		if (heat >= n.heat_lo && heat < n.heat_hi && wet >= n.wet_lo && wet < n.wet_hi && season >= n.season_lo && season < n.season_hi)
+			return n.biome;
+	return Biome::Grassland; // the last niche takes everything
 }
 
 // The grid position of (u, v) between cell centres: cell indices and fractions.
@@ -121,6 +143,13 @@ void World::volcanic(int32_t x, int32_t z, int32_t &raise, int32_t &lava, int32_
 	}
 }
 
+fix World::between(const std::vector<fix> &f, fix u, fix v) const
+{
+	GridPoint p = gridPoint(u, v);
+	return lerp(lerp(f[Grid::index(p.cx0, p.cz0)], f[Grid::index(p.cx1, p.cz0)], p.tx),
+			lerp(f[Grid::index(p.cx0, p.cz1)], f[Grid::index(p.cx1, p.cz1)], p.tx), p.tz);
+}
+
 fix World::erosion(fix u, fix v) const
 {
 	const Grid &g = *m_grid;
@@ -141,13 +170,17 @@ Column World::column(fix u, fix v, fix sun) const
 	fix e = elevation(c, u, v, m_grid->sea_offset, belt, relief);
 	if (e >= 0) // only the land wears down; the sea floor stays as made
 		e = std::max<fix>(e + erosion(u, v), 0);
-	fix heat = mul(sun - ratio(55, 100), ratio(22, 10)) + c.star->warmth + mul(c.temperature, ratio(6, 10))
-			+ mul(fbm(u, v, c.seed_hash + HEAT, 3, 3, HALF), ratio(2, 10)) - mul(maxx(0, e), ratio(9, 10));
-	fix wet = moisture(c, u, v);
+	fix heat = heatAt(c, u, v, sun, e) + between(m_grid->sea_heat, u, v);
+	// the climate's rain here, in each season; the hemisphere decides which is summer
+	fix north = between(m_grid->rain_season[0], u, v), south = between(m_grid->rain_season[1], u, v);
+	fix rain = (north + south) / 2;
+	fix summer = v < HALF ? north : south, winter = v < HALF ? south : north;
+	fix season = div(summer - winter, summer + winter);
+	fix wet = clamp(log2(rain) / 2, -ONE, ONE);
 
 	bool polar = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
-	Biome biome = polar ? (e < 0 ? Biome::SeaIce : Biome::Snow) : classify(e, heat, wet);
-	return { e, heat, wet, biome, polar };
+	Biome biome = polar ? (e < 0 ? Biome::SeaIce : Biome::Snow) : classify(e, heat, wet, season);
+	return { e, heat, wet, rain, season, biome, polar };
 }
 
 // °C for a heat, fitted to the biome thresholds in classify(): snow below

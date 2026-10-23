@@ -3,12 +3,12 @@ import { onMounted } from "vue"
 import InventoryScreen from "../../game/inventory/InventoryScreen.vue"
 import { useMock } from "../mock"
 
-/** The real inventory screen against the mock engine's inventory rules. Try 4 sand or 4 stone in a 2×2. */
+/** The real inventory screen against the mock engine's inventory rules. */
 const mock = useMock()
 
 onMounted(() => {
     mock.emit({ kind: "mode", mode: "game" })
-    mock.emit({ kind: "state", section: "hotbar", value: { size: 8, selected: 0 } })
+    mock.emit({ kind: "state", section: "hotbar", value: { size: 9, selected: 0 } })
     mock.stock({
         0: { item: "tf_world:grass", count: 64, wear: 0 },
         1: { item: "tf_world:dirt", count: 40, wear: 0 },

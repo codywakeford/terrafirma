@@ -294,7 +294,7 @@ std::vector<Province> provinces(const WorldCode &c, const Grid &g)
 			out[i] = t.side[i] == Side::Overriding ? Province::Arc : Province::Orogen;
 		else if (t.boundary[i] == Boundary::Divergent && d <= 3)
 			out[i] = Province::Rift;
-		else if (e < ratio(12, 100) || (e < ratio(22, 100) && moisture(c, u, v) > 0) ||
+		else if (e < ratio(12, 100) || (e < ratio(22, 100) && g.rain((int32_t)i) > ONE) ||
 				// broad sagging basins inside plates, where old seas and swamps laid down their beds
 				(t.distance[i] > 8 && value(u, v, c.seed_hash + INLAND_BASIN, 4) > ratio(30, 100)))
 			out[i] = Province::Basin;

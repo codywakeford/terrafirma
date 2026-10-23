@@ -16,6 +16,7 @@ struct MainMenuData;
 
 #if USE_SHELL
 #include "shell/shell.h"
+#include "shell/wiki.h"
 #include <memory>
 #endif
 
@@ -48,5 +49,6 @@ private:
 	MyEventReceiver *receiver = nullptr;
 #if USE_SHELL
 	std::unique_ptr<shell::Shell> m_shell;
+	std::unique_ptr<shell::Wiki> m_wiki; // after m_shell: gone before it (it unregisters its verbs)
 #endif
 };

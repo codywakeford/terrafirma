@@ -4,7 +4,6 @@
 #pragma once
 
 #include "content/subgames.h"
-#include "matter.h"
 #include <optional>
 #include <string>
 
@@ -42,7 +41,6 @@ private:
 	RenderingEngine *m_engine;
 	const Worlds &m_worlds;
 	const Lab &m_lab;
-	MatterVerbs m_matter;
 	std::optional<WorldSpec> m_choice;
 	bool m_quit = false;
 };

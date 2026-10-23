@@ -29,6 +29,9 @@ static const Option OPTIONS[] = {
 	{ "fullscreen", Kind::Flag, 0, 0 },
 	{ "vsync", Kind::Flag, 0, 0 },
 	{ "enable_dynamic_shadows", Kind::Flag, 0, 0 },
+	{ "far_view", Kind::Flag, 0, 0 },
+	{ "far_view_detail", Kind::Number, 1, 4 },
+	{ "far_view_max", Kind::Number, 2000, 64000 },
 };
 
 static const Option &find(const std::string &key)

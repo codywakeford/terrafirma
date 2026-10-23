@@ -24,7 +24,7 @@
 namespace shell {
 
 static const char *const VERBS[] = {
-	"worlds.list", "worlds.create", "worlds.delete", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "matter.list", "matter.state", "matter.react", "weather.preview",
+	"worlds.list", "worlds.create", "worlds.delete", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
 };
 
 static Json::Value worldJson(const WorldSpec &world)
@@ -70,6 +70,9 @@ static Json::Value previewJson(const Json::Value &intent)
 	out["elevation"] = bytes(p.elevation.data(), p.elevation.size() * sizeof(int16_t));
 	out["heat"] = bytes(p.heat.data(), p.heat.size());
 	out["wet"] = bytes(p.wet.data(), p.wet.size());
+	out["season"] = bytes(p.season.data(), p.season.size());
+	out["fertility"] = bytes(p.fertility.data(), p.fertility.size());
+	out["current"] = bytes(p.current.data(), p.current.size());
 	out["biome"] = bytes(p.biome.data(), p.biome.size());
 	out["lake"] = bytes(p.lake.data(), p.lake.size());
 	out["grid"] = p.grid;
@@ -90,7 +93,8 @@ static Json::Value previewJson(const Json::Value &intent)
 	maps at evenly spaced dates (from the northern spring equinox), on the
 	weather's own grid. Each field holds every snapshot in turn, as base64:
 	rain uint8 (√(mm/h) × 100), cloud uint8 (× 255), temperature int8 (°C),
-	wind east and north int8 (m/s), pressure int8 (hPa from the mean).
+	wind east and north int8 (m/s), pressure int8 (hPa from its latitude's
+	mean: the storms and the land's highs and lows, not the circulation's bands).
 */
 static Json::Value weatherJson(const Json::Value &intent)
 {
@@ -105,15 +109,20 @@ static Json::Value weatherJson(const Json::Value &intent)
 
 	std::string rain, cloud, temperature, east, north, pressure;
 	auto byte = [](double v, double lo, double hi) { return (char)(int8_t)std::lround(std::clamp(v, lo, hi)); };
-	for (const fluid::Layer::Fields &f : year)
+	int32_t width = 64;
+	for (const fluid::Layer::Fields &f : year) {
+		std::vector<double> zonal(f.t.size() / width, 0);
+		for (size_t i = 0; i < f.t.size(); i++)
+			zonal[i / width] += f.pressure[i] / width;
 		for (size_t i = 0; i < f.t.size(); i++) {
 			rain += (char)(uint8_t)std::lround(std::min(255.0, std::sqrt(f.rain[i]) * 100));
 			cloud += (char)(uint8_t)std::lround(f.cloud[i] * 255);
 			temperature += byte(f.t[i] - 273.15, -128, 127);
 			east += byte(f.u[i], -128, 127);
 			north += byte(f.v[i], -128, 127);
-			pressure += byte(f.pressure[i] / 100, -128, 127);
+			pressure += byte((f.pressure[i] - zonal[i / width]) / 100, -128, 127);
 		}
+	}
 	Json::Value out;
 	out["resolution"] = 64;
 	out["snapshots"] = snapshots;
@@ -179,15 +188,6 @@ Menu::Menu(const Opts &opts) :
 	// microseconds: a few hundred fixed-point steps per body
 	m_shell.on("system.preview", [](const Json::Value &intent) {
 		return systemPreview(intent);
-	});
-	m_shell.on("matter.list", [this](const Json::Value &) {
-		return m_matter.list();
-	});
-	m_shell.on("matter.state", [this](const Json::Value &intent) {
-		return m_matter.state(intent);
-	});
-	m_shell.on("matter.react", [this](const Json::Value &intent) {
-		return m_matter.react(intent);
 	});
 	m_shell.on("quit", [this](const Json::Value &) {
 		m_quit = true;

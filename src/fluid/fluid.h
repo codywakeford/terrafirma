@@ -72,6 +72,7 @@ struct Ground
 	bool water;    // a sea or lake of the condensable
 	double soil;   // land only: how wet the ground starts, 0..1
 	double anchor; // annual mean surface temperature here, K; 0 = the layer's own
+	double season; // with an anchor: half its swing from northern winter to summer, K (negative south)
 };
 
 // A volcano that can put ash in the air.
@@ -152,6 +153,20 @@ public:
 	// `height` m above the datum and `hour` (0..1) of the local day.
 	Sample sample(double u, double v, double height, double hour) const;
 
+	const LayerOpts &opts() const { return m_opts; }
+	// How far the air at (u, v) is from where the surface's seasons alone
+	// would put it on `date` (K): the seasons' lag and the weather. A world
+	// that knows its own climate better adds this to it.
+	double departure(double u, double v, double date) const;
+	// The layer's own long-run precipitation at (u, v), mm/h (a year's running mean).
+	double climatology(double u, double v) const;
+	// The events under way for a sample taken at (u, v) — again, for a sample
+	// a world has adjusted.
+	uint32_t events(const Sample &s, double u, double v) const;
+	// Whether the condensable falls as its solid at t and p.
+	bool frozen(double t, double p) const;
+	double lapse() const; // K/m: how the air cools with height
+
 	int32_t width() const { return m_opts.width; }
 	int32_t height() const { return m_opts.height; }
 	const Circulation &circulation() const { return m_circulation; }
@@ -175,6 +190,7 @@ public:
 private:
 	double latitude(int32_t row) const;
 	double insolation(double latitude, double date) const; // daily mean, W/m²
+	double sunlit(int32_t row, double date) const;        // the layer's own: where sunlight alone takes the surface, K
 	double radiative(int32_t cell, double date) const;    // where the surface heads, K
 	void wind(double date);
 	void advect(std::vector<double> &field, double dt);
@@ -187,13 +203,14 @@ private:
 	void stormWind(int32_t cell, double &u, double &v, double &w, double &dp) const;
 	// events.cpp
 	uint32_t events(const Sample &s, int32_t cell) const;
+	int32_t nearest(double u, double v) const;
 
 	LayerOpts m_opts;
 	Circulation m_circulation;
 	double m_cp, m_molar, m_scale; // air: J/(kg·K), kg/mol, scale height m
 	double m_latent;                // the condensable's, J/kg
 	double m_feedback;              // W/(m²·K): how much more a warmer surface radiates
-	std::vector<double> m_offset;   // per cell: anchor − the layer's own annual mean
+	std::vector<double> m_annual, m_swing; // per row: the layer's own annual mean and half its seasonal swing
 	std::vector<double> m_lift;     // per cell, last step: rising air, m/s
 	Fields m_f;
 	std::vector<Storm> m_storms;

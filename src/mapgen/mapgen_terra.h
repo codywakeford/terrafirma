@@ -5,13 +5,19 @@
 
 #include "mapgen.h"
 #include "terragen/world.h"
+#include "mapgen/terra_column.h"
 #include <string>
 
 class Biome;
+class BiomeManager;
+
+// The game's blocks for everything the terra generator places (and the far
+// view draws). Throws if the game lacks one.
+terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef);
 
 struct MapgenTerraParams : public MapgenParams
 {
-	// The world code (TF3.…): everything terragen needs. Written into the
+	// The world code (TF5.…): everything terragen needs. Written into the
 	// world's map_meta.txt when the world is created.
 	std::string code;
 
@@ -38,28 +44,19 @@ public:
 	int getGroundLevelAtPoint(v2s16 p);
 
 private:
-	// Fills stone, water and air from terragen; records each column's surface
-	// and biome. Returns the highest stone placed.
+	// Fills stone, water and air from terragen; records each column. Returns
+	// the highest stone placed.
 	s16 generateTerrain();
-	// Paints each column with its biome's surface nodes and fills the biome map.
+	// Fills the biome map (the engine's passes read it). The soil is painted
+	// as the terrain is filled: terra::Columns::node.
 	void paintSurface();
 	// The finished column at (x, z), or false beyond the polar edge.
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
 
 	terragen::World m_world;
+	terra::Columns m_columns; // what goes in each column (shared with the far view)
 	Biome *m_biomes[(int)terragen::Biome::Count];
-	content_t c_ice;
-	// the game's blocks for terragen's rocks and ores (aliases mapgen_rock_*,
-	// mapgen_ore_*), gold-bearing river gravel (mapgen_placer), lava
-	content_t c_rock[(int)terragen::Rock::Count];
-	content_t c_ore[(int)terragen::Ore::Count];
-	content_t c_placer;
 
 	// per column of the current chunk (z outer, x inner)
-	std::vector<s32> m_surface;
-	std::vector<s32> m_water;             // water surface, or below m_surface when dry
-	std::vector<terragen::Water> m_kind;
-	std::vector<terragen::Biome> m_column_biome;
-	std::vector<bool> m_polar;
-	std::vector<bool> m_placer;           // its river gravels carry gold
+	std::vector<terra::Column> m_column;
 };

@@ -642,6 +642,9 @@ void Game::shutdown()
 	}
 
 	clouds.reset();
+	if (far_view)
+		far_view->remove(); // the scene manager holds it too
+	far_view.reset();
 
 	gui_chat_console.reset();
 
@@ -1460,6 +1463,8 @@ void Game::processKeyInput()
 #if USE_SHELL
 	} else if (wasKeyDown(KeyType::LAB)) {
 		m_shell_session->screens().open("lab");
+	} else if (wasKeyDown(KeyType::WIKI)) {
+		m_shell_session->screens().open("wiki");
 #endif
 	} else if (input->cancelPressed()) {
 #ifdef __ANDROID__
@@ -1672,6 +1677,9 @@ void Game::toggleFreeMove()
 	bool free_move = !g_settings->getBool("free_move");
 	g_settings->set("free_move", bool_to_cstr(free_move));
 
+#if USE_SHELL
+	return; // Terra Firma: flying shows itself, as Minecraft's does: no status text
+#endif
 	if (free_move) {
 		if (client->checkPrivilege("fly")) {
 			m_game_ui->showTranslatedStatusText("Fly mode enabled");
@@ -3458,6 +3466,22 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 		runData.fog_range = FOG_RANGE_ALL;
 	} else {
 		runData.fog_range = draw_control->wanted_range * BS;
+	}
+
+	// Terra Firma: the far view, once the server says this is a terra world.
+	// Created after the sky, so it draws right after it. The fog moves out to
+	// its horizon.
+	if (!far_view && client->getHorizon())
+		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(),
+				*client->getHorizon());
+	if (far_view) {
+		std::optional<float> fog_limit;
+		if (sky->getFogDistance() >= 0)
+			fog_limit = sky->getFogDistance();
+		far_view->update(*camera, client->getEnv().getClientMap(), draw_control->wanted_range,
+				draw_control->range_all, fog_limit);
+		if (far_view->showing())
+			runData.fog_range = far_view->range() * BS;
 	}
 
 	/*

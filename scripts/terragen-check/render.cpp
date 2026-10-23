@@ -2,7 +2,7 @@
 // shaded relief, lakes, rivers by flow — and prints how long the grid took and
 // what share is land. For tuning generation by eye:
 //   g++ -std=c++17 -O2 -I src src/terragen/*.cpp scripts/terragen-check/render.cpp -o render
-//   ./render TF3.dGVycmE out.png [scale] [relief|plates|provinces]
+//   ./render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 #include "terragen/world.h"
 #include <algorithm>
 #include <chrono>
@@ -72,6 +72,7 @@ int main(int argc, char **argv)
 	auto t0 = std::chrono::steady_clock::now();
 	WorldCode code = WorldCode::decode(argv[1]);
 	std::shared_ptr<const Grid> g = gridFor(code);
+	World world(code);
 	double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
 	int land = 0, open = 0, lakes = 0, rivers = 0;
@@ -116,6 +117,37 @@ int main(int argc, char **argv)
 					{ 90, 170, 160 }, { 120, 170, 90 }, { 60, 40, 40 }, { 40, 70, 130 } };
 				const unsigned char *pc = PC[(int)g->province[i]];
 				r = pc[0] * shade; gg = pc[1] * shade; b = pc[2] * shade;
+			} else if (mode == "rain") {
+				// the year's rain: brown (dry) through green to deep blue (soaked), log scale
+				double t = std::clamp((std::log2(g->rain(i) / 65536.0) + 2.5) / 4.5, 0.0, 1.0);
+				r = 200 - 180 * t; gg = 160 + 40 * std::sin(t * 3.14) - 60 * t; b = 70 + 170 * t;
+				r *= shade; gg *= shade; b *= shade;
+			} else if (mode == "season") {
+				// when it rains: red summer, blue winter, grey even; darker where dry
+				fix u = ratio(2 * cx + 1, 2 * GRID), v = ratio(2 * cz + 1, 2 * GRID);
+				Column c = world.column(u, v, world.sunlight(v, std::nullopt));
+				double s = c.season / 65536.0, amount = std::clamp(0.4 + c.wet / 65536.0 * 0.6, 0.2, 1.0);
+				r = (140 + 110 * std::max(0.0, s) - 100 * std::max(0.0, -s)) * amount;
+				gg = (140 - 70 * std::fabs(s)) * amount;
+				b = (140 + 110 * std::max(0.0, -s) - 100 * std::max(0.0, s)) * amount;
+			} else if (mode == "biomes") {
+				static const unsigned char BC[(int)Biome::Count][3] = { { 18, 52, 96 }, { 30, 84, 140 }, { 200, 220, 235 },
+					{ 214, 200, 140 }, { 222, 190, 118 }, { 176, 170, 84 }, { 104, 160, 72 }, { 52, 116, 56 }, { 28, 120, 60 },
+					{ 60, 100, 80 }, { 150, 160, 140 }, { 120, 116, 110 }, { 236, 240, 244 }, { 96, 140, 40 }, { 160, 150, 96 } };
+				fix u = ratio(2 * cx + 1, 2 * GRID), v = ratio(2 * cz + 1, 2 * GRID);
+				const unsigned char *bc = BC[(int)world.column(u, v, world.sunlight(v, std::nullopt)).biome];
+				r = bc[0] * shade; gg = bc[1] * shade; b = bc[2] * shade;
+			} else if (mode == "currents") {
+				// what the currents do to the heat: red warmer than the latitude, blue colder
+				double a = std::clamp(g->sea_heat[i] / 65536.0 / 0.25, -1.0, 1.0);
+				double base = e < 0 ? 70 : 150;
+				r = base + 170 * std::max(0.0, a) - 40 * std::max(0.0, -a);
+				gg = base - 40 * std::fabs(a);
+				b = base + 170 * std::max(0.0, -a) - 40 * std::max(0.0, a);
+				if (e >= 0) { r *= shade; gg *= shade; b *= shade; }
+			} else if (mode == "fertility") {
+				double f = g->fertility[i] / 65536.0;
+				if (e >= 0) { r = (90 + 80 * (1 - f)) * shade; gg = (70 + 120 * f) * shade; b = 50 * shade; }
 			}
 			if (mode != "relief") {
 			} else if (g->lake[i]) { r = 60; gg = 150; b = 210; }
@@ -129,7 +161,7 @@ int main(int argc, char **argv)
 			rgb[o + 2] = (unsigned char)std::clamp(b, 0.0, 255.0);
 		}
 	// volcanoes: white (active) and grey rings
-	if (mode != "relief") {
+	if (mode == "plates" || mode == "provinces") {
 		int32_t cell = code.size / GRID, half = code.size / 2;
 		for (const Volcano &v : g->volcanoes) {
 			int cx = (v.x + half) / cell, cz = (half - v.z) / cell;

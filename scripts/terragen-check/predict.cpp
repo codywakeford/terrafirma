@@ -87,8 +87,8 @@ int main(int argc, char **argv)
 		case Biome::Ocean: return bed ? 5 : 4;
 		case Biome::Beach: return 4;
 		case Biome::Desert: return 8;
-		case Biome::Jungle: return bed ? 6 : 5;
-		case Biome::Tundra: return bed ? 4 : 3;
+		case Biome::Jungle: case Biome::Monsoon: return bed ? 6 : 5;
+		case Biome::Tundra: case Biome::Mediterranean: return bed ? 4 : 3;
 		case Biome::Rock: return bed ? 2 : 0;
 		case Biome::Snow: return bed ? 2 : 1;
 		default: return bed ? 5 : 4;

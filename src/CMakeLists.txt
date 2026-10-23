@@ -439,9 +439,11 @@ add_subdirectory(content)
 add_subdirectory(database)
 add_subdirectory(mapgen)
 add_subdirectory(terragen)
+add_subdirectory(far)
 add_subdirectory(matter)
 add_subdirectory(fluid)
 add_subdirectory(weather)
+add_subdirectory(sandbox)
 add_subdirectory(network)
 add_subdirectory(script)
 add_subdirectory(util)
@@ -542,9 +544,11 @@ set(common_SRCS
 	${common_server_SRCS}
 	${mapgen_SRCS}
 	${terragen_SRCS}
+	${far_SRCS}
 	${matter_SRCS}
 	${fluid_SRCS}
 	${weather_SRCS}
+	${sandbox_SRCS}
 	${server_network_SRCS}
 	${test_SRCS}
 	${unittest_SRCS}
@@ -596,6 +600,7 @@ list(APPEND client_SRCS
 	${client_network_SRCS}
 	${client_irrlicht_changes_SRCS}
 	${shell_SRCS}
+	${far_client_SRCS}
 	${client_SCRIPT_SRCS}
 	${test_client_SRCS}
 	${unittest_client_SRCS}

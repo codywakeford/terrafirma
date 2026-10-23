@@ -4,7 +4,6 @@
 #include "fluid.h"
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 namespace fluid {
 
@@ -16,14 +15,19 @@ static const double EXCHANGE = 1.3e-3;   // bulk transfer coefficient for evapor
 static const double MOIST_SHARE = 0.3;   // the share of the column's mass that holds its vapour
 static const double CRITICAL = 0.85;     // mean relative humidity where part of a cell starts to condense
 static const double LIFTING = 6 * 3600;  // s: how long rising air rises before it rains out
+static const double ALOFT_SHARE = 0.2;   // of the latent heat, what stays in the air near the ground (most warms the air aloft, where it condenses)
 static const double BOUNDARY = 8000;     // m: the low air whose convergence feeds rising air
 static const double CONDENSE = 3 * 3600; // s: how fast excess vapour rains out
 static const double SOIL = 150;          // kg/m²: what a full bucket of ground holds
 static const double EDDY = 1.5e6;        // m²/s: heat carried poleward by the eddies the grid can't hold
 static const double COUPLE = 86400;      // s: the air follows its surface
-static const double LAND = 2 * 86400;    // s: land follows its sunlight
+// How slowly the surface follows the seasons, as a share of the year (a
+// relaxation time τ): a season's swing is damped to 1/√(1 + (2πτ)²) and
+// arrives atan(2πτ) late — land about a month behind the sun, the sea's
+// mixed layer about two, at half the swing (Earth's)
+static const double SEA_INERTIA = 0.3;
+static const double LAND_INERTIA = 0.1;
 static const double ASH_LIFE = 5 * 86400;
-static const double DAY_SWING = 5;       // K either side of the daily mean, clear sky over land
 
 Layer::Layer(LayerOpts opts) : m_opts(std::move(opts))
 {
@@ -52,17 +56,13 @@ Layer::Layer(LayerOpts opts) : m_opts(std::move(opts))
 	m_feedback = FEEDBACK * 4 * STEFAN * std::pow(o.air.mean, 3);
 	m_circulation = circulate(o.planet, o.air);
 
-	// where the ground has its own annual mean, the layer's seasons swing about it
-	m_offset.assign(n, 0);
+	// the layer's own seasons by latitude, which an anchored cell rescales to its own
+	m_annual.assign(o.height, 0);
+	m_swing.assign(o.height, 0);
 	for (int32_t row = 0; row < o.height; row++) {
-		double annual = 0;
 		for (int k = 0; k < 24; k++)
-			annual += radiative(row * o.width, k / 24.0) / 24;
-		for (int32_t col = 0; col < o.width; col++) {
-			const Ground &g = o.ground[row * o.width + col];
-			if (g.anchor > 0)
-				m_offset[row * o.width + col] = g.anchor - annual;
-		}
+			m_annual[row] += sunlit(row, k / 24.0) / 24;
+		m_swing[row] = (sunlit(row, 0.25) - sunlit(row, 0.75)) / 2;
 	}
 
 	Fields &f = m_f;
@@ -89,15 +89,25 @@ double Layer::insolation(double lat, double date) const
 	return std::max(q, 0.0);
 }
 
+double Layer::sunlit(int32_t row, double date) const
+{
+	double q = insolation(latitude(row), date);
+	return m_opts.air.mean + (q - m_opts.planet.sunlight / 4) * (1 - ALBEDO) / (m_feedback * (1 + TRANSPORT));
+}
+
 double Layer::radiative(int32_t cell, double date) const
 {
 	const LayerOpts &o = m_opts;
-	double q = insolation(latitude(cell / o.width), date);
-	double t = o.air.mean + (q - o.planet.sunlight / 4) * (1 - ALBEDO) / (m_feedback * (1 + TRANSPORT));
+	int32_t row = cell / o.width;
+	double t = sunlit(row, date);
 	const Ground &g = o.ground[cell];
-	if (g.anchor > 0 && !m_offset.empty())
-		return t + m_offset[cell];
-	return t - std::max(g.height, 0.0) * o.planet.gravity / m_cp * 0.65;
+	if (g.anchor <= 0)
+		return t - std::max(g.height, 0.0) * lapse();
+	// the anchor's annual mean and swing, on the layer's own seasonal curve
+	double swing = m_swing[row];
+	if (std::fabs(swing) < 1) // near the equator: no season to rescale
+		return g.anchor + t - m_annual[row];
+	return g.anchor + g.season * (t - m_annual[row]) / swing;
 }
 
 double Layer::saturation(double t, double p) const
@@ -115,10 +125,17 @@ void Layer::step(double dt, double date)
 		throw FluidError("fluid layer: steps must move forward");
 	storm(dt, date);
 	wind(date);
+	// air keeps its potential temperature as it moves (what it would be
+	// brought down to the datum): blown up a plateau, it arrives cooler
+	double lapse = this->lapse();
+	for (size_t i = 0; i < m_f.t.size(); i++)
+		m_f.t[i] += lapse * std::max(m_opts.ground[i].height, 0.0);
 	for (auto *field : { &m_f.t, &m_f.q, &m_f.ash })
 		advect(*field, dt);
 	spread(m_f.t, EDDY, dt);
 	spread(m_f.q, EDDY / 2, dt);
+	for (size_t i = 0; i < m_f.t.size(); i++)
+		m_f.t[i] -= lapse * std::max(m_opts.ground[i].height, 0.0);
 	heat(dt, date);
 	moisture(dt);
 	ashes(dt);
@@ -207,7 +224,7 @@ void Layer::heat(double dt, double date)
 	const LayerOpts &o = m_opts;
 	for (size_t i = 0; i < m_f.t.size(); i++) {
 		double target = radiative((int32_t)i, date) - 20 * m_f.ash[i];
-		double inertia = o.ground[i].water ? o.planet.year / 8 : LAND;
+		double inertia = (o.ground[i].water ? SEA_INERTIA : LAND_INERTIA) * o.planet.year;
 		m_f.ts[i] += (target - m_f.ts[i]) * std::min(1.0, dt / inertia);
 		m_f.t[i] += (m_f.ts[i] - m_f.t[i]) * std::min(1.0, dt / COUPLE);
 	}
@@ -234,14 +251,17 @@ void Layer::moisture(double dt)
 
 		// rising air is fed by low air flowing in from around it, carrying its
 		// vapour; sinking air spreads out and takes it away
-		q *= std::exp(std::clamp(m_lift[i] * dt / BOUNDARY, -1.0, 1.0));
+		// (never past what the surface under it could saturate: the inflow
+		// is surface air, and nothing here takes it from the neighbours)
+		double fed = q * std::exp(std::clamp(m_lift[i] * dt / BOUNDARY, -1.0, 1.0));
+		q = fed > q ? std::min(fed, std::max(q, saturation(m_f.ts[i], p))) : fed;
 
 		// rising air cools and rains out what it can't hold; sinking air dries
 		double lifted = t - lapse * m_lift[i] * LIFTING;
 		double holds = CRITICAL * saturation(lifted, p);
 		double condensed = std::max(q - holds, 0.0) * std::min(1.0, dt / CONDENSE);
 		q -= condensed;
-		t += m_latent * condensed * MOIST_SHARE / m_cp;
+		t += ALOFT_SHARE * m_latent * condensed * MOIST_SHARE / m_cp;
 		m_f.cloud[i] = std::clamp((q / holds - 0.6) / 0.4, 0.0, 1.0);
 
 		double fallen = condensed * column; // kg/m²
@@ -259,111 +279,6 @@ void Layer::ashes(double dt)
 		m_f.ash[v.cell] = std::min(1.0, m_f.ash[v.cell] + v.strength * dt / 86400);
 	for (size_t i = 0; i < m_f.ash.size(); i++)
 		m_f.ash[i] *= std::exp(-dt / ASH_LIFE - m_f.rain[i] * dt / 3600 * 0.05); // settles, and rain washes it out
-}
-
-Sample Layer::sample(double u, double v, double height, double hour) const
-{
-	const LayerOpts &o = m_opts;
-	double x = u * o.width - 0.5, y = std::clamp(v * o.height - 0.5, 0.0, o.height - 1.0);
-	int32_t x0 = (int32_t)std::floor(x), y0 = std::min((int32_t)y, o.height - 2);
-	double fx = x - x0, fy = y - y0;
-	auto cell = [&](int32_t c, int32_t r) { return r * o.width + ((c % o.width) + o.width) % o.width; };
-	auto at = [&](const std::vector<double> &f) {
-		return (f[cell(x0, y0)] * (1 - fx) + f[cell(x0 + 1, y0)] * fx) * (1 - fy)
-				+ (f[cell(x0, y0 + 1)] * (1 - fx) + f[cell(x0 + 1, y0 + 1)] * fx) * fy;
-	};
-	int32_t near = cell((int32_t)std::lround(x), (int32_t)std::lround(y));
-	const Ground &g = o.ground[near];
-	double ground = std::max(g.height, 0.0);
-
-	Sample s;
-	s.cloud = at(m_f.cloud);
-	double swing = DAY_SWING * (1 - 0.6 * s.cloud) * (g.water ? 0.4 : 1);
-	s.temperature = at(m_f.t) - o.planet.gravity / m_cp * 0.65 * (height - ground)
-			+ swing * std::cos(2 * M_PI * (hour - 0.625)); // warmest at 15:00
-	s.pressure = (o.air.pressure + at(m_f.pressure)) * std::exp(-height / m_scale);
-	s.humidity = std::min(1.0, at(m_f.q) / saturation(s.temperature, s.pressure));
-	s.precipitation = at(m_f.rain);
-	s.snow = s.temperature < o.air.condensable.meltingPoint(std::max(s.pressure, o.air.condensable.triple.p));
-	s.wind_u = at(m_f.u);
-	s.wind_v = at(m_f.v);
-	s.ash = at(m_f.ash);
-	s.events = events(s, near);
-	return s;
-}
-
-// --- saving -----------------------------------------------------------------
-
-static const char MAGIC[8] = { 'T', 'F', 'W', 'X', 0, 0, 0, 1 };
-
-template <typename T>
-static void put(std::string &out, const T &v)
-{
-	out.append(reinterpret_cast<const char *>(&v), sizeof v);
-}
-
-template <typename T>
-static T take(const std::string &in, size_t &at)
-{
-	if (at + sizeof(T) > in.size())
-		throw FluidError("weather state: cut short");
-	T v;
-	std::memcpy(&v, in.data() + at, sizeof v);
-	at += sizeof v;
-	return v;
-}
-
-std::string Layer::save() const
-{
-	std::string out(MAGIC, sizeof MAGIC);
-	put(out, m_opts.width);
-	put(out, m_opts.height);
-	put(out, m_opts.seed);
-	put(out, m_time);
-	put(out, m_steps);
-	for (const auto *f : { &m_f.t, &m_f.q, &m_f.ts, &m_f.soil, &m_f.ash, &m_f.recent, &m_f.normal })
-		for (double v : *f)
-			put(out, v);
-	put(out, (uint32_t)m_storms.size());
-	for (const Storm &s : m_storms) { // field by field: the struct's padding isn't state
-		put(out, (uint8_t)s.kind);
-		for (double v : { s.lon, s.lat, s.radius, s.depth, s.age })
-			put(out, v);
-	}
-	return out;
-}
-
-void Layer::load(const std::string &in)
-{
-	if (in.size() < sizeof MAGIC || std::memcmp(in.data(), MAGIC, sizeof MAGIC) != 0)
-		throw FluidError("weather state: not a weather file (or an older version)");
-	size_t at = sizeof MAGIC;
-	if (take<int32_t>(in, at) != m_opts.width || take<int32_t>(in, at) != m_opts.height
-			|| take<uint64_t>(in, at) != m_opts.seed)
-		throw FluidError("weather state: saved for a different world");
-	double time = take<double>(in, at);
-	uint64_t steps = take<uint64_t>(in, at);
-	Fields f = m_f;
-	for (auto *field : { &f.t, &f.q, &f.ts, &f.soil, &f.ash, &f.recent, &f.normal })
-		for (double &v : *field)
-			v = take<double>(in, at);
-	uint32_t count = take<uint32_t>(in, at);
-	std::vector<Storm> storms;
-	for (uint32_t k = 0; k < count; k++) {
-		uint8_t kind = take<uint8_t>(in, at);
-		if (kind > (uint8_t)StormKind::Tropical)
-			throw FluidError("weather state: an unknown kind of storm");
-		Storm s{ (StormKind)kind, 0, 0, 0, 0, 0 };
-		for (double *v : { &s.lon, &s.lat, &s.radius, &s.depth, &s.age })
-			*v = take<double>(in, at);
-		storms.push_back(s);
-	}
-	if (at != in.size())
-		throw FluidError("weather state: trailing bytes");
-	m_f = std::move(f);
-	m_storms = std::move(storms);
-	m_time = time;
-	m_steps = steps;
 }
 
 const matter::Substance &pickCondensable(const std::vector<const matter::Substance *> &candidates,

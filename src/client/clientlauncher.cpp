@@ -87,6 +87,8 @@ ClientLauncher::~ClientLauncher()
 	assert(g_menumgr.menuCount() == 0);
 
 #if USE_SHELL
+	// the wiki unregisters its verbs from the shell, so it goes first
+	m_wiki.reset();
 	// Its texture and IME element belong to the device about to be deleted.
 	m_shell.reset();
 #endif
@@ -179,6 +181,7 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 		RenderingEngine::getDisplayDensity(),
 		g_settings->getBool("shell_gpu"),
 	});
+	m_wiki = std::make_unique<shell::Wiki>(*m_shell); // answers in the menu and in game alike
 #endif
 
 	g_menuclouds->setHeight(100.0f);

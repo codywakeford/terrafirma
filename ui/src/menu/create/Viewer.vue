@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import PixelIcon from "../../game/PixelIcon.vue"
 import { IconTile, Segmented, Slider } from "../../kit"
 import { body as bodyOf, STAR, type Body } from "../../system/model"
@@ -9,6 +9,7 @@ import GlobeView from "../../worldgen/GlobeView.vue"
 import MapView from "../../worldgen/MapView.vue"
 import { OVERLAYS, paint, type OverlayId } from "../../worldgen/fields"
 import { OVERLAY_ICONS } from "../../worldgen/overlayIcons"
+import { paintWeather } from "../../worldgen/weather"
 import StarView from "../../worldgen/StarView.vue"
 import Interior from "../../system/Interior.vue"
 import SystemView from "../../worldgen/SystemView.vue"
@@ -49,7 +50,14 @@ const reliefs = [
     { value: 0.16, label: "4×" },
 ] as const
 
-const image = computed(() => (previewer.fields.value ? paint(previewer.fields.value, overlay.value) : null))
+watch(overlay, (o) => { if (o === "weather") looks.wantWeather() })
+const image = computed(() => {
+    const fields = previewer.fields.value
+    if (!fields) return null
+    if (overlay.value !== "weather") return paint(fields, overlay.value)
+    const weather = looks.weather.at(date.value)
+    return weather ? paintWeather(fields, weather) : null
+})
 const systemSurfaces = computed(() => props.draft.system.bodies.flatMap((b) => {
     const image = looks.image(b.id)
     return image ? [{ id: b.id, image: image }] : []
@@ -93,7 +101,7 @@ const kindNote = computed(() => {
                     <GlobeView v-else :image="selectedSurface.image" :elevation="selectedSurface.elevation" :relief="relief" :sun="sun"
                         :rotation-period="chosen.day" />
                 </template>
-                <div v-else class="pending">{{ previewer.problem.value ?? 'generating…' }}</div>
+                <div v-else class="pending">{{ previewer.problem.value ?? looks.weather.problem.value ?? (overlay === 'weather' && previewer.fields.value ? 'the weather is settling…' : 'generating…') }}</div>
             </div>
 
 

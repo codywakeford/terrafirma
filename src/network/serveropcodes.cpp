@@ -215,4 +215,5 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_SET_LIGHTING",             0, true }, // 0x63
 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     0, true }, // 0x64
 	{ "TOCLIENT_UI",                       0, true }, // 0x65 Terra Firma
+	{ "TOCLIENT_HORIZON",                  0, true }, // 0x66 Terra Firma
 };

@@ -2,8 +2,8 @@
 -- geology.*). The map generator finds them by alias — mapgen_rock_<rock>,
 -- mapgen_ore_<ore>, mapgen_placer, mapgen_lava_source — and refuses to start
 -- if one is missing. `_matter` names what each is made of in the engine's
--- matter tables (matter/*.json), for the systems that will melt, smelt and
--- dissolve them.
+-- matter tables (matter/*.json) — see tf_matter, which hands it to the
+-- world's physics (core.matter).
 
 local function tex(name)
 	return "tf_goodvibes_" .. name .. ".png"
@@ -21,13 +21,37 @@ local ROCKS = {
 	{ "shale", "Shale", 3, "shale" },
 	{ "limestone", "Limestone", 3, "limestone" },
 }
+-- Each rock blends toward a geological neighbour (granite toward gneiss…):
+-- its param2 is how far, 0..15, coloured by its palette and made of both
+-- (scripts/assets/palettes.py draws the palettes from the same pairs).
+local PARTNERS = { granite = "gneiss", gneiss = "slate", slate = "shale", basalt = "andesite", andesite = "tuff",
+	tuff = "andesite", obsidian = "basalt", shale = "limestone", limestone = "sandstone" }
+local BLENDS = 16
+
+local function blends(rock, partner)
+	local points = {}
+	for k = 0, BLENDS - 1 do
+		local t = k / (BLENDS - 1)
+		points[k + 1] = t == 0 and { [rock] = 1 } or { [rock] = 1 - t, [partner] = t }
+	end
+	return points
+end
+
 for _, r in ipairs(ROCKS) do
 	local id, label, hardness, matter = r[1], r[2], r[3], r[4]
+	local partner = PARTNERS[id]
 	core.register_node("tf_world:" .. id, {
 		description = label,
 		tiles = { tex(id) },
+		paramtype2 = "color",
+		palette = "tf_world_" .. id .. "_palette.png",
 		groups = { cracky = hardness, stone = 1 },
-		_matter = matter,
+		-- lava cools into basalt: its pure point is the form basalt's matter takes
+		_family = { share = 0.99, form = id == "basalt", points = blends(matter, partner) },
+		_point_name = function(k)
+			if k == 0 then return label end
+			return string.format("%s, %d%% %s", label, math.floor(100 * k / (BLENDS - 1) + 0.5), partner)
+		end,
 	})
 	core.register_alias("mapgen_rock_" .. id, "tf_world:" .. id)
 end
@@ -51,7 +75,7 @@ for _, o in ipairs(ORES) do
 		description = label,
 		tiles = { tex(texture) },
 		groups = { cracky = hardness, ore = 1 },
-		_matter = matter,
+		_matter = { matter = matter, share = 0.6 }, -- the ore mineral, in rock pores and veins
 	})
 	core.register_alias("mapgen_ore_" .. id, "tf_world:ore_" .. id)
 end
@@ -61,7 +85,7 @@ core.register_node("tf_world:placer_gravel", {
 	description = "Gold-bearing gravel",
 	tiles = { tex("placer_gravel") },
 	groups = { crumbly = 2, falling_node = 1 },
-	_matter = "gravel",
+	_matter = { matter = "gravel", share = 0.6 },
 })
 core.register_alias("mapgen_placer", "tf_world:placer_gravel")
 
@@ -69,7 +93,7 @@ core.register_node("tf_world:clay", {
 	description = "Clay",
 	tiles = { tex("clay") },
 	groups = { crumbly = 3 },
-	_matter = "kaolinite",
+	_matter = { matter = "kaolinite", share = 0.6, form = true },
 })
 
 -- Lava: molten rock. Slow, bright, and it burns.
@@ -93,7 +117,7 @@ local lava = {
 	liquid_range = 3,
 	post_effect_color = { a = 200, r = 255, g = 90, b = 0 },
 	groups = { lava = 3, liquid = 2, igniter = 1 },
-	_matter = "basalt",
+	_matter = { matter = "basalt", share = 1, state = "liquid", form = true },
 }
 local source = table.copy(lava)
 source.liquidtype = "source"
@@ -108,5 +132,6 @@ flowing.special_tiles = {
 	{ name = tex("lava_flow"), animation = { type = "vertical_frames", aspect_w = 128, aspect_h = 128, length = 2.0 }, backface_culling = false },
 	{ name = tex("lava_flow"), animation = { type = "vertical_frames", aspect_w = 128, aspect_h = 128, length = 2.0 }, backface_culling = true },
 }
+flowing._matter = { matter = "basalt", share = 0.5, state = "liquid" } -- not the form: lava sources are
 core.register_node("tf_world:lava_flowing", flowing)
 core.register_alias("mapgen_lava_source", "tf_world:lava_source")

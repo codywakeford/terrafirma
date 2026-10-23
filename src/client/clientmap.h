@@ -96,6 +96,14 @@ public:
 	/// @brief clears m_drawlist and m_keeplist
 	void clearDrawList();
 
+	// Terra Firma: each block drawn this frame (the far view hides where they are)
+	template <typename F>
+	void forEachDrawn(F f) const
+	{
+		for (const auto &i : m_drawlist)
+			f(i.first);
+	}
+
 	/// @brief Calculate statistics about the map and keep the blocks alive
 	void touchMapBlocks();
 

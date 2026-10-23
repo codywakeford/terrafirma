@@ -21,6 +21,9 @@ Preview preview(const World &world, std::optional<fix> date, int32_t resolution)
 	p.elevation.resize(n);
 	p.heat.resize(n);
 	p.wet.resize(n);
+	p.season.resize(n);
+	p.fertility.resize(n);
+	p.current.resize(n);
 	p.biome.resize(n);
 	p.lake.resize(n);
 	p.province.resize(n);
@@ -37,9 +40,12 @@ Preview preview(const World &world, std::optional<fix> date, int32_t resolution)
 			p.elevation[i] = quantize<int16_t>(c.elevation, 10000, -32767, 32767);
 			p.heat[i] = quantize<int8_t>(c.heat, 100, -127, 127);
 			p.wet[i] = quantize<int8_t>(c.wet, 100, -127, 127);
+			p.season[i] = quantize<int8_t>(c.season, 100, -127, 127);
 			p.biome[i] = (uint8_t)c.biome;
 			int32_t cell = Grid::index(std::min(GRID - 1, x * GRID / resolution), std::min(GRID - 1, y * GRID / resolution));
 			p.lake[i] = g.lake[cell];
+			p.current[i] = quantize<int8_t>(world.between(g.sea_heat, ratio(x, resolution), v), 100, -127, 127);
+			p.fertility[i] = c.elevation < 0 ? 0 : (uint8_t)std::clamp(roundInt(g.fertility[cell] * 255), 0, 255);
 			p.province[i] = (uint8_t)g.province[cell];
 			p.plate[i] = g.tectonics.plate[cell];
 			p.boundary[i] = g.tectonics.distance[cell] == 0 ? (uint8_t)g.tectonics.boundary[cell] : 0;

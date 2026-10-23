@@ -3,10 +3,11 @@
 
 import { star, type WorldConfig } from "../worldgen/config"
 import type { PreviewWire } from "../worldgen/fields"
+import type { WeatherWire } from "../worldgen/weather"
 import { declination, insolation } from "../worldgen/sun"
 import { seedNumber, torusFbm } from "./noise"
 
-const BIOMES = ["deep", "ocean", "seaice", "beach", "desert", "savanna", "grassland", "forest", "jungle", "taiga", "tundra", "rock", "snow"] as const
+const BIOMES = ["deep", "ocean", "seaice", "beach", "desert", "savanna", "grassland", "forest", "jungle", "taiga", "tundra", "rock", "snow", "monsoon", "mediterranean"] as const
 type Biome = (typeof BIOMES)[number]
 
 const POLAR_EDGE = 0.035
@@ -27,6 +28,7 @@ export function mockPreview(config: WorldConfig, date: number | null, resolution
     const warmth = star(config.star).warmth
     const n = resolution * resolution
     const elevation = new Int16Array(n), heats = new Int8Array(n), wets = new Int8Array(n), biomes = new Uint8Array(n)
+    const seasons = new Int8Array(n), fertility = new Uint8Array(n)
     const q = (v: number, s: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.trunc(v * s)))
 
     for (let y = 0; y < resolution; y++) {
@@ -52,6 +54,10 @@ export function mockPreview(config: WorldConfig, date: number | null, resolution
             elevation[i] = q(e, 10000, -32767, 32767)
             heats[i] = q(heat, 100, -127, 127)
             wets[i] = q(wet, 100, -127, 127)
+            // the stand-in's seasons by latitude alone: summer rain at 10–25°, winter rain at 30–45°
+            const lat = Math.abs(latitude) * 180 / Math.PI
+            seasons[i] = q(lat > 10 && lat < 25 ? 0.7 : lat > 30 && lat < 45 ? -0.5 : 0, 100, -127, 127)
+            fertility[i] = e < 0 ? 0 : Math.round(Math.max(0, Math.min(1, 0.5 + torusFbm(u, v, seed + 51, 4, 3, 0.5))) * 255)
             biomes[i] = BIOMES.indexOf(polar ? (e < 0 ? "seaice" : "snow") : classify(e, heat, wet))
         }
     }
@@ -60,6 +66,9 @@ export function mockPreview(config: WorldConfig, date: number | null, resolution
         elevation: b64(new Uint8Array(elevation.buffer)),
         heat: b64(new Uint8Array(heats.buffer)),
         wet: b64(new Uint8Array(wets.buffer)),
+        season: b64(new Uint8Array(seasons.buffer)),
+        fertility: b64(fertility),
+        current: b64(new Uint8Array(n)), // the stand-in has no ocean currents
         biome: b64(biomes),
         biomes: [...BIOMES],
         // the JS stand-in has no water simulation: no lakes, no rivers
@@ -85,3 +94,37 @@ function classify(e: number, heat: number, wet: number): Biome {
     return wet > 0.05 ? "forest" : "grassland"
 }
 
+
+/**
+ * A stand-in year of weather for the gallery: the ITCZ's rain band following
+ * the sun, storm-track cloud at 50°, a low drifting east through the year.
+ */
+export function mockWeather(snapshots: number): WeatherWire {
+    const r = 64, n = r * r
+    const rain = new Uint8Array(n * snapshots), cloud = new Uint8Array(n * snapshots)
+    const temperature = new Int8Array(n * snapshots), east = new Int8Array(n * snapshots)
+    const north = new Int8Array(n * snapshots), pressure = new Int8Array(n * snapshots)
+    for (let s = 0; s < snapshots; s++) {
+        const itcz = 8 * Math.sin((2 * Math.PI * s) / snapshots)
+        const lowX = (s / snapshots) * r * 3
+        for (let y = 0; y < r; y++) {
+            const lat = 90 - ((y + 0.5) * 180) / r
+            for (let x = 0; x < r; x++) {
+                const i = s * n + y * r + x
+                const tropical = Math.exp(-(((lat - itcz) / 7) ** 2))
+                const dx = ((x - lowX) % r + r) % r - r / 2, dy = y - 14
+                const low = Math.exp(-(dx * dx + dy * dy) / 30)
+                const track = Math.exp(-(((Math.abs(lat) - 50) / 8) ** 2))
+                rain[i] = Math.min(255, Math.round(Math.sqrt(tropical * 0.5 + low * 0.8 + track * 0.1) * 100))
+                cloud[i] = Math.min(255, Math.round((tropical * 0.8 + low + track * 0.5) * 255))
+                temperature[i] = Math.round(28 - Math.abs(lat) * 0.6)
+                east[i] = Math.round(Math.abs(lat) < 30 ? -6 : 8)
+                north[i] = 0
+                pressure[i] = Math.round(-low * 20 + (Math.abs(lat) > 20 && Math.abs(lat) < 35 ? 6 : 0))
+            }
+        }
+    }
+    const bytes = (a: Uint8Array | Int8Array) => b64(new Uint8Array(a.buffer))
+    return { resolution: r, snapshots: snapshots, rain: bytes(rain), cloud: bytes(cloud), temperature: bytes(temperature),
+        east: bytes(east), north: bytes(north), pressure: bytes(pressure) }
+}

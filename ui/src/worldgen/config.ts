@@ -93,13 +93,13 @@ export function randomSeed() {
 }
 
 /*
- * World code: TF3.<seed>.<params>  (TF1: before water and exact land share; TF2: before plates and geology)
+ * World code: TF5.<seed>.<params>  (TF1: before water and exact land share; TF2: before plates and geology; TF3: before the climate; TF4: before the ocean currents)
  *   seed   — base64url of the UTF-8 seed
  *   params — base64url: one byte for the size, one for the star, then one
  *            per field (fixed order, quantized); omitted when all default
  * The version prefix means a code never silently changes meaning.
  */
-const VERSION = "TF3"
+const VERSION = "TF5"
 
 type Field = { key: Exclude<keyof WorldConfig, "seed" | "size" | "star">; min: number; max: number }
 const FIELDS: Field[] = [
@@ -141,7 +141,7 @@ export class WorldCodeError extends Error {}
 
 export function decodeWorldCode(code: string): WorldConfig {
     const [version, seedPart, params] = code.trim().split(".")
-    if (version === "TF1" || version === "TF2") throw new WorldCodeError(`This world code is from an older build (${version}) — its worlds can't be generated any more.`)
+    if (version === "TF1" || version === "TF2" || version === "TF3" || version === "TF4") throw new WorldCodeError(`This world code is from an older build (${version}) — its worlds can't be generated any more.`)
     if (version !== VERSION) throw new WorldCodeError(`Unknown world code version "${version ?? ""}" — this game reads ${VERSION}.`)
     if (!seedPart) throw new WorldCodeError("This world code has no seed.")
     const config: WorldConfig = { ...DEFAULTS, seed: new TextDecoder().decode(b64.decode(seedPart)) }

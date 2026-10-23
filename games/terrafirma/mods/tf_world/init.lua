@@ -21,12 +21,14 @@ core.register_node("tf_world:stone", {
 	description = "Stone",
 	tiles = { "tf_goodvibes_stone.png" },
 	groups = { cracky = 3 },
+	_matter = { matter = "granite", share = 0.99 },
 })
 
 core.register_node("tf_world:dirt", {
 	description = "Dirt",
 	tiles = { "tf_goodvibes_dirt.png" },
 	groups = { crumbly = 3 },
+	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 })
 
 core.register_node("tf_world:grass", {
@@ -34,6 +36,7 @@ core.register_node("tf_world:grass", {
 	tiles = { "tf_goodvibes_grass_block_top.png", "tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png" },
 	groups = { crumbly = 3 },
+	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
 
@@ -41,6 +44,7 @@ core.register_node("tf_world:sand", {
 	description = "Sand",
 	tiles = { "tf_goodvibes_sand.png" },
 	groups = { crumbly = 3, falling_node = 1 },
+	_matter = { matter = "silica", share = 0.6, form = true }, -- grains, air between them,
 })
 
 local water = {
@@ -64,6 +68,7 @@ local water = {
 
 local source = table.copy(water)
 source.liquidtype = "source"
+source._matter = { matter = "water", share = 1, state = "liquid", form = true } -- the form liquid water takes
 core.register_node("tf_world:water_source", source)
 
 local flowing = table.copy(water)
@@ -72,6 +77,7 @@ flowing.special_tiles = { { name = water_texture, animation = water_animation, b
 	{ name = water_texture, animation = water_animation, backface_culling = true } }
 flowing.paramtype2 = "flowingliquid"
 flowing.liquidtype = "flowing"
+flowing._matter = { matter = "water", share = 0.5, state = "liquid" } -- running water: half a block of it
 core.register_node("tf_world:water_flowing", flowing)
 
 -- The engine's built-in mapgens place these by alias.
@@ -80,6 +86,7 @@ core.register_alias("mapgen_water_source", "tf_world:water_source")
 core.register_alias("mapgen_river_water_source", "tf_world:water_source")
 
 assert(loadfile(core.get_modpath("tf_world") .. "/geology.lua"))()
+assert(loadfile(core.get_modpath("tf_world") .. "/soil.lua"))() -- before the biomes that fill with it
 assert(loadfile(core.get_modpath("tf_world") .. "/biomes.lua"))()
 assert(loadfile(core.get_modpath("tf_world") .. "/vegetation.lua"))()
 
@@ -101,12 +108,14 @@ core.register_node("tf_world:sandstone", {
 	tiles = { "tf_goodvibes_sandstone_top.png", "tf_goodvibes_sandstone_bottom.png",
 		"tf_goodvibes_sandstone.png" },
 	groups = { cracky = 3 },
+	_matter = { matter = "sandstone", share = 0.85 },
 })
 
 core.register_node("tf_world:stone_bricks", {
 	description = "Stone Bricks",
 	tiles = { "tf_goodvibes_stone_bricks.png" },
 	groups = { cracky = 3 },
+	_matter = { matter = "granite", share = 0.95 },
 })
 
 core.register_craft({
