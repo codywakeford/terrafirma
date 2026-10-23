@@ -533,6 +533,32 @@ int ModApiTerra::l_soil_points(lua_State *L)
 	return 1;
 }
 
+// core.terra.globe(pos) → { latitude, longitude }: where a block is on the
+// planet the map wraps, radians north and east.
+int ModApiTerra::l_globe(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	const World &w = world(getServer(L));
+	v3s16 p = check_v3s16(L, 1);
+	lua_createtable(L, 0, 2);
+	setNumber(L, "latitude", w.latitudeAt(p.Z));
+	setNumber(L, "longitude", w.longitudeAt(p.X));
+	return 1;
+}
+
+// core.terra.block(latitude, longitude) → { x, z }: the block at a place on
+// the planet (radians).
+int ModApiTerra::l_block(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	const World &w = world(getServer(L));
+	double lat = luaL_checknumber(L, 1), lon = luaL_checknumber(L, 2);
+	lua_createtable(L, 0, 2);
+	setintfield(L, -1, "x", w.xAt(lon));
+	setintfield(L, -1, "z", w.zAt(lat));
+	return 1;
+}
+
 void ModApiTerra::Initialize(lua_State *L, int top)
 {
 	lua_newtable(L);
@@ -550,6 +576,8 @@ void ModApiTerra::Initialize(lua_State *L, int top)
 		{ "surface", l_surface },
 		{ "weather", l_weather },
 		{ "soil_points", l_soil_points },
+		{ "globe", l_globe },
+		{ "block", l_block },
 	};
 	for (const luaL_Reg &f : functions) {
 		lua_pushcfunction(L, f.func);

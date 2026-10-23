@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "weather.h"
+#include "terragen/planet.h"
+#include <stdexcept>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -37,9 +39,14 @@ static fluid::LayerOpts earth(const World &world, const matter::Matter &m)
 	const WorldCode &code = world.code();
 	const Grid &grid = world.grid();
 	fluid::LayerOpts o;
-	// sunlight stays Earth's: the star's warmth is already in terragen's
-	// climate, which anchors the layer
-	o.planet = { 6.371e6, 9.81, DAY, toDouble(code.tilt) * M_PI / 180, code.year * DAY, 1361 };
+	// the layer is tuned at Earth's size: it runs on the home planet resized
+	// there, whose air flows the same (a model day is one game day). Sunlight
+	// stays Earth's: the star's warmth is already in terragen's climate,
+	// which anchors the layer.
+	terragen::Planet p = terragen::resized(terragen::home(), terragen::EARTH_RADIUS);
+	if (p.day != DAY)
+		throw std::logic_error("weather: the model day must be the planet's day at Earth's size");
+	o.planet = { p.radius, p.gravity, p.day, toDouble(code.tilt) * M_PI / 180, code.year * p.day, p.sunlight };
 	o.width = o.height = CELLS;
 	o.seed = code.seed_hash;
 

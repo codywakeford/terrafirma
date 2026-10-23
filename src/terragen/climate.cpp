@@ -41,11 +41,12 @@ Circulation circulate(double radius, double gravity, double day, double depth)
 	return { edge, jets, 0.7 * surface, surface, LIFT };
 }
 
-const Circulation &earthCirculation()
+Circulation circulation(const Planet &p)
 {
-	// the weather layer: 1.6 scale heights of Earth's air (8.4 km)
-	static const Circulation c = circulate(6.371e6, 9.81, 86400, 1.6 * 8400);
-	return c;
+	// at Earth's size, where the calibration holds (the flow is the same:
+	// see resized); the weather layer is 1.6 scale heights of Earth's air (8.4 km)
+	Planet e = resized(p, EARTH_RADIUS);
+	return circulate(e.radius, e.gravity, e.day, 1.6 * 8400);
 }
 
 Flow flow(const Circulation &c, fix lat, fix itcz)
@@ -215,7 +216,7 @@ std::vector<fix> season(const WorldCode &code, const Cells &g, const std::vector
 		const std::vector<fix> &sea, fix date)
 {
 	size_t n = elevation.size();
-	const Circulation &circ = earthCirculation();
+	const Circulation circ = circulation(home());
 	fix itcz = mul(declination(code.tilt, date) * 45, ratio(1, 100)); // the rising branch follows the sun about halfway (thermal lows carry it further over land)
 
 	std::vector<fix> heat(n);

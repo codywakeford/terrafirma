@@ -14,6 +14,7 @@
 #include "nodedef.h"
 #include "settings.h"
 #include <ICameraSceneNode.h>
+#include <SViewFrustum.h>
 #include <ISceneManager.h>
 #include <IVideoDriver.h>
 #include <algorithm>
@@ -39,8 +40,6 @@ static constexpr int INSTALLS_PER_FRAME = 6;
 static constexpr u32 KEEP_FRAMES = 600;
 // The mask: map-block columns around the camera, a texel each.
 static constexpr s32 MASK = 128;
-// How often the mask is rebuilt (frames).
-static constexpr u32 MASK_EVERY = 4;
 
 static float span(s32 level)
 {
@@ -283,6 +282,24 @@ View::~View()
 		SceneManager->getVideoDriver()->removeTexture(m_mask);
 }
 
+// whether the box is wholly outside one of the frustum's planes
+static bool outside(const scene::SViewFrustum &f, const aabb3f &box)
+{
+	v3f corners[8];
+	box.getEdges(corners);
+	for (const auto &plane : f.planes) {
+		bool all = true;
+		for (const v3f &c : corners)
+			if (plane.classifyPointRelation(c) != core::ISREL3D_FRONT) {
+				all = false;
+				break;
+			}
+		if (all)
+			return true;
+	}
+	return false;
+}
+
 void View::readSettings()
 {
 	m_enabled = g_settings->getBool("far_view");
@@ -392,10 +409,8 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	m_workers->want(keys);
 
 	install();
-	if (m_frame - m_mask_frame >= MASK_EVERY) {
-		updateMask(map, eye);
-		m_mask_frame = m_frame;
-	}
+	m_map = &map;
+	m_eye = eye;
 	if (m_frame % 60 == 0)
 		evict();
 }
@@ -420,6 +435,10 @@ void View::install()
 			buffer->Indices->Data = std::move(part.indices);
 			buffer->recalculateBoundingBox();
 			buffer->setHardwareMappingHint(scene::EHM_STATIC);
+			if (e.parts.empty())
+				e.box = buffer->getBoundingBox();
+			else
+				e.box.addInternalBox(buffer->getBoundingBox());
 			e.parts.push_back(std::move(buffer));
 		}
 		e.ready = true;
@@ -440,21 +459,25 @@ void View::updateMask(ClientMap &map, v3f eye)
 	auto *pixels = static_cast<u32 *>(m_mask->lock(video::ETLM_WRITE_ONLY, 0, 0, video::ETLF_NONE));
 	if (!pixels)
 		throw BaseException("far view: can't write its mask texture");
+	m_near.assign((size_t)MASK * MASK, 0);
 	for (s32 v = 0; v < MASK; v++)
 	for (s32 u = 0; u < MASK; u++) {
 		std::vector<s16> &ys = drawn[(size_t)v * MASK + u];
-		bool near = !ys.empty();
-		// the near world stands in for a column only if it draws all of its
+		// The near world stands in for a column only if it draws all of its
 		// surface: at its edge it draws by distance, and may have the seabed
-		// or a hill's foot without the top
+		// or a hill's foot without the top. Where it draws the top but not
+		// the floor (low over the sea), its water lies over our floor.
+		bool near = !ys.empty(), top = near;
 		auto it = m_surfaces.find(columnKey(m_mask_centre.X - half + u, m_mask_centre.Z - half + v));
 		if (near && it != m_surfaces.end()) {
 			std::sort(ys.begin(), ys.end());
 			s16 lo = getContainerPos(it->second.low, MAP_BLOCKSIZE), hi = getContainerPos(it->second.high, MAP_BLOCKSIZE);
+			top = std::binary_search(ys.begin(), ys.end(), hi);
 			for (s16 y = lo; y <= hi && near; y++)
 				near = std::binary_search(ys.begin(), ys.end(), y);
 		}
-		pixels[(size_t)v * MASK + u] = video::SColor(255, near ? 255 : 0, 0, 0).color;
+		m_near[(size_t)v * MASK + u] = near;
+		pixels[(size_t)v * MASK + u] = video::SColor(255, near ? 255 : 0, top ? 255 : 0, 0).color;
 	}
 	m_mask->unlock();
 }
@@ -478,6 +501,22 @@ void View::evict()
 	}
 }
 
+bool View::covered(const Key &key) const
+{
+	if (m_near.empty())
+		return false;
+	s32 s = TILE << key.level, half = MASK / 2;
+	s32 bx0 = getContainerPos(key.x * s, MAP_BLOCKSIZE), bx1 = getContainerPos(key.x * s + s - 1, MAP_BLOCKSIZE);
+	s32 bz0 = getContainerPos(key.z * s, MAP_BLOCKSIZE), bz1 = getContainerPos(key.z * s + s - 1, MAP_BLOCKSIZE);
+	for (s32 bz = bz0; bz <= bz1; bz++)
+	for (s32 bx = bx0; bx <= bx1; bx++) {
+		s32 u = bx - m_mask_centre.X + half, v = bz - m_mask_centre.Z + half;
+		if (u < 0 || u >= MASK || v < 0 || v >= MASK || !m_near[(size_t)v * MASK + u])
+			return false;
+	}
+	return true;
+}
+
 void View::OnRegisterSceneNode()
 {
 	if (IsVisible && m_showing)
@@ -491,6 +530,10 @@ void View::render()
 	scene::ICameraSceneNode *camera = SceneManager->getActiveCamera();
 	if (!camera || SceneManager->getSceneNodeRenderPass() != scene::ESNRP_SKY_BOX)
 		return;
+
+	// the mask, from exactly the blocks the near world is about to draw
+	// (its draw list is updated after our update(), and not every frame)
+	updateMask(*m_map, m_eye);
 
 	v3f eye = camera->getAbsolutePosition();
 	v3f offset = intToFloat(m_camera_offset, BS);
@@ -512,14 +555,27 @@ void View::render()
 			BS, zfar, false);
 	driver->setTransform(video::ETS_PROJECTION, own);
 	driver->setMaterial(m_material);
+	scene::SViewFrustum frustum(own * driver->getTransform(video::ETS_VIEW), false);
 
 	for (const Key &key : m_draw) {
 		auto it = m_tiles.find(key);
 		if (it == m_tiles.end())
 			continue;
+		// the near world draws all of it: nothing of ours would show
+		if (key.level <= 3 && covered(key))
+			continue;
 		float s = span(key.level);
+		v3f at(key.x * s * BS - offset.X, -offset.Y, key.z * s * BS - offset.Z);
+		// out of view (allowing for the curve, which only lowers it)
+		aabb3f box(it->second.box.MinEdge + at, it->second.box.MaxEdge + at);
+		float dx = std::max(std::fabs(box.MinEdge.X - eye.X), std::fabs(box.MaxEdge.X - eye.X));
+		float dz = std::max(std::fabs(box.MinEdge.Z - eye.Z), std::fabs(box.MaxEdge.Z - eye.Z));
+		float past = std::max(std::sqrt(dx * dx + dz * dz) - m_state->cut, 0.0f);
+		box.MinEdge.Y -= past * (past + 2 * m_state->cut) / (2 * m_state->radius);
+		if (outside(frustum, box))
+			continue;
 		core::matrix4 world;
-		world.setTranslation(v3f(key.x * s * BS - offset.X, -offset.Y, key.z * s * BS - offset.Z));
+		world.setTranslation(at);
 		driver->setTransform(video::ETS_WORLD, world);
 		for (const auto &part : it->second.parts)
 			driver->drawMeshBuffer(part.get());

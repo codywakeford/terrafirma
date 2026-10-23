@@ -96,6 +96,7 @@ private:
 	struct Entry
 	{
 		std::vector<irr_ptr<scene::SMeshBuffer>> parts;
+		aabb3f box{ v3f(0) }; // its parts', in the tile's frame (scene units)
 		bool ready = false;
 		bool queued = false;
 		u32 used = 0; // the frame it was last wanted or drawn
@@ -107,6 +108,8 @@ private:
 	void install();
 	void updateMask(ClientMap &map, v3f eye);
 	void evict();
+	// whether the near world draws every map-block column the tile covers
+	bool covered(const Key &key) const;
 
 	Horizon m_horizon;
 	float m_radius; // blocks
@@ -132,7 +135,9 @@ private:
 	bool m_showing = false;
 	v3s16 m_camera_offset;
 	v3s16 m_mask_centre; // map block the mask is centred on
-	u32 m_mask_frame = 0;
+	std::vector<u8> m_near; // the mask's r on this side: the near world draws all of the column
+	ClientMap *m_map = nullptr; // the near world, as of the last update()
+	v3f m_eye;                  // the camera then, in blocks
 };
 
 } // namespace far

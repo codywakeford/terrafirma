@@ -442,6 +442,7 @@ add_subdirectory(terragen)
 add_subdirectory(far)
 add_subdirectory(matter)
 add_subdirectory(fluid)
+add_subdirectory(orbit)
 add_subdirectory(weather)
 add_subdirectory(sandbox)
 add_subdirectory(network)
@@ -547,6 +548,7 @@ set(common_SRCS
 	${far_SRCS}
 	${matter_SRCS}
 	${fluid_SRCS}
+	${orbit_SRCS}
 	${weather_SRCS}
 	${sandbox_SRCS}
 	${server_network_SRCS}

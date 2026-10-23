@@ -5,6 +5,7 @@
 
 #include "code.h"
 #include "fixed.h"
+#include "planet.h"
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -43,7 +44,8 @@ struct Circulation
 // radius m, gravity m/s², day s, depth: the weather layer's depth, m
 Circulation circulate(double radius, double gravity, double day, double depth);
 // Earth's (terra worlds are Earth-sized and spin once a day).
-const Circulation &earthCirculation();
+// The circulation of a planet's air.
+Circulation circulation(const Planet &p);
 
 // The shape of the mean flow at a latitude (radians), with the rising branch
 // at `itcz`: u in westerly units (trades blow at −0.7), v in westerly units,

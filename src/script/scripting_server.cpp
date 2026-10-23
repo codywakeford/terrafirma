@@ -34,6 +34,7 @@
 #include "lua_api/l_storage.h"
 #include "lua_api/l_terra.h"
 #include "lua_api/l_matter.h"
+#include "lua_api/l_orbit.h"
 #include "lua_api/l_ipc.h"
 
 extern "C" {
@@ -170,6 +171,7 @@ void ServerScripting::InitializeModApi(lua_State *L, int top)
 	ModApiIPC::Initialize(L, top);
 	ModApiTerra::Initialize(L, top);
 	ModApiMatter::Initialize(L, top);
+	ModApiOrbit::Initialize(L, top);
 }
 
 void ServerScripting::InitializeAsync(lua_State *L, int top)

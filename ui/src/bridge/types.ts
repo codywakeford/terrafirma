@@ -196,6 +196,8 @@ export type UiValues = {
     /** tf_matter: the last block the probe (or heat gun) read (core.matter.inspect) */
     probe: { node: string; empty?: boolean; temperature?: number; substance?: string; state?: string; fill?: number
         activity?: number; vapour?: string; haze?: number; awake?: boolean }
+    /** tf_flight: the craft the player rides (core.orbit), near the blocks or above the ceiling */
+    flight: FlightNear | FlightOrbit
     /** tf_weather: the weather where the player stands (core.terra.weather) */
     weather: {
         temperature: number // °C
@@ -206,6 +208,29 @@ export type UiValues = {
         pressure: number    // hPa
         events?: string[]   // thunderstorm, blizzard, fog, hurricane, drought, ashfall
     }
+}
+
+type FlightCommon = {
+    code: string       // the world's code: the globe is drawn from its preview
+    ceiling: number    // m above the sea where the blocks let go
+    radius: number     // m: the planet's
+    altitude: number   // m above the sea
+    speed: number      // m/s over the ground
+    climb: number      // m/s up
+}
+/** Over the blocks. */
+export type FlightNear = FlightCommon & { regime: "near"; resting?: boolean }
+/** Above the ceiling, flying the planet itself. */
+export type FlightOrbit = FlightCommon & {
+    regime: "orbit"
+    latitude: number; longitude: number // radians, north and east
+    orbital_speed: number  // m/s against the stars
+    apoapsis?: number      // m above the sea; absent when it escapes
+    periapsis: number      // m; below 0, the orbit meets the ground
+    period?: number        // s; absent when it escapes
+    inclination: number    // radians
+    density: number        // kg/m³: the air here
+    path: [number, number, number][] // the orbit now: latitude, longitude, altitude
 }
 
 export type UiMessage = {

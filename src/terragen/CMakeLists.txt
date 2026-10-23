@@ -9,6 +9,7 @@ set(terragen_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/geology.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/grid.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/noise.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/planet.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/preview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/soil.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/sun.cpp

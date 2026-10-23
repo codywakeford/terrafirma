@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import Crosshair from "./Crosshair.vue"
+import FlightStrip from "./flight/FlightStrip.vue"
+import FlightView from "./flight/FlightView.vue"
 import Hotbar from "./Hotbar.vue"
 import LabStrip from "../lab/LabStrip.vue"
 import WeatherStrip from "./WeatherStrip.vue"
@@ -11,6 +13,7 @@ import { useStore } from "./store"
 const store = useStore()
 const hud = computed(() => store.state.hud)
 const player = computed(() => store.state.player)
+const flight = computed(() => store.ui.flight)
 const hotbar = computed(() => {
     const bar = store.state.hotbar
     const main = store.state.inventory?.main
@@ -22,7 +25,10 @@ const hotbar = computed(() => {
 <template>
     <!-- the Lab browser shows the world, not the player's HUD -->
     <div v-if="hud?.visible && store.screen !== 'lab'" class="hud">
-        <Crosshair v-if="hud.crosshair" />
+        <!-- above the ceiling the planet itself, under everything else on the HUD -->
+        <FlightView v-if="flight?.regime === 'orbit'" :flight="flight" />
+        <Crosshair v-if="hud.crosshair && flight?.regime !== 'orbit'" />
+        <FlightStrip v-if="flight?.regime === 'near' && !store.screen" :flight="flight" />
         <LabStrip />
         <!-- a panel over the world (the wiki, the inventory) hides the strip; it covered the panel's Close -->
         <WeatherStrip v-if="!store.screen" />

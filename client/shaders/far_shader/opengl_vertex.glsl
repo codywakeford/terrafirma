@@ -11,6 +11,7 @@ uniform float farRadius;     // scene units
 uniform float farCut;        // where the near world ends, scene units
 
 VARYING_ lowp vec4 varColor;
+VARYING_ lowp float varLayer; // vertex alpha: 1 solid, 0 a liquid, ½ under a liquid
 VARYING_ highp vec2 flatPos; // scene xz, before the curve
 VARYING_ highp vec3 eyeVec;
 
@@ -28,6 +29,8 @@ void main(void)
 
 	// as nodes_shader lights a block in full sun
 	vec4 color = inVertexColor;
+	varLayer = color.a;
+	color.a = 1.0;
 	color.rgb *= dayLight;
 	float brightness = (color.r + color.g + color.b) / 3.0;
 	color.b += max(0.0, 0.021 - abs(0.2 * brightness - 0.021) + 0.07 * brightness);

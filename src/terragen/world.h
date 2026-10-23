@@ -110,6 +110,13 @@ public:
 	fix u(int32_t x) const;
 	fix v(int32_t z) const;
 
+	// Block coordinates ↔ the planet the map wraps: radians north and east
+	// (the same map as u and v, at full precision). Blocks round to the nearest.
+	double latitudeAt(int32_t z) const;
+	double longitudeAt(int32_t x) const;
+	int32_t zAt(double latitude) const;
+	int32_t xAt(double longitude) const;
+
 	// Surface height in blocks for an elevation, with fine detail at (u, v).
 	int32_t surface(fix elevation, fix u, fix v) const;
 

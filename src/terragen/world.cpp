@@ -6,6 +6,7 @@
 #include "noise.h"
 #include "sun.h"
 #include <algorithm>
+#include <cmath>
 
 namespace terragen {
 
@@ -220,6 +221,31 @@ fix World::v(int32_t z) const
 {
 	// +z is north; north is v = 0
 	return (fix)(((int64_t)(m_code.size / 2 - z) * ONE) / m_code.size);
+}
+
+// v = (size/2 − z)/size and latitude = (½ − v)·π: latitude = π·z/size
+double World::latitudeAt(int32_t z) const
+{
+	return M_PI * z / m_code.size;
+}
+
+double World::longitudeAt(int32_t x) const
+{
+	int32_t half = m_code.size / 2;
+	int32_t i = ((x + half) % m_code.size + m_code.size) % m_code.size;
+	return 2 * M_PI * i / m_code.size;
+}
+
+int32_t World::zAt(double latitude) const
+{
+	return (int32_t)std::lround(latitude * m_code.size / M_PI);
+}
+
+int32_t World::xAt(double longitude) const
+{
+	int32_t half = m_code.size / 2;
+	int32_t i = (int32_t)std::lround(longitude / (2 * M_PI) * m_code.size);
+	return ((i % m_code.size) + m_code.size) % m_code.size - half;
 }
 
 int32_t World::surface(fix e, fix u, fix v) const

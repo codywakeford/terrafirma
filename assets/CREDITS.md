@@ -28,3 +28,5 @@ Several leaf and plant textures are greyscale in the pack (meant to be tinted pe
 ## Substances and lab tools
 
 `tf_matter_substance.png`, `tf_matter_liquid.png`, `tf_matter_heat_gun.png` and `tf_matter_probe.png` (in `games/terrafirma/mods/tf_matter/textures`) are original to Terra Firma, drawn for this game in sprint 18; substance blocks tint the first two per substance.
+
+`tf_flight_pack.png` (in `games/terrafirma/mods/tf_flight/textures`) is original to Terra Firma, drawn for this game in sprint 20.
