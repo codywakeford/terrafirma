@@ -36,10 +36,15 @@ void App::OnBeforeCommandLineProcessing(const CefString &process_type,
 {
 	if (!process_type.empty())
 		return;
-	// The page is composited by the engine from a CPU buffer; Chromium's own
-	// GPU process would only add a second GL context to fight with.
-	command_line->AppendSwitch("disable-gpu");
-	command_line->AppendSwitch("disable-gpu-compositing");
+	// With the GPU, Chromium rasterises in its own GPU process and reads the
+	// frame back for us; without it, blur and large animated layers are slow.
+	if (!m_gpu) {
+		command_line->AppendSwitch("disable-gpu");
+		command_line->AppendSwitch("disable-gpu-compositing");
+	}
+	// Forked helpers return through our main(), which is built with stack
+	// protection; a canary rotated after fork aborts them on exit.
+	command_line->AppendSwitchWithValue("change-stack-guard-on-fork", "disable");
 }
 
 void App::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar)

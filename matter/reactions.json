@@ -1,0 +1,513 @@
+{
+ "reactions": [
+  {
+   "id": "methane_burns",
+   "name": "Methane burns",
+   "reactants": {
+    "methane": 1,
+    "oxygen": 2
+   },
+   "products": {
+    "carbon_dioxide": 1,
+    "water": 2
+   },
+   "heat": 802,
+   "activation": 160,
+   "factor": 1900000000.0,
+   "note": "Natural gas in air: once lit, its own heat keeps it going until the fuel or the oxygen runs out."
+  },
+  {
+   "id": "hydrogen_burns",
+   "name": "Hydrogen burns",
+   "reactants": {
+    "hydrogen": 2,
+    "oxygen": 1
+   },
+   "products": {
+    "water": 2
+   },
+   "heat": 484,
+   "activation": 100,
+   "factor": 3300000.0,
+   "note": "Rocket fuel: the reverse of electrolysis, giving the energy back."
+  },
+  {
+   "id": "charcoal_burns",
+   "name": "Charcoal burns",
+   "reactants": {
+    "carbon": 1,
+    "oxygen": 1
+   },
+   "products": {
+    "carbon_dioxide": 1
+   },
+   "heat": 393.5,
+   "activation": 150,
+   "factor": 100000000.0,
+   "note": "Carbon burning completely, where there's air enough."
+  },
+  {
+   "id": "charcoal_smoulders",
+   "name": "Charcoal smoulders",
+   "reactants": {
+    "carbon": 2,
+    "oxygen": 1
+   },
+   "products": {
+    "carbon_monoxide": 2
+   },
+   "heat": 221,
+   "activation": 180,
+   "factor": 4000000000.0,
+   "note": "Hot carbon short of air makes carbon monoxide: what a furnace needs."
+  },
+  {
+   "id": "boudouard",
+   "name": "CO₂ meets hot carbon",
+   "reactants": {
+    "carbon_dioxide": 1,
+    "carbon": 1
+   },
+   "products": {
+    "carbon_monoxide": 2
+   },
+   "heat": -172,
+   "activation": 250,
+   "factor": 200000000000.0,
+   "note": "Above about 1000 K, CO₂ passing over glowing carbon turns into carbon monoxide (the Boudouard reaction)."
+  },
+  {
+   "id": "iron_smelting",
+   "name": "Iron is smelted",
+   "reactants": {
+    "hematite": 1,
+    "carbon_monoxide": 3
+   },
+   "products": {
+    "iron": 2,
+    "carbon_dioxide": 3
+   },
+   "heat": 24.8,
+   "activation": 120,
+   "factor": 250000.0,
+   "note": "Carbon monoxide pulls the oxygen out of iron ore. Slow below red heat."
+  },
+  {
+   "id": "malachite_roasts",
+   "name": "Malachite breaks down",
+   "reactants": {
+    "malachite": 1
+   },
+   "products": {
+    "copper_oxide": 2,
+    "carbon_dioxide": 1,
+    "water": 1
+   },
+   "heat": -50,
+   "activation": 150,
+   "factor": 600000000000.0,
+   "note": "Green ore turns black in a fire, giving off CO₂ and steam."
+  },
+  {
+   "id": "copper_smelting",
+   "name": "Copper is smelted",
+   "reactants": {
+    "copper_oxide": 1,
+    "carbon_monoxide": 1
+   },
+   "products": {
+    "copper": 1,
+    "carbon_dioxide": 1
+   },
+   "heat": 126,
+   "activation": 90,
+   "factor": 5200000.0,
+   "note": "The first metal people won from rock: easier than iron, in a hot, smoky fire."
+  },
+  {
+   "id": "electrolysis",
+   "name": "Water is split",
+   "reactants": {
+    "water": 2
+   },
+   "products": {
+    "hydrogen": 2,
+    "oxygen": 1
+   },
+   "heat": -571.6,
+   "activation": 0,
+   "factor": 1,
+   "energy": "electricity",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ],
+   "note": "Electric current through water: hydrogen and oxygen at two to one. Fuel and air from ice."
+  },
+  {
+   "id": "rusting",
+   "name": "Iron rusts",
+   "reactants": {
+    "iron": 4,
+    "oxygen": 3
+   },
+   "products": {
+    "hematite": 2
+   },
+   "heat": 1648,
+   "activation": 50,
+   "factor": 5000.0,
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ],
+   "note": "Slow, and only with liquid water about: iron going back to ore."
+  },
+  {
+   "id": "calcining",
+   "name": "Limestone is burned",
+   "reactants": {
+    "calcite": 1
+   },
+   "products": {
+    "lime": 1,
+    "carbon_dioxide": 1
+   },
+   "heat": -178,
+   "activation": 200,
+   "factor": 240000000.0,
+   "note": "A kiln above about 1100 K drives CO₂ out of limestone, leaving quicklime."
+  },
+  {
+   "id": "photosynthesis",
+   "name": "Photosynthesis",
+   "reactants": {
+    "carbon_dioxide": 6,
+    "water": 6
+   },
+   "products": {
+    "glucose": 1,
+    "oxygen": 6
+   },
+   "heat": -2803,
+   "activation": 0,
+   "factor": 1,
+   "energy": "light",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ],
+   "note": "Light builds sugar from CO₂ and water and lets oxygen go: how life makes the air."
+  },
+  {
+   "id": "chalcopyrite_roasts",
+   "name": "Copper ore is roasted",
+   "reactants": {
+    "chalcopyrite": 4,
+    "oxygen": 13
+   },
+   "products": {
+    "copper_oxide": 4,
+    "hematite": 2,
+    "sulfur_dioxide": 8
+   },
+   "heat": 3480,
+   "activation": 140,
+   "factor": 200000000.0,
+   "note": "Brassy ore heated in air burns off its sulfur as choking fumes, leaving copper and iron oxides."
+  },
+  {
+   "id": "tin_smelting",
+   "name": "Tin is smelted",
+   "reactants": {
+    "cassiterite": 1,
+    "carbon_monoxide": 2
+   },
+   "products": {
+    "tin": 1,
+    "carbon_dioxide": 2
+   },
+   "heat": -15,
+   "activation": 120,
+   "factor": 470000.0,
+   "note": "Tin ore gives up its oxygen to carbon monoxide at a bright red heat."
+  },
+  {
+   "id": "galena_roasts",
+   "name": "Lead ore is roasted",
+   "reactants": {
+    "galena": 2,
+    "oxygen": 3
+   },
+   "products": {
+    "lead_oxide": 2,
+    "sulfur_dioxide": 2
+   },
+   "heat": 830,
+   "activation": 130,
+   "factor": 50000000.0,
+   "note": "Galena burned in air: lead oxide and sulfur dioxide."
+  },
+  {
+   "id": "lead_smelting",
+   "name": "Lead is smelted",
+   "reactants": {
+    "lead_oxide": 1,
+    "carbon_monoxide": 1
+   },
+   "products": {
+    "lead": 1,
+    "carbon_dioxide": 1
+   },
+   "heat": 66,
+   "activation": 80,
+   "factor": 370000.0,
+   "note": "Lead comes easily: a hot fire is enough."
+  },
+  {
+   "id": "magnetite_smelting",
+   "name": "Magnetite is smelted",
+   "reactants": {
+    "magnetite": 1,
+    "carbon_monoxide": 4
+   },
+   "products": {
+    "iron": 3,
+    "carbon_dioxide": 4
+   },
+   "heat": 13,
+   "activation": 125,
+   "factor": 250000.0,
+   "note": "Black iron ore, smelted like red."
+  },
+  {
+   "id": "pyrite_roasts",
+   "name": "Pyrite is roasted",
+   "reactants": {
+    "pyrite": 4,
+    "oxygen": 11
+   },
+   "products": {
+    "hematite": 2,
+    "sulfur_dioxide": 8
+   },
+   "heat": 3310,
+   "activation": 140,
+   "factor": 200000000.0,
+   "note": "Fool's gold burns to iron oxide and sulfur dioxide."
+  },
+  {
+   "id": "sulfur_burns",
+   "name": "Sulfur burns",
+   "reactants": {
+    "sulfur": 1,
+    "oxygen": 1
+   },
+   "products": {
+    "sulfur_dioxide": 1
+   },
+   "heat": 297,
+   "activation": 100,
+   "factor": 1600000000.0,
+   "note": "A blue flame and choking smoke."
+  },
+  {
+   "id": "clay_fires",
+   "name": "Clay is fired",
+   "reactants": {
+    "kaolinite": 1
+   },
+   "products": {
+    "metakaolin": 1,
+    "water": 2
+   },
+   "heat": -170,
+   "activation": 200,
+   "factor": 600000000000.0,
+   "note": "Above about 800 K clay gives up the water locked in it and turns to pottery for good."
+  },
+  {
+   "id": "bronze",
+   "name": "Bronze is alloyed",
+   "reactants": {
+    "copper": 15,
+    "tin": 1
+   },
+   "products": {
+    "bronze": 1
+   },
+   "heat": 5,
+   "activation": 0,
+   "factor": 0.5,
+   "requires": [
+    {
+     "substance": "copper",
+     "state": "liquid"
+    },
+    {
+     "substance": "tin",
+     "state": "liquid"
+    }
+   ],
+   "note": "Molten copper and molten tin, stirred together: bronze. Both must be liquid."
+  },
+  {
+   "id": "cast_iron",
+   "name": "Iron soaks up carbon",
+   "reactants": {
+    "iron": 22,
+    "carbon": 4
+   },
+   "products": {
+    "cast_iron": 1
+   },
+   "heat": 20,
+   "activation": 0,
+   "factor": 0.2,
+   "requires": [
+    {
+     "substance": "iron",
+     "state": "liquid"
+    }
+   ],
+   "note": "Molten iron in contact with charcoal takes carbon in, becoming cast iron."
+  },
+  {
+   "id": "steel",
+   "name": "Carbon is blown out of iron",
+   "reactants": {
+    "cast_iron": 25,
+    "oxygen": 39
+   },
+   "products": {
+    "steel": 11,
+    "carbon_monoxide": 78
+   },
+   "heat": 8600,
+   "activation": 60,
+   "factor": 50,
+   "requires": [
+    {
+     "substance": "cast_iron",
+     "state": "liquid"
+    }
+   ],
+   "note": "Air blown through molten cast iron burns most of its carbon away: steel."
+  },
+  {
+   "id": "pewter",
+   "name": "Pewter is alloyed",
+   "reactants": {
+    "tin": 9,
+    "lead": 1
+   },
+   "products": {
+    "pewter": 1
+   },
+   "heat": 2,
+   "activation": 0,
+   "factor": 0.5,
+   "requires": [
+    {
+     "substance": "tin",
+     "state": "liquid"
+    },
+    {
+     "substance": "lead",
+     "state": "liquid"
+    }
+   ],
+   "note": "Molten tin and a little molten lead."
+  },
+  {
+   "id": "wood_burns",
+   "name": "Wood burns",
+   "reactants": {
+    "wood": 1,
+    "oxygen": 6
+   },
+   "products": {
+    "carbon_dioxide": 6,
+    "water": 5
+   },
+   "heat": 2800,
+   "activation": 140,
+   "factor": 600000000.0,
+   "note": "A fire: once lit it feeds itself while there's air."
+  },
+  {
+   "id": "wood_chars",
+   "name": "Wood chars",
+   "reactants": {
+    "wood": 1
+   },
+   "products": {
+    "carbon": 6,
+    "water": 5
+   },
+   "heat": -60,
+   "activation": 125,
+   "factor": 400000000.0,
+   "note": "Heated short of air, wood loses its water and leaves charcoal: how a charcoal kiln works."
+  },
+  {
+   "id": "glassmaking",
+   "name": "Glass is made",
+   "reactants": {
+    "silica": 1,
+    "soda_ash": 1
+   },
+   "products": {
+    "glass": 1,
+    "carbon_dioxide": 1
+   },
+   "heat": -80,
+   "activation": 180,
+   "factor": 14000000.0,
+   "note": "Sand and soda above about 1100 K melt together into glass."
+  },
+  {
+   "id": "lime_slakes",
+   "name": "Lime is slaked",
+   "reactants": {
+    "lime": 1,
+    "water": 1
+   },
+   "products": {
+    "slaked_lime": 1
+   },
+   "heat": 65,
+   "activation": 40,
+   "factor": 2000000.0,
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ],
+   "note": "Water on quicklime: it hisses, heats and crumbles to slaked lime."
+  },
+  {
+   "id": "mortar_sets",
+   "name": "Mortar sets",
+   "reactants": {
+    "slaked_lime": 1,
+    "carbon_dioxide": 1
+   },
+   "products": {
+    "calcite": 1,
+    "water": 1
+   },
+   "heat": 113,
+   "activation": 50,
+   "factor": 3000.0,
+   "note": "Slaked lime takes CO₂ back from the air over days and turns to stone again: lime mortar."
+  }
+ ]
+}

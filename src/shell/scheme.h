@@ -10,9 +10,11 @@ namespace shell {
 
 constexpr const char *SCHEME = "terra";
 constexpr const char *UI_HOST = "ui";
+constexpr const char *ITEM_HOST = "item";
 
-// Serves the built UI (ui/dist) as terra://ui/…, giving the page a real
-// origin so ES modules load — Chromium refuses them over file://.
+// Serves a directory as terra://<host>/…: the built UI (ui/dist) as
+// terra://ui/, giving the page a real origin so ES modules load (Chromium
+// refuses them over file://), and rendered item icons as terra://item/.
 class UiScheme : public CefSchemeHandlerFactory
 {
 public:

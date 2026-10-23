@@ -14,6 +14,11 @@ struct GameParams;
 struct GameStartData;
 struct MainMenuData;
 
+#if USE_SHELL
+#include "shell/shell.h"
+#include <memory>
+#endif
+
 class ClientLauncher
 {
 public:
@@ -41,4 +46,7 @@ private:
 	RenderingEngine *m_rendering_engine = nullptr;
 	InputHandler *input = nullptr;
 	MyEventReceiver *receiver = nullptr;
+#if USE_SHELL
+	std::unique_ptr<shell::Shell> m_shell;
+#endif
 };

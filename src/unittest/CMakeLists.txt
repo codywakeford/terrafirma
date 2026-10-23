@@ -30,6 +30,9 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_moveaction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_noderesolver.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_noise.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_fluid.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_matter.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_objdef.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_profiler.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_random.cpp
@@ -52,6 +55,7 @@ set(unittest_SRCS
 set(unittest_client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/mesh_compare.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_clientactiveobjectmgr.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_solar.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_content_mapblock.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_eventmanager.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_gameui.cpp

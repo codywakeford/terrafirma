@@ -59,6 +59,13 @@ public:
 
 	void setDayNightRatioOverride(bool enable, u32 value);
 
+protected:
+	// Terra Firma: the time of day the light follows; the client's solar sky
+	// lights the world by where the real sun is (see client/solar.h).
+	virtual float lightTimeOfDay(float time_of_day) { return time_of_day; }
+
+public:
+
 	u32 getDayCount();
 
 	/*!

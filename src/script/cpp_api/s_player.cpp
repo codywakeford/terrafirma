@@ -367,3 +367,19 @@ void ScriptApiPlayer::player_inventory_OnTake(
 	pushPutTakeArguments("take", ma.from_inv, ma.from_list, ma.from_i, stack, player);
 	runCallbacks(4, RUN_CALLBACKS_MODE_FIRST);
 }
+
+void ScriptApiPlayer::on_ui_event(ServerActiveObject *player, const std::string &name,
+		const Json::Value &payload)
+{
+	SCRIPTAPI_PRECHECKHEADER
+
+	lua_getglobal(L, "core");
+	lua_getfield(L, -1, "registered_on_ui_events");
+	objectrefGetOrCreate(L, player);
+	lua_pushstring(L, name.c_str());
+	lua_pushnil(L); // JSON null → nil
+	int nullindex = lua_gettop(L);
+	push_json_value(L, payload, nullindex);
+	lua_remove(L, nullindex);
+	runCallbacks(3, RUN_CALLBACKS_MODE_FIRST);
+}

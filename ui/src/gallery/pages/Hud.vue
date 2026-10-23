@@ -1,0 +1,83 @@
+<script setup lang="ts">
+import { onMounted, reactive, watch } from "vue"
+import Hud from "../../game/Hud.vue"
+import PauseScreen from "../../game/PauseScreen.vue"
+import { useStore } from "../../game/store"
+import { Section, Slider, Toggle } from "../../kit"
+import { useMock } from "../mock"
+
+/** The real HUD, fed through the real store by the mock engine. */
+const bridge = useMock()
+const store = useStore()
+
+const live = reactive({
+    hp: 17, hpMax: 20, breath: 7, breathMax: 10, selected: 2, size: 9,
+    visible: true, crosshair: true, wear: 30000,
+})
+
+function push() {
+    bridge.emit({ kind: "mode", mode: "game" })
+    bridge.emit({ kind: "state", section: "hud", value: { visible: live.visible, crosshair: live.crosshair, hotbar: true, health: true, breath: true } })
+    bridge.emit({ kind: "state", section: "player", value: { hp: live.hp, hpMax: live.hpMax, breath: live.breath, breathMax: live.breathMax } })
+    bridge.emit({ kind: "state", section: "hotbar", value: { size: live.size, selected: live.selected } })
+    bridge.emit({
+        kind: "state",
+        section: "inventory",
+        value: {
+            main: {
+                width: 8,
+                stacks: [
+                    { item: "tf_world:grass", count: 64, wear: 0 },
+                    { item: "tf_world:dirt", count: 12, wear: 0 },
+                    { item: "tf_tools:pick", count: 1, wear: live.wear },
+                    { item: "tf_world:stone", count: 1, wear: 0 },
+                    null,
+                    { item: "tf_world:sand", count: 33, wear: 0 },
+                    { item: "unknown:thing", count: 2, wear: 0 },
+                    null, null, null,
+                ],
+            },
+        },
+    })
+}
+
+watch(live, push)
+onMounted(push)
+</script>
+
+<template>
+    <div class="page">
+        <div class="world">
+            <div class="sky" />
+            <Hud />
+            <PauseScreen v-if="store.screen === 'pause'" />
+        </div>
+        <aside>
+            <Section title="Player">
+                <Slider v-model="live.hp" label="HP" :min="0" :max="live.hpMax" :step="1" />
+                <Slider v-model="live.hpMax" label="Max HP" :min="2" :max="40" :step="2" />
+                <Slider v-model="live.breath" label="Breath" :min="0" :max="live.breathMax" :step="1" />
+            </Section>
+            <Section title="Hotbar">
+                <Slider v-model="live.selected" label="Selected" :min="0" :max="live.size - 1" :step="1" />
+                <Slider v-model="live.size" label="Size" :min="1" :max="10" :step="1" />
+                <Slider v-model="live.wear" label="Pickaxe wear" :min="0" :max="65535" :step="500" />
+            </Section>
+            <Section title="Screens">
+                <Toggle :model-value="store.screen === 'pause'" label="Pause screen (Esc)"
+                    @update:model-value="bridge.emit({ kind: 'screen', screen: $event ? 'pause' : null })" />
+            </Section>
+            <Section title="Flags">
+                <Toggle v-model="live.visible" label="HUD visible (F1)" />
+                <Toggle v-model="live.crosshair" label="Crosshair" />
+            </Section>
+        </aside>
+    </div>
+</template>
+
+<style scoped>
+.page { display: grid; grid-template-columns: 1fr 320px; gap: 24px; height: 100%; min-height: 560px; }
+.world { position: relative; overflow: hidden; border: var(--b) solid var(--edge); transform: translateZ(0); /* contains the HUD's fixed layer */ }
+.sky { position: absolute; inset: 0; background: linear-gradient(180deg, #8ab6f0, #c4dcf5 60%, #5b8f3a 60%, #4c7a31); }
+aside { display: flex; flex-direction: column; gap: 24px; }
+</style>

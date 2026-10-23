@@ -3,14 +3,14 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
-namespace irr {
-	struct SEvent;
-	namespace video { class IVideoDriver; }
-	namespace gui { class IGUIEnvironment; class ICursorControl; }
-}
+struct SEvent;
+namespace video { class IVideoDriver; }
+namespace gui { class IGUIEnvironment; class ICursorControl; }
+namespace Json { class Value; }
 
 namespace shell {
 
@@ -23,6 +23,9 @@ int runHelper(int argc, char *argv[]);
 
 enum class Mode { Menu, Game };
 
+// Answers one kind of intent from the page (see bridge.h: Refused).
+using Verb = std::function<Json::Value(const Json::Value &intent)>;
+
 /*
 	The web UI, drawn over every frame. One Chromium page lives for the whole
 	session; the engine tells it what state it is in, the page sends intents back.
@@ -31,13 +34,14 @@ class Shell
 {
 public:
 	struct Opts {
-		irr::video::IVideoDriver *driver;
-		irr::gui::IGUIEnvironment *guienv;
-		irr::gui::ICursorControl *cursor;
+		video::IVideoDriver *driver;
+		gui::IGUIEnvironment *guienv;
+		gui::ICursorControl *cursor;
 		std::string url;       // page to load: terra://ui/index.html, or a dev server
 		std::string ui_dir;    // served as terra://ui/
 		std::string cache_dir; // Chromium profile and log
 		float scale;           // device pixels per CSS pixel
+		bool gpu;              // Chromium rasterises on the GPU
 	};
 
 	explicit Shell(const Opts &opts);
@@ -46,8 +50,20 @@ public:
 	// Once per frame, immediately before endScene(): pumps Chromium, draws the page.
 	void frame();
 	// True when the page took the event and the engine must not see it.
-	bool onEvent(const irr::SEvent &event);
+	bool onEvent(const SEvent &event);
 	void setMode(Mode mode);
+
+	// Whoever owns a screen registers the intents it answers, and removes them
+	// when it hands over: an intent nobody answers fails loudly in the page.
+	void on(const std::string &kind, Verb verb);
+	// Slow, thread-safe work answered off the main thread (see Bridge::onAsync).
+	void onAsync(const std::string &kind, Verb verb);
+	void off(const std::string &kind);
+	// A one-off message to the page; held until the page is ready.
+	void send(const Json::Value &message);
+
+	// Where item icons are written; served to the page as terra://item/.
+	const std::string &itemDir() const;
 
 private:
 	struct Impl;

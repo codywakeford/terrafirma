@@ -35,6 +35,9 @@
 #endif
 #if CHECK_CLIENT_BUILD()
 #include "client/clientlauncher.h"
+#if USE_SHELL
+#include "shell/shell.h"
+#endif
 #endif
 #if BUILD_UNITTESTS
 #include "test/test.h"
@@ -131,6 +134,11 @@ static OptionList allowed_options;
 
 int main(int argc, char *argv[])
 {
+#if CHECK_CLIENT_BUILD() && USE_SHELL
+	// Chromium's renderer and GPU helpers are this same executable.
+	if (int code = shell::runHelper(argc, argv); code >= 0)
+		return code;
+#endif
 	int retval;
 	debug_set_exception_handler();
 
@@ -436,6 +444,10 @@ static void set_allowed_options(OptionList *allowed_options)
 			_("Set password from contents of file"))));
 	allowed_options->insert(std::make_pair("go", ValueSpec(VALUETYPE_FLAG,
 			_("Skip main menu, go directly in-game"))));
+#if USE_SHELL
+	allowed_options->insert(std::make_pair("shell-url", ValueSpec(VALUETYPE_STRING,
+			_("Load the UI from this URL instead of shell_url (e.g. a dev server)"))));
+#endif
 	allowed_options->insert(std::make_pair("console", ValueSpec(VALUETYPE_FLAG,
 			_("Start with the console open (Windows only)"))));
 #endif

@@ -32,6 +32,7 @@ public:
 		// Other
 		DROP,
 		INVENTORY,
+		LAB, // Terra Firma
 		CHAT,
 		CMD,
 		CMD_LOCAL,

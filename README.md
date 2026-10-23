@@ -7,6 +7,10 @@
 </div>
 <br>
 
+## Overview
+
+TerraFirma has been forked from Luanti, a free open-source voxel game engine with easy modding and game creation. The goal is to create a minecraft like game, but better.
+
 Table of Contents
 ------------------
 

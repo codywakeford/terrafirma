@@ -1,33 +1,30 @@
 <script setup lang="ts">
-import { ref } from "vue"
-import type { BridgeHandle, Mode } from "./bridge"
+import { useBridge } from "./bridge/use"
+import Hud from "./game/Hud.vue"
+import InventoryScreen from "./game/inventory/InventoryScreen.vue"
+import PauseScreen from "./game/PauseScreen.vue"
+import { useStore } from "./game/store"
+import { useLab } from "./lab/flow"
+import LabView from "./lab/LabView.vue"
+import MainMenu from "./menu/MainMenu.vue"
 
-const props = defineProps<{ bridge: BridgeHandle }>()
-const mode = ref<Mode | null>(null)
-
-props.bridge.on((message) => {
-    if (message.kind === "mode") mode.value = message.mode
-})
+const bridge = useBridge()
+const store = useStore()
+const lab = useLab()
 </script>
 
 <template>
-    <div class="probe">
-        <h1>Terra Firma</h1>
-        <p>{{ bridge.connected ? `engine: ${mode ?? "waiting"}` : "not inside the engine" }}</p>
-        <input placeholder="type here" @focus="bridge.send({ kind: 'capture', keyboard: true })"
-            @blur="bridge.send({ kind: 'capture', keyboard: false })">
-    </div>
+    <p v-if="!bridge.connected" class="detached">Not running inside the engine.</p>
+    <!-- the Lab page outlives the scenario worlds under it -->
+    <LabView v-else-if="lab.state.open && (store.mode === 'menu' || store.screen === 'lab')" />
+    <MainMenu v-else-if="store.mode === 'menu'" :error="store.error" @dismiss="store.error = null" />
+    <template v-else-if="store.mode === 'game'">
+        <Hud />
+        <PauseScreen v-if="store.screen === 'pause'" />
+        <InventoryScreen v-else-if="store.screen === 'inventory'" />
+    </template>
 </template>
 
-<style>
-html, body { margin: 0; background: transparent; font-family: system-ui, sans-serif; }
-.probe {
-    position: fixed; top: 24px; right: 24px; padding: 20px 24px;
-    color: #f4f1e8; background: rgb(20 24 18 / 0.7);
-    backdrop-filter: blur(8px); border-radius: 12px;
-    border: 1px solid rgb(255 255 255 / 0.12);
-}
-.probe h1 { margin: 0 0 8px; font-size: 20px; letter-spacing: 0.04em; }
-.probe p { margin: 0 0 12px; opacity: 0.8; }
-.probe input { padding: 6px 10px; border-radius: 6px; border: 1px solid #555; background: #111; color: inherit; }
+<style scoped>
+.detached { padding: 24px; color: var(--ink-dim); background: var(--stone-0); height: 100%; margin: 0; }
 </style>

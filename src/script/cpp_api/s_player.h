@@ -7,6 +7,7 @@
 #include "cpp_api/s_base.h"
 #include "irr_v3d.h"
 #include "util/string.h"
+#include <json/json.h>
 
 struct MoveAction;
 struct InventoryLocation;
@@ -35,6 +36,9 @@ public:
 	void on_rightclickplayer(ServerActiveObject *player, ServerActiveObject *clicker);
 	s32 on_player_hpchange(ServerActiveObject *player, s32 hp_change,
 			const PlayerHPChangeReason &reason);
+	// Terra Firma: core.registered_on_ui_events(player, name, payload)
+	void on_ui_event(ServerActiveObject *player, const std::string &name,
+			const Json::Value &payload);
 	void on_playerReceiveFields(ServerActiveObject *player,
 			const std::string &formname, const StringMap &fields);
 	void on_authplayer(const std::string &name, const std::string &ip, bool is_success);

@@ -5,7 +5,7 @@
 
 #include "irrlichttypes.h"
 
-namespace irr::gui { class IGUIEnvironment; class IGUIElement; }
+namespace gui { class IGUIEnvironment; class IGUIElement; }
 
 namespace shell {
 

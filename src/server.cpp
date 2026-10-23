@@ -686,7 +686,7 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 	/*
 		Update time of day and overall game time
 	*/
-	m_env->setTimeOfDaySpeed(g_settings->getFloat("time_speed"));
+	m_env->setTimeOfDaySpeed(getTimeSpeed());
 
 	/*
 		Send to clients at constant intervals
@@ -697,8 +697,7 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 	if (m_time_of_day_send_timer < 0) {
 		m_time_of_day_send_timer = time_send_interval;
 		u16 time = m_env->getTimeOfDay();
-		float time_speed = g_settings->getFloat("time_speed");
-		SendTimeOfDay(PEER_ID_INEXISTENT, time, time_speed);
+		SendTimeOfDay(PEER_ID_INEXISTENT, time, getTimeSpeed());
 
 		m_timeofday_gauge->set(time);
 	}
@@ -1984,6 +1983,8 @@ void Server::SendSetSky(session_t peer_id, const SkyboxParams &params)
 			<< params.fog_color;
 
 		pkt << params.auto_dim_skybox;
+		// Terra Firma
+		pkt << params.solar.on << params.solar.latitude << params.solar.declination;
 	}
 
 	Send(&pkt);
@@ -4580,4 +4581,24 @@ u16 Server::getProtocolVersionMin()
 u16 Server::getProtocolVersionMax()
 {
 	return LATEST_PROTOCOL_VERSION;
+}
+
+void Server::setUi(RemotePlayer *player, const std::string &key, const std::string &value_json)
+{
+	sanity_check(player);
+	NetworkPacket pkt(TOCLIENT_UI, 0, player->getPeerId());
+	pkt << key;
+	pkt.putLongString(value_json);
+	Send(&pkt);
+}
+
+void Server::setTimeSpeed(std::optional<float> speed)
+{
+	m_time_speed = speed;
+	m_time_of_day_send_timer = 0; // clients learn the new speed on the next step
+}
+
+float Server::getTimeSpeed() const
+{
+	return m_time_speed ? *m_time_speed : g_settings->getFloat("time_speed");
 }

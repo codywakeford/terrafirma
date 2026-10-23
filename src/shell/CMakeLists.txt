@@ -1,16 +1,28 @@
 set(shell_SRCS
+	${CMAKE_CURRENT_SOURCE_DIR}/actions.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/bridge.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/client.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ime.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/input.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/items.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/menu.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/options.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/orbit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/pixels.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/scheme.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/screens.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/shell.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/state.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/director.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/lab.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/system.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/matter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/surface.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/worlds.cpp
 )
-# CEF's headers require C++20; the rest of the engine stays on its own standard.
-set_source_files_properties(${shell_SRCS} PROPERTIES COMPILE_OPTIONS "-std=c++20")
 set(shell_SRCS ${shell_SRCS} PARENT_SCOPE)
 
 # Chromium's runtime files next to the executable. libcef.so ships with debug

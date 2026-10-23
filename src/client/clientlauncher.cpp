@@ -23,6 +23,12 @@
 #include "gettime.h"
 #include "util/numeric.h"
 #include "util/tracy_wrapper.h"
+#include "porting.h"
+#if USE_SHELL
+#include "shell/lab.h"
+#include "shell/menu.h"
+#include "shell/worlds.h"
+#endif
 #include <IGUISpriteBank.h>
 #include <ICameraSceneNode.h>
 #include <unordered_map>
@@ -80,6 +86,10 @@ ClientLauncher::~ClientLauncher()
 
 	assert(g_menumgr.menuCount() == 0);
 
+#if USE_SHELL
+	// Its texture and IME element belong to the device about to be deleted.
+	m_shell.reset();
+#endif
 	delete m_rendering_engine;
 
 	// CGUIEnvironment causes calls to `deletingMenu`, which needs `guienv != nullptr`.
@@ -158,6 +168,19 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 		RenderingEngine::showErrorMessageBox(e.what());
 		return false;
 	}
+#if USE_SHELL
+	m_shell = std::make_unique<shell::Shell>(shell::Shell::Opts{
+		m_rendering_engine->get_video_driver(),
+		guienv,
+		m_rendering_engine->get_raw_device()->getCursorControl(),
+		cmd_args.exists("shell-url") ? cmd_args.get("shell-url") : g_settings->get("shell_url"),
+		porting::path_share + DIR_DELIM "ui" DIR_DELIM "dist",
+		porting::path_cache + DIR_DELIM "shell",
+		RenderingEngine::getDisplayDensity(),
+		g_settings->getBool("shell_gpu"),
+	});
+#endif
+
 	g_menuclouds->setHeight(100.0f);
 	g_menuclouds->update(v3f(0, 0, 0), m_rendering_engine->m_menu_clouds_color);
 	scene::ICameraSceneNode* camera;
@@ -207,6 +230,9 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 			guiroot = guienv->addStaticText(L"",
 				core::rect<s32>(0, 0, 10000, 10000));
 
+#if USE_SHELL
+			m_shell->setMode(shell::Mode::Menu);
+#endif
 			bool should_run_game = launch_game(errordata, start_data, cmd_args);
 
 			// Reset the reconnect_requested flag
@@ -227,6 +253,9 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 			if (!m_rendering_engine->run() || *kill)
 				break;
 
+#if USE_SHELL
+			m_shell->setMode(shell::Mode::Game);
+#endif
 			the_game(
 				kill,
 				input,
@@ -423,6 +452,24 @@ bool ClientLauncher::launch_game(GameErrorData &errordata, GameStartData &start_
 	/*
 	 * Show the GUI menu
 	 */
+#if USE_SHELL
+	if (!skip_main_menu) {
+		shell::Worlds worlds(g_settings->get("game_id"));
+		shell::Lab lab(findSubgame(g_settings->get("game_id")).gamemods_path);
+		shell::Menu menu({ *m_shell, m_rendering_engine, worlds, lab });
+		std::optional<WorldSpec> world = menu.run(error_message);
+		error_message.clear(); // shown by the page
+
+		if (!world) {
+			g_gamecallback->shutdown_requested = true;
+			return false;
+		}
+		start_data.mode = GameClientData::GM_SINGLEPLAYER;
+		start_data.address.clear();
+		start_data.world_spec = *world;
+		start_data.world_path = world->path;
+	}
+#else
 	if (!skip_main_menu) {
 		// Initialize menu data
 		MainMenuData menudata(errordata);
@@ -458,6 +505,7 @@ bool ClientLauncher::launch_game(GameErrorData &errordata, GameStartData &start_
 
 		(GameClientData &)start_data = menudata;
 	}
+#endif
 
 	if (!start_data.isSinglePlayer() && start_data.name.empty()) {
 		error_message = gettext("Please choose a name!");

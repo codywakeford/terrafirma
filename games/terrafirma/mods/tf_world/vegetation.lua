@@ -1,0 +1,266 @@
+-- Vegetation. terragen decides how much can grow on each column and where
+-- trees stand (core.terra.cover: warmth, moisture, slope, banks, soil); this
+-- decides *what* grows: each species has a niche, and the one that fits a
+-- spot is planted there. Add a species by adding a row.
+
+local function tex(name, tint)
+	local t = "tf_goodvibes_" .. name .. ".png"
+	return tint and (t .. "^[multiply:" .. tint) or t
+end
+
+-- ---- blocks -------------------------------------------------------------
+
+local function log(id, label, side, top)
+	core.register_node("tf_world:" .. id, {
+		description = label,
+		tiles = { tex(top), tex(top), tex(side) },
+		paramtype2 = "facedir",
+		on_place = core.rotate_node,
+		groups = { choppy = 2, tree = 1 },
+		_matter = "wood",
+	})
+end
+
+local function leaves(id, label, texture, tint)
+	core.register_node("tf_world:" .. id, {
+		description = label,
+		drawtype = "allfaces_optional",
+		tiles = { tex(texture, tint) },
+		use_texture_alpha = "clip",
+		paramtype = "light",
+		waving = 2,
+		groups = { snappy = 3, leaves = 1 },
+	})
+end
+
+-- The pack draws some foliage grey, for tinting: each gets its own green.
+log("log", "Oak log", "oak_log", "oak_log_top")
+leaves("leaves", "Oak leaves", "oak_leaves", "#6aa84f")
+log("birch_log", "Birch log", "birch_log", "birch_log_top")
+leaves("birch_leaves", "Birch leaves", "birch_leaves")
+log("spruce_log", "Spruce log", "spruce_log", "spruce_log_top")
+leaves("needles", "Spruce needles", "spruce_leaves")
+log("jungle_log", "Jungle log", "jungle_log", "jungle_log_top")
+leaves("jungle_leaves", "Jungle leaves", "jungle_leaves", "#3f9a2e")
+log("acacia_log", "Acacia log", "acacia_log", "acacia_log_top")
+leaves("acacia_leaves", "Acacia leaves", "acacia_leaves", "#a2ab4a")
+log("palm_log", "Palm log", "palm_log", "palm_log_top")
+leaves("palm_leaves", "Palm fronds", "palm_leaves", "#7fae4a")
+log("willow_log", "Willow log", "willow_log", "willow_log_top")
+leaves("willow_leaves", "Willow leaves", "willow_leaves", "#6a9a4a")
+
+core.register_node("tf_world:cactus", {
+	description = "Cactus",
+	tiles = { tex("cactus_top"), tex("cactus_top"), tex("cactus_side") },
+	drawtype = "nodebox",
+	paramtype = "light",
+	node_box = { type = "fixed", fixed = { -7 / 16, -0.5, -7 / 16, 7 / 16, 0.5, 7 / 16 } },
+	damage_per_second = 1,
+	groups = { choppy = 3 },
+})
+
+-- small plants: drawn as crossed quads, walked through, replaced by building
+local function plant(id, label, texture, tint, extra)
+	local def = {
+		description = label,
+		drawtype = "plantlike",
+		tiles = { tex(texture, tint) },
+		inventory_image = tex(texture, tint),
+		wield_image = tex(texture, tint),
+		paramtype = "light",
+		sunlight_propagates = true,
+		walkable = false,
+		buildable_to = true,
+		waving = 1,
+		selection_box = { type = "fixed", fixed = { -0.3, -0.5, -0.3, 0.3, 0.3, 0.3 } },
+		groups = { snappy = 3, plant = 1, attached_node = 1 },
+	}
+	for k, v in pairs(extra or {}) do def[k] = v end
+	core.register_node("tf_world:" .. id, def)
+end
+
+plant("grass_tuft", "Grass", "grass", "#7ab84f")
+plant("fern", "Fern", "fern", "#6a9a50")
+plant("dead_bush", "Dead bush", "dead_bush")
+plant("dandelion", "Dandelion", "dandelion")
+plant("poppy", "Poppy", "poppy")
+plant("orange_tulip", "Orange tulip", "orange_tulip")
+plant("white_tulip", "White tulip", "white_tulip")
+plant("lavender", "Lavender", "lavender")
+plant("brown_mushroom", "Brown mushroom", "brown_mushroom", nil, { light_source = 1 })
+plant("red_mushroom", "Red mushroom", "red_mushroom")
+plant("reed", "Reeds", "reed")
+plant("cattail", "Cattail", "cattail")
+plant("desert_grass", "Desert grass", "desert_grass")
+plant("dune_grass", "Dune grass", "dune_grass")
+plant("berry_bush", "Berry bush", "berry_bush")
+
+-- ---- shapes (L-systems: F trunk, f leaves, A/B rules, +/- turn, &/^ pitch)
+
+local SHAPES = {
+	oak = { axiom = "FFFFFAFFBF", rules_a = "[&&&FFFFF&&FFFF][&&&++++FFFFF&&FFFF][&&&----FFFFF&&FFFF]",
+		rules_b = "[&&&++FFFF&&FFFF][&&&--FFFF&&FFFF][&&&------FFFF&&FFFF]", angle = 30, iterations = 2,
+		random_level = 0, trunk_type = "single", thin_branches = true },
+	birch = { axiom = "FFFFFFFA", rules_a = "[&&&ffff][++&&&ffff][----&&&ffff][++++++&&&fff]ff", angle = 60, iterations = 2,
+		random_level = 1, trunk_type = "single", thin_branches = true },
+	spruce = { axiom = "FFFFA", rules_a = "[&&fff][++&&fff][++++&&fff][++++++&&fff]FFA", angle = 45, iterations = 5,
+		random_level = 2, trunk_type = "single", thin_branches = true },
+	jungle = { axiom = "FFFFFFFFFFAFFB", rules_a = "[&&&FFFFFF&&ffff][&&&++++FFFFFF&&ffff][&&&----FFFFFF&&ffff]",
+		rules_b = "[&&ffff][++&&ffff][----&&ffff]f", angle = 30, iterations = 2, random_level = 1,
+		trunk_type = "crossed", thin_branches = true },
+	acacia = { axiom = "FFFF[&&&FFFA][&&&++++FFFA][&&&----FFFA]", rules_a = "[&fff][+&fff][-&fff][++&fff]",
+		angle = 30, iterations = 1, random_level = 1, trunk_type = "single", thin_branches = true },
+	palm = { axiom = "FFFFFFFA", rules_a = "[&&&fff][++&&&fff][----&&&fff][++++++&&&fff][--&&&fff]", angle = 60,
+		iterations = 1, random_level = 0, trunk_type = "single", thin_branches = true },
+	willow = { axiom = "FFFFFA", rules_a = "[&&&FFFF&&&ffff][++&&&FFFF&&&ffff][----&&&FFFF&&&ffff][++++++&&&FFFF&&&ffff]",
+		angle = 45, iterations = 1, random_level = 1, trunk_type = "single", thin_branches = true },
+}
+
+-- ---- species: niche → shape ---------------------------------------------
+-- heat and wet are the column's climate (−1..1; heat falls with height).
+-- `bank` means it grows only beside rivers and lakes, `shore` only at the
+-- coast or at an oasis (low sand, or a bank); `on` the soils it takes.
+
+local SOIL = { ["tf_world:grass"] = true, ["tf_world:dirt"] = true, ["tf_world:dry_grass"] = true, ["tf_world:tundra"] = true }
+local SAND = { ["tf_world:sand"] = true }
+
+local SPECIES = {
+	{ name = "spruce", heat = { -0.45, -0.05 }, wet = { -0.4, 1 }, trunk = "tf_world:spruce_log", leaves = "tf_world:needles", on = SOIL },
+	{ name = "birch", heat = { -0.25, 0.15 }, wet = { -0.1, 1 }, trunk = "tf_world:birch_log", leaves = "tf_world:birch_leaves", on = SOIL },
+	{ name = "oak", heat = { -0.05, 0.45 }, wet = { -0.25, 1 }, trunk = "tf_world:log", leaves = "tf_world:leaves", on = SOIL },
+	{ name = "willow", heat = { -0.1, 0.45 }, wet = { -1, 1 }, bank = true, trunk = "tf_world:willow_log", leaves = "tf_world:willow_leaves", on = SOIL },
+	{ name = "jungle", heat = { 0.35, 1 }, wet = { 0.15, 1 }, trunk = "tf_world:jungle_log", leaves = "tf_world:jungle_leaves", on = SOIL },
+	{ name = "acacia", heat = { 0.25, 1 }, wet = { -0.45, 0.2 }, trunk = "tf_world:acacia_log", leaves = "tf_world:acacia_leaves", on = SOIL },
+	{ name = "palm", heat = { 0.3, 1 }, wet = { -1, 1 }, shore = true, trunk = "tf_world:palm_log", leaves = "tf_world:palm_leaves", on = SAND },
+}
+
+-- the coast: sand barely above the sea (terragen elevation; 0.03 ≈ 5 blocks)
+local function shore(c, i)
+	return c.elevation[i] < 0.03 or c.bank[i]
+end
+
+local function fits(s, c, i, ground)
+	local h, w = c.heat[i], c.wet[i]
+	return h >= s.heat[1] and h <= s.heat[2] and w >= s.wet[1] and w <= s.wet[2]
+		and (not s.bank or c.bank[i]) and (not s.shore or shore(c, i)) and s.on[ground]
+end
+
+-- of the species that fit, one chosen by the column's roll (banks favour willows)
+local function species_for(c, i, ground)
+	local fit = {}
+	for _, s in ipairs(SPECIES) do
+		if fits(s, c, i, ground) then
+			fit[#fit + 1] = s
+			if s.bank then fit[#fit + 1] = s end
+		end
+	end
+	if #fit == 0 then return nil end
+	return fit[c.roll[i] % #fit + 1]
+end
+
+-- what covers the ground where no tree stands
+local FLOWERS = { "tf_world:dandelion", "tf_world:poppy", "tf_world:orange_tulip", "tf_world:white_tulip" }
+local function ground_plant(c, i, ground)
+	local d, h, w, r = c.density[i], c.heat[i], c.wet[i], c.roll[i] -- r: 0 .. 2^32 − 1
+	local pick = math.floor(r / 256) % 1000 / 1000
+	if SAND[ground] then
+		if shore(c, i) then -- beaches, and the water's edge
+			if pick < 0.05 then return c.bank[i] and "tf_world:reed" or "tf_world:dune_grass" end
+		elseif h > 0.3 then -- desert: a cactus here and there, scrub, a few tufts
+			if pick < 0.004 then return "cactus" end
+			if pick < 0.02 then return "tf_world:dead_bush" end
+			if pick < 0.03 then return "tf_world:desert_grass" end
+		elseif pick < 0.01 then
+			return "tf_world:dune_grass"
+		end
+		return nil
+	end
+	if not SOIL[ground] then return nil end
+	if c.bank[i] and pick < 0.06 then
+		return (r % 2 == 0) and "tf_world:reed" or "tf_world:cattail"
+	end
+	if d > 0.7 then -- under the canopy
+		if pick < 0.02 then return (r % 3 == 0) and "tf_world:red_mushroom" or "tf_world:brown_mushroom" end
+		if pick < 0.25 then return "tf_world:fern" end
+		return nil
+	end
+	if d > 0.08 then -- meadow and open woodland
+		if pick < d * 0.6 then
+			if math.floor(r / 1048576) % 12 == 0 and h > -0.35 then -- no flowers at the treeline
+				if h > 0.2 and w < 0 then return "tf_world:lavender" end
+				return FLOWERS[math.floor(r / 16) % #FLOWERS + 1]
+			end
+			if math.floor(r / 1048576) % 40 == 1 and h > -0.2 and h < 0.4 then return "tf_world:berry_bush" end
+			return "tf_world:grass_tuft"
+		end
+		return nil
+	end
+	if w < -0.3 and pick < 0.015 then return "tf_world:dead_bush" end
+	return nil
+end
+
+-- ---- planting, as each chunk generates ------------------------------------
+
+if not core.terra.enabled() then
+	return -- other worlds (the Lab) have no terragen to ask
+end
+
+local trees = {}
+for _, s in ipairs(SPECIES) do
+	local def = table.copy(SHAPES[s.name])
+	def.trunk, def.leaves = s.trunk, s.leaves
+	trees[s.name] = def
+end
+
+core.register_on_generated(function(minp, maxp)
+	local heightmap = core.get_mapgen_object("heightmap")
+	if not heightmap then return end
+	-- only chunks where the ground surface falls inside them
+	local any = false
+	for _, y in ipairs(heightmap) do
+		if y >= minp.y and y < maxp.y then any = true break end
+	end
+	if not any then return end
+
+	local vm, emin, emax = core.get_mapgen_object("voxelmanip")
+	local area = VoxelArea(emin, emax)
+	local data = vm:get_data()
+	local c_air = core.CONTENT_AIR
+	local cover = core.terra.cover({ x = minp.x, y = 0, z = minp.z }, { x = maxp.x, y = 0, z = maxp.z })
+	local width = maxp.x - minp.x + 1
+	local planted, place_trees = {}, {}
+
+	local i = 1
+	for z = minp.z, maxp.z do
+		for x = minp.x, maxp.x do
+			local y = heightmap[i]
+			if y >= minp.y and y < maxp.y then
+				local below, above = area:index(x, y, z), area:index(x, y + 1, z)
+				if data[above] == c_air then
+					local ground = core.get_name_from_content_id(data[below])
+					local s = cover.tree[i] and species_for(cover, i, ground)
+					if s then
+						place_trees[#place_trees + 1] = { pos = { x = x, y = y + 1, z = z }, def = trees[s.name] }
+					else
+						local p = ground_plant(cover, i, ground)
+						if p == "cactus" then
+							for k = 1, 1 + cover.roll[i] % 3 do
+								local at = area:index(x, y + k, z)
+								if data[at] == c_air then data[at] = core.get_content_id("tf_world:cactus") end
+							end
+						elseif p then
+							data[above] = core.get_content_id(p)
+						end
+					end
+				end
+			end
+			i = i + 1
+		end
+	end
+	vm:set_data(data)
+	for _, t in ipairs(place_trees) do
+		core.spawn_tree_on_vmanip(vm, t.pos, t.def)
+	end
+	vm:calc_lighting()
+	vm:write_to_map()
+end)

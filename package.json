@@ -1,8 +1,14 @@
 {
   "name": "terrafirma",
-  "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "build": "cmake --build build -j && cd ui && bun run build",
+    "components": "cd ui && bun run gallery",
+    "check:terragen": "bash scripts/terragen-check.sh",
+    "check:lab": "bash scripts/lab-check.sh"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

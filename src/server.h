@@ -242,6 +242,7 @@ public:
 	void handleCommand_SrpBytesM(NetworkPacket* pkt);
 	void handleCommand_HaveMedia(NetworkPacket *pkt);
 	void handleCommand_UpdateClientInfo(NetworkPacket *pkt);
+	void handleCommand_Ui(NetworkPacket *pkt);
 
 	void ProcessData(NetworkPacket *pkt);
 
@@ -254,6 +255,11 @@ public:
 
 	// Both setter and getter need no envlock,
 	// can be called freely from threads
+	// Terra Firma: game time's speed for this session, or nullopt for the
+	// time_speed setting. Not saved; the setting is never touched.
+	void setTimeSpeed(std::optional<float> speed);
+	float getTimeSpeed() const;
+
 	void setTimeOfDay(u32 time);
 
 	/*
@@ -396,6 +402,9 @@ public:
 	void overrideDayNightRatio(RemotePlayer *player, bool do_override, float brightness);
 
 	void setLighting(RemotePlayer *player, const Lighting &lighting);
+
+	// Terra Firma: a value for the player's page (JSON; null clears).
+	void setUi(RemotePlayer *player, const std::string &key, const std::string &value_json);
 
 	/* con::PeerHandler implementation. */
 	void peerAdded(con::IPeer *peer) override;
@@ -689,6 +698,7 @@ private:
 
 	// Some timers
 	float m_time_of_day_send_timer = 0.0f;
+	std::optional<float> m_time_speed; // Terra Firma: set_time_speed, else the setting
 	float m_liquid_transform_timer = 0.0f;
 	float m_liquid_transform_every = 1.0f;
 	float m_masterserver_timer = 0.0f;

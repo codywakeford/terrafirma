@@ -51,6 +51,10 @@
 #include <ICameraSceneNode.h>
 #include "util/tracy_wrapper.h"
 #include "item_visuals_manager.h"
+#include "config.h"
+#if USE_SHELL
+#include "shell/shell.h"
+#endif
 
 #if USE_SOUND
 	#include "client/sound/sound_openal.h"
@@ -466,6 +470,12 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 
 	m_game_formspec.init(client, m_rendering_engine, input);
 
+#if USE_SHELL
+	sanity_check(g_shell);
+	m_shell_session = std::make_unique<shell::Session>(shell::Session::Opts{
+		*g_shell, client, driver, guienv });
+#endif
+
 	return true;
 }
 
@@ -591,7 +601,11 @@ void Game::run()
 		updateProfilerGraphs(&graph);
 
 		if (m_does_lost_focus_pause_game && !device->isWindowFocused() && !isMenuActive()) {
+#if USE_SHELL
+			m_shell_session->screens().open("pause");
+#else
 			m_game_formspec.showPauseMenu();
+#endif
 		}
 	}
 
@@ -607,6 +621,9 @@ void Game::run()
 
 void Game::shutdown()
 {
+#if USE_SHELL
+	m_shell_session.reset();
+#endif
 	// Delete text and menus first
 	m_game_ui->clearText();
 	m_game_formspec.reset();
@@ -1435,13 +1452,25 @@ void Game::processKeyInput()
 		if (g_settings->getBool("continuous_forward"))
 			toggleAutoforward();
 	} else if (wasKeyDown(KeyType::INVENTORY)) {
+#if USE_SHELL
+		m_shell_session->screens().open("inventory");
+#else
 		m_game_formspec.showPlayerInventory(nullptr);
+#endif
+#if USE_SHELL
+	} else if (wasKeyDown(KeyType::LAB)) {
+		m_shell_session->screens().open("lab");
+#endif
 	} else if (input->cancelPressed()) {
 #ifdef __ANDROID__
 		m_android_chat_open = false;
 #endif
 		if (!gui_chat_console->isOpenInhibited()) {
+#if USE_SHELL
+			m_shell_session->screens().open("pause");
+#else
 			m_game_formspec.showPauseMenu();
+#endif
 		}
 	} else if (wasKeyDown(KeyType::CHAT)) {
 		openConsole(0.2, L"");
@@ -2436,6 +2465,9 @@ void Game::handleClientEvent_SetSky(ClientEvent *event, CameraOrientation *cam)
 
 	// Orbit Tilt:
 	sky->setBodyOrbitTilt(event->set_sky->body_orbit_tilt);
+	// Terra Firma: the real sun, for the sky and the light
+	sky->setSolar(event->set_sky->solar);
+	client->getEnv().setSolar(event->set_sky->solar);
 
 	// fog
 	// do not override a potentially smaller client setting.
@@ -3623,8 +3655,6 @@ void Game::updateShadows()
 	if (!shadow)
 		return;
 
-	float in_timeofday = std::fmod(runData.time_of_day_smooth, 1.0f);
-
 	const auto &lighting = client->getEnv().getLocalPlayer()->getLighting();
 	shadow->setShadowTint(lighting.shadow_tint);
 
@@ -3636,8 +3666,7 @@ void Game::updateShadows()
 		shadow->setShadowIntensity(lighting.shadow_intensity);
 		light = lighting.shadow_direction;
 	} else {
-		float timeoftheday = getWickedTimeOfDay(in_timeofday);
-		bool is_day = timeoftheday > 0.25f && timeoftheday < 0.75f;
+		bool is_day = sky->getSunDirection().Y > 0.0f;
 		bool is_shadow_visible = is_day ? sky->getSunVisible() : sky->getMoonVisible();
 		shadow->setShadowIntensity(is_shadow_visible ? lighting.shadow_intensity : 0.0f);
 		light = is_day ? sky->getSunDirection() : sky->getMoonDirection();
@@ -3645,7 +3674,7 @@ void Game::updateShadows()
 
 	v3f sun_pos = light * offset_constant;
 	shadow->getDirectionalLight().setDirection(sun_pos);
-	shadow->setTimeOfDay(in_timeofday);
+	shadow->setTimeOfDay(std::fmod(sky->getLightTimeOfDay(), 1.0f));
 
 	shadow->getDirectionalLight().updateFrustum(camera, client);
 }
@@ -3691,13 +3720,18 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 	const LocalPlayer *player = this->client->getEnv().getLocalPlayer();
 	bool draw_wield_tool = (this->m_game_ui->m_flags.show_hud &&
 			(player->hud_flags & HUD_FLAG_WIELDITEM_VISIBLE) &&
-			(this->camera->getCameraMode() == CAMERA_MODE_FIRST));
+			(this->camera->getCameraMode() == CAMERA_MODE_FIRST) &&
+			!this->camera->hasShot());
 	bool draw_crosshair = (
 			(player->hud_flags & HUD_FLAG_CROSSHAIR_VISIBLE) &&
 			(this->camera->getCameraMode() != CAMERA_MODE_THIRD_FRONT));
 
 	if (isTouchShootlineUsed())
 		draw_crosshair = false;
+
+#if USE_SHELL
+	m_shell_session->update({ this->m_game_ui->m_flags.show_hud, draw_crosshair });
+#endif
 
 	this->m_rendering_engine->draw_scene(sky_color, this->m_game_ui->m_flags.show_hud,
 			draw_wield_tool, draw_crosshair);
@@ -3722,6 +3756,11 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 					core::rect<s32>(0, 0, screensize.X, screensize.Y),
 					NULL);
 	}
+
+#if USE_SHELL
+	if (g_shell)
+		g_shell->frame();
+#endif
 
 	// Must be called immediately before endScene() to capture the rendered frame
 	this->client->takeScreenshotIfRequested();

@@ -147,6 +147,9 @@ private:
 	// val = 0...1
 	static int l_set_timeofday(lua_State *L);
 
+	// Terra Firma: set_time_speed(speed) — nil returns to the setting
+	static int l_set_time_speed(lua_State *L);
+
 	// get_timeofday() -> 0...1
 	static int l_get_timeofday(lua_State *L);
 

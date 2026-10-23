@@ -119,7 +119,9 @@ bool Input::key(const SEvent &event, CefRefPtr<CefBrowserHost> host)
 
 bool Input::text(const SEvent &event, CefRefPtr<CefBrowserHost> host)
 {
-	for (wchar_t c : *event.StringInput.Str) {
+	const core::stringw &str = *event.StringInput.Str;
+	for (u32 i = 0; i < str.size(); i++) {
+		wchar_t c = str[i];
 		CefKeyEvent out;
 		out.type = KEYEVENT_CHAR;
 		out.character = (char16_t)c;

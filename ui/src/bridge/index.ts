@@ -1,8 +1,20 @@
-import type { EngineMessage, Intent } from "./types"
+import { FailureCode, type EngineMessage, type IntentKind, type Intents } from "./types"
 
-export type { EngineMessage, Intent, Mode } from "./types"
+export type { BodyCard, BodyCausesWire, BodyKind, EngineMessage, IntentKind, Intents, ItemInfo, LabControl, LabScenario, LabValue, MatterElement, MatterMixture, MatterReaction, MatterRock, MatterState, MatterStructure, MatterSubstance, Mode, ScreenName, SlotRef, Stack, StateSections, UiEvent, UiEvents, UiValues, World } from "./types"
+export { FailureCode } from "./types"
 
 type Listener = (message: EngineMessage) => void
+
+export class BridgeError extends Error {
+    constructor(readonly kind: IntentKind, readonly code: number, message: string) {
+        super(message)
+    }
+
+    /** The engine said no for a reason the player should read. */
+    get refused() {
+        return this.code === FailureCode.Refused
+    }
+}
 
 /** The UI's only line to the engine: intents out, engine messages in. */
 export function Bridge() {
@@ -15,13 +27,13 @@ export function Bridge() {
 
     return {
         connected: query !== undefined,
-        send(intent: Intent): Promise<string> {
+        send<K extends IntentKind>(kind: K, request: Intents[K]["request"]): Promise<Intents[K]["response"]> {
             if (!query) throw new Error("Bridge is not connected: not running inside the engine")
             return new Promise((resolve, reject) => {
                 query({
-                    request: JSON.stringify(intent),
-                    onSuccess: resolve,
-                    onFailure: (code, message) => reject(new Error(`${intent.kind} failed (${code}): ${message}`)),
+                    request: JSON.stringify({ ...request, kind: kind }),
+                    onSuccess: (response) => resolve(JSON.parse(response)),
+                    onFailure: (code, message) => reject(new BridgeError(kind, code, message)),
                 })
             })
         },

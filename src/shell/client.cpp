@@ -45,7 +45,7 @@ void Client::OnPaint(CefRefPtr<CefBrowser> browser, PaintElementType type,
 {
 	if (type != PET_VIEW)
 		return; // <select> popups are not composited yet
-	m_pixels.write(buffer, width, height);
+	m_pixels.write(buffer, width, height, dirty);
 }
 
 void Client::OnBeforeClose(CefRefPtr<CefBrowser> browser)

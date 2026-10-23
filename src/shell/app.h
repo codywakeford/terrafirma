@@ -19,6 +19,11 @@ CefMessageRouterConfig routerConfig();
 class App : public CefApp, public CefRenderProcessHandler
 {
 public:
+	// gpu: let Chromium rasterise on the GPU (the shell_gpu setting). Helper
+	// processes take their switches from the browser process, so only the
+	// game process's App decides.
+	explicit App(bool gpu = true) : m_gpu(gpu) {}
+
 	void OnBeforeCommandLineProcessing(const CefString &process_type,
 			CefRefPtr<CefCommandLine> command_line) override;
 	void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override;
@@ -33,6 +38,7 @@ public:
 			CefProcessId source_process, CefRefPtr<CefProcessMessage> message) override;
 
 private:
+	bool m_gpu;
 	CefRefPtr<CefMessageRouterRendererSide> m_router;
 
 	IMPLEMENT_REFCOUNTING(App);

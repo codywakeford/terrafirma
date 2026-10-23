@@ -12,6 +12,10 @@
 #include "hud_element.h"
 #include "log_internal.h"
 #include "client/renderingengine.h"
+#include "config.h"
+#if USE_SHELL
+#include "shell/shell.h"
+#endif
 
 static const std::array input_settings = {
 	"keyboard_camera_speed",
@@ -49,6 +53,7 @@ void MyEventReceiver::reloadKeybindings()
 
 	keybindings[KeyType::DROP] = getKeySetting("keymap_drop");
 	keybindings[KeyType::INVENTORY] = getKeySetting("keymap_inventory");
+	keybindings[KeyType::LAB] = getKeySetting("keymap_lab");
 	keybindings[KeyType::CHAT] = getKeySetting("keymap_chat");
 	keybindings[KeyType::CMD] = getKeySetting("keymap_cmd");
 	keybindings[KeyType::CMD_LOCAL] = getKeySetting("keymap_cmd_local");
@@ -254,6 +259,12 @@ bool MyEventReceiver::OnEvent(const SEvent &event)
 			return true;
 		}
 	}
+
+#if USE_SHELL
+	// The page takes what lands on it before the engine's GUI or the game see it.
+	if (g_shell && g_shell->onEvent(event))
+		return true;
+#endif
 
 	if (event.EventType == EET_MOUSE_INPUT_EVENT && !event.MouseInput.Simulated)
 		last_pointer_type = PointerType::Mouse;

@@ -189,6 +189,7 @@ public:
 	void handleCommand_ShowFormSpec(NetworkPacket* pkt);
 	void handleCommand_SpawnParticle(NetworkPacket* pkt);
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
+	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -236,6 +237,11 @@ public:
 	void sendReady();
 	void sendHaveMedia(const std::vector<u32> &tokens);
 	void sendUpdateClientInfo(const ClientDynamicInfo &info);
+
+	// Terra Firma: the page's UI channel. Values the server set for this
+	// player's page (key, JSON), oldest first, taken once; and events back.
+	std::vector<std::pair<std::string, std::string>> takeUiValues();
+	void sendUiEvent(const std::string &name, const std::string &payload_json);
 
 	ClientEnvironment& getEnv() { return m_env; }
 	ITextureSource *tsrc() { return getTextureSource(); }
@@ -460,6 +466,8 @@ public:
 	bool inhibit_inventory_revert = false;
 
 private:
+	std::vector<std::pair<std::string, std::string>> m_ui_values;
+
 	struct PendingMediaDownload {
 		// Tokens to ack to the server. multiple because server can send duplicate
 		// requests

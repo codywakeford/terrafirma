@@ -22,6 +22,10 @@
 #include "log_internal.h"
 #include "sky.h"
 #include "util/pointedthing.h"
+#include "config.h"
+#if USE_SHELL
+#include "shell/session.h"
+#endif
 
 /* DO NOT INCLUDE THIS FROM OUTSIDE GAME.CPP */
 
@@ -326,6 +330,9 @@ private:
 	QuicktuneShortcutter *quicktune = nullptr;
 
 	std::unique_ptr<GameUI> m_game_ui;
+#if USE_SHELL
+	std::unique_ptr<shell::Session> m_shell_session;
+#endif
 	irr_ptr<GUIChatConsole> gui_chat_console;
 	MapDrawControl *draw_control = nullptr;
 	Camera *camera = nullptr;

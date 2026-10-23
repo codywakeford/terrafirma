@@ -2187,3 +2187,16 @@ const std::string &Client::getFormspecPrepend() const
 {
 	return m_env.getLocalPlayer()->formspec_prepend;
 }
+
+std::vector<std::pair<std::string, std::string>> Client::takeUiValues()
+{
+	return std::exchange(m_ui_values, {});
+}
+
+void Client::sendUiEvent(const std::string &name, const std::string &payload_json)
+{
+	NetworkPacket pkt(TOSERVER_UI, 0);
+	pkt << name;
+	pkt.putLongString(payload_json);
+	Send(&pkt);
+}

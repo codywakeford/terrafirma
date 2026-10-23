@@ -24,7 +24,7 @@ u32 Environment::getDayNightRatio()
 	MutexAutoLock lock(m_time_lock);
 	if (m_enable_day_night_ratio_override)
 		return m_day_night_ratio_override;
-	return time_to_daynight_ratio(m_time_of_day_f * 24000, true);
+	return time_to_daynight_ratio(lightTimeOfDay(m_time_of_day_f) * 24000, true);
 }
 
 void Environment::setTimeOfDaySpeed(float speed)

@@ -4,6 +4,7 @@
 // Copyright (C) 2020 numzero, Lobachevskiy Vitaliy <numzer0@yandex.ru>
 
 #include "sky.h"
+#include "solar.h"
 
 #include "camera.h"
 #include "client/renderingengine.h"
@@ -251,8 +252,13 @@ void Sky::render()
 			vertices[1] = video::S3DVertex( 1, -0.05 + y, -1, 0, 0, 1, c, o, t);
 			vertices[2] = video::S3DVertex( 1,   0.2 + y, -1, 0, 0, 1, c, o, o);
 			vertices[3] = video::S3DVertex(-1,   0.2 + y, -1, 0, 0, 1, c, t, o);
+			// the solar sky glows where the sun is
+			v3f sun = getSunDirection();
+			float bearing = std::atan2(sun.X, -sun.Z) * core::RADTODEG;
 			for (video::S3DVertex &vertex : vertices) {
-				if (wicked_time_of_day < 0.5)
+				if (m_sky_params.solar.on)
+					vertex.Pos.rotateXZBy(bearing);
+				else if (wicked_time_of_day < 0.5)
 					// Switch from -Z (south) to +X (east)
 					vertex.Pos.rotateXZBy(90);
 				else
@@ -327,7 +333,9 @@ void Sky::update(float time_of_day, float time_brightness,
 		return;
 	}
 
-	m_time_of_day = time_of_day;
+	m_body_time = time_of_day - std::floor(time_of_day);
+	m_time_of_day = m_sky_params.solar.on ?
+			solar::apparentTime(m_sky_params.solar, time_of_day) : time_of_day;
 	m_time_brightness = time_brightness;
 	m_sunlight_seen = sunlight_seen;
 	m_in_clouds = false;
@@ -535,12 +543,32 @@ static v3f getSkyBodyPosition(float horizon_position, float day_position, float 
 
 v3f Sky::getSunDirection()
 {
-	return getSkyBodyPosition(90, getWickedTimeOfDay(m_time_of_day) * 360 - 90, m_sky_params.body_orbit_tilt);
+	return getSkyBodyPosition(bodyHorizon(true), bodyDay(getWickedTimeOfDay(m_time_of_day)), bodyTilt());
 }
 
 v3f Sky::getMoonDirection()
 {
-	return getSkyBodyPosition(270, getWickedTimeOfDay(m_time_of_day) * 360 - 90, m_sky_params.body_orbit_tilt);
+	return getSkyBodyPosition(bodyHorizon(false), bodyDay(getWickedTimeOfDay(m_time_of_day)), bodyTilt());
+}
+
+float Sky::bodyHorizon(bool sun) const
+{
+	// (cos δ, 0, sin δ) before the day turn: the declination lifts the circle
+	// toward the pole (+Z); the moon stays opposite the sun
+	float base = sun ? 90.0f : 270.0f;
+	return m_sky_params.solar.on ? base + m_sky_params.solar.declination : base;
+}
+
+float Sky::bodyDay(float wicked_time_of_day) const
+{
+	float t = m_sky_params.solar.on ? m_body_time : wicked_time_of_day;
+	return t * 360.0f - 90.0f;
+}
+
+float Sky::bodyTilt() const
+{
+	// the celestial pole stands at the latitude above the northern horizon
+	return m_sky_params.solar.on ? -m_sky_params.solar.latitude : m_sky_params.body_orbit_tilt;
 }
 
 void Sky::draw_sun(video::IVideoDriver *driver, const video::SColor &suncolor,
@@ -572,7 +600,7 @@ void Sky::draw_sun(video::IVideoDriver *driver, const video::SColor &suncolor,
 		const video::SColor colors[4] = {c1, c2, suncolor, suncolor2};
 		for (int i = 0; i < 4; i++) {
 			draw_sky_body(vertices, -sunsizes[i], sunsizes[i], colors[i]);
-			place_sky_body(vertices, 90, wicked_time_of_day * 360 - 90);
+			place_sky_body(vertices, bodyHorizon(true), bodyDay(wicked_time_of_day));
 			driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
 		}
 	} else {
@@ -583,7 +611,7 @@ void Sky::draw_sun(video::IVideoDriver *driver, const video::SColor &suncolor,
 		video::SColor c = m_sun_tonemap ? m_materials[3].ColorParam :
 				video::SColor(255, 255, 255, 255);
 		draw_sky_body(vertices, -d, d, c);
-		place_sky_body(vertices, 90, wicked_time_of_day * 360 - 90);
+		place_sky_body(vertices, bodyHorizon(true), bodyDay(wicked_time_of_day));
 		driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
 	}
 }
@@ -626,7 +654,7 @@ void Sky::draw_moon(video::IVideoDriver *driver, const video::SColor &mooncolor,
 		const video::SColor colors[4] = {c1, c2, mooncolor, mooncolor2};
 		for (int i = 0; i < 4; i++) {
 			draw_sky_body(vertices, moonsizes_1[i], moonsizes_2[i], colors[i]);
-			place_sky_body(vertices, -90, wicked_time_of_day * 360 - 90);
+			place_sky_body(vertices, bodyHorizon(false), bodyDay(wicked_time_of_day));
 			driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
 		}
 	} else {
@@ -637,7 +665,7 @@ void Sky::draw_moon(video::IVideoDriver *driver, const video::SColor &mooncolor,
 		video::SColor c = m_moon_tonemap ? m_materials[4].ColorParam :
 				video::SColor(255, 255, 255, 255);
 		draw_sky_body(vertices, -d, d, c);
-		place_sky_body(vertices, -90, wicked_time_of_day * 360 - 90);
+		place_sky_body(vertices, bodyHorizon(false), bodyDay(wicked_time_of_day));
 		driver->drawIndexedTriangleList(&vertices[0], 4, indices, 2);
 	}
 }
@@ -661,8 +689,9 @@ void Sky::draw_stars(video::IVideoDriver * driver, float wicked_time_of_day)
 		return;
 	m_materials[0].ColorParam = color.toSColor();
 
-	auto day_rotation = core::matrix4().setRotationAxisRadians(2.0f * M_PI * (wicked_time_of_day - 0.25f), v3f(0.0f, 0.0f, 1.0f));
-	auto orbit_rotation = core::matrix4().setRotationAxisRadians(m_sky_params.body_orbit_tilt * M_PI / 180.0, v3f(1.0f, 0.0f, 0.0f));
+	float day = (bodyDay(wicked_time_of_day) + 90.0f) / 360.0f;
+	auto day_rotation = core::matrix4().setRotationAxisRadians(2.0f * M_PI * (day - 0.25f), v3f(0.0f, 0.0f, 1.0f));
+	auto orbit_rotation = core::matrix4().setRotationAxisRadians(bodyTilt() * M_PI / 180.0, v3f(1.0f, 0.0f, 0.0f));
 	auto sky_rotation = orbit_rotation * day_rotation;
 	auto world_matrix = driver->getTransform(video::ETS_WORLD);
 	driver->setTransform(video::ETS_WORLD, world_matrix * sky_rotation);
@@ -701,7 +730,7 @@ void Sky::place_sky_body(
 		// Body is directed to -Z (south) by default
 		vertex.Pos.rotateXZBy(horizon_position);
 		vertex.Pos.rotateXYBy(day_position);
-		vertex.Pos.rotateYZBy(m_sky_params.body_orbit_tilt);
+		vertex.Pos.rotateYZBy(bodyTilt());
 	}
 }
 
@@ -899,10 +928,12 @@ void Sky::addTextureToSkybox(const std::string &texture, int material_id,
 	m_materials[material_id+5].MaterialType = video::EMT_SOLID;
 }
 
+// The stock sky's night, as a share of the day: its sun moves faster at night.
+static const float WICKED_NIGHT = 0.415f;
+
 float getWickedTimeOfDay(float time_of_day)
 {
-	float nightlength = 0.415f;
-	float wn = nightlength / 2;
+	float wn = WICKED_NIGHT / 2;
 	float wicked_time_of_day = 0;
 	if (time_of_day > wn && time_of_day < 1.0f - wn)
 		wicked_time_of_day = (time_of_day - wn) / (1.0f - wn * 2) * 0.5f + 0.25f;
@@ -911,4 +942,14 @@ float getWickedTimeOfDay(float time_of_day)
 	else
 		wicked_time_of_day = 1.0f - ((1.0f - time_of_day) / wn * 0.25f);
 	return wicked_time_of_day;
+}
+
+float getTimeOfDayFromWicked(float wicked)
+{
+	float wn = WICKED_NIGHT / 2;
+	if (wicked > 0.25f && wicked < 0.75f)
+		return (wicked - 0.25f) / 0.5f * (1.0f - wn * 2) + wn;
+	if (wicked <= 0.25f)
+		return wicked / 0.25f * wn;
+	return 1.0f - (1.0f - wicked) / 0.25f * wn;
 }

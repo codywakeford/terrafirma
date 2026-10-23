@@ -1,0 +1,2478 @@
+{
+ "substances": [
+  {
+   "id": "water",
+   "name": "Water",
+   "formula": "H₂O",
+   "composition": {
+    "H": 2,
+    "O": 1
+   },
+   "triple": [
+    273.16,
+    611.657
+   ],
+   "critical": [
+    647.1,
+    22064000.0
+   ],
+   "boil": 373.15,
+   "fusion": 6.01,
+   "vaporization": 40.65,
+   "melt_slope": -0.074,
+   "density": {
+    "solid": 917,
+    "liquid": 1000
+   },
+   "heat_capacity": 4186,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "O",
+      0,
+      0,
+      0
+     ],
+     [
+      "H",
+      0.757,
+      0.586,
+      0
+     ],
+     [
+      "H",
+      -0.757,
+      0.586,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ]
+    ]
+   },
+   "note": "Expands as it freezes, so ice floats and its melting point falls under pressure.",
+   "approximate": false,
+   "kind": "compound"
+  },
+  {
+   "id": "carbon_dioxide",
+   "name": "Carbon dioxide",
+   "formula": "CO₂",
+   "composition": {
+    "C": 1,
+    "O": 2
+   },
+   "triple": [
+    216.55,
+    517950
+   ],
+   "critical": [
+    304.13,
+    7377300.0
+   ],
+   "boil": null,
+   "fusion": 9.02,
+   "vaporization": 15.3,
+   "melt_slope": 0.25,
+   "density": {
+    "solid": 1562,
+    "liquid": 1101
+   },
+   "heat_capacity": 840,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      1.16,
+      0,
+      0
+     ],
+     [
+      "O",
+      -1.16,
+      0,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      2
+     ],
+     [
+      0,
+      2,
+      2
+     ]
+    ]
+   },
+   "note": "Never liquid at Earth's surface pressure: dry ice turns straight to gas.",
+   "approximate": false,
+   "kind": "compound",
+   "sublime": 194.7
+  },
+  {
+   "id": "methane",
+   "name": "Methane",
+   "formula": "CH₄",
+   "composition": {
+    "C": 1,
+    "H": 4
+   },
+   "triple": [
+    90.69,
+    11696
+   ],
+   "critical": [
+    190.56,
+    4599000.0
+   ],
+   "boil": 111.66,
+   "fusion": 0.94,
+   "vaporization": 8.19,
+   "melt_slope": 0.3,
+   "density": {
+    "solid": 522,
+    "liquid": 422
+   },
+   "heat_capacity": 2220,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      0,
+      0,
+      0
+     ],
+     [
+      "H",
+      0.629,
+      0.629,
+      0.629
+     ],
+     [
+      "H",
+      -0.629,
+      -0.629,
+      0.629
+     ],
+     [
+      "H",
+      -0.629,
+      0.629,
+      -0.629
+     ],
+     [
+      "H",
+      0.629,
+      -0.629,
+      -0.629
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      0,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Liquid in the cold of the outer system: the seas and rain of a Titan.",
+   "approximate": false,
+   "kind": "compound"
+  },
+  {
+   "id": "ammonia",
+   "name": "Ammonia",
+   "formula": "NH₃",
+   "composition": {
+    "N": 1,
+    "H": 3
+   },
+   "triple": [
+    195.4,
+    6060
+   ],
+   "critical": [
+    405.4,
+    11333000.0
+   ],
+   "boil": 239.8,
+   "fusion": 5.65,
+   "vaporization": 23.35,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 817,
+    "liquid": 682
+   },
+   "heat_capacity": 4700,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "N",
+      0,
+      0.1,
+      0
+     ],
+     [
+      "H",
+      0.94,
+      -0.27,
+      0
+     ],
+     [
+      "H",
+      -0.47,
+      -0.27,
+      0.814
+     ],
+     [
+      "H",
+      -0.47,
+      -0.27,
+      -0.814
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ]
+    ]
+   },
+   "note": "Mixed with water it stays liquid far below water's freezing point: oceans under ice.",
+   "approximate": false,
+   "kind": "compound"
+  },
+  {
+   "id": "nitrogen",
+   "name": "Nitrogen",
+   "formula": "N₂",
+   "composition": {
+    "N": 2
+   },
+   "triple": [
+    63.15,
+    12520
+   ],
+   "critical": [
+    126.19,
+    3395800.0
+   ],
+   "boil": 77.36,
+   "fusion": 0.72,
+   "vaporization": 5.56,
+   "melt_slope": 0.5,
+   "density": {
+    "solid": 1027,
+    "liquid": 808
+   },
+   "heat_capacity": 1040,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "N",
+      0.55,
+      0,
+      0
+     ],
+     [
+      "N",
+      -0.55,
+      0,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   },
+   "note": "Most of Earth's air; glaciers on the coldest worlds.",
+   "approximate": false,
+   "kind": "element"
+  },
+  {
+   "id": "oxygen",
+   "name": "Oxygen",
+   "formula": "O₂",
+   "composition": {
+    "O": 2
+   },
+   "triple": [
+    54.36,
+    146.3
+   ],
+   "critical": [
+    154.58,
+    5043000.0
+   ],
+   "boil": 90.19,
+   "fusion": 0.444,
+   "vaporization": 6.82,
+   "melt_slope": 0.4,
+   "density": {
+    "solid": 1426,
+    "liquid": 1141
+   },
+   "heat_capacity": 918,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "O",
+      0.605,
+      0,
+      0
+     ],
+     [
+      "O",
+      -0.605,
+      0,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      2
+     ]
+    ]
+   },
+   "note": "Made by life; what fire and lungs need.",
+   "approximate": false,
+   "kind": "element"
+  },
+  {
+   "id": "hydrogen",
+   "name": "Hydrogen",
+   "formula": "H₂",
+   "composition": {
+    "H": 2
+   },
+   "triple": [
+    13.8,
+    7042
+   ],
+   "critical": [
+    33.15,
+    1296400.0
+   ],
+   "boil": 20.27,
+   "fusion": 0.117,
+   "vaporization": 0.904,
+   "melt_slope": 0.3,
+   "density": {
+    "solid": 86,
+    "liquid": 71
+   },
+   "heat_capacity": 14300,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "H",
+      0.37,
+      0,
+      0
+     ],
+     [
+      "H",
+      -0.37,
+      0,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ]
+    ]
+   },
+   "note": "The lightest fuel; most of a giant planet.",
+   "approximate": false,
+   "kind": "element"
+  },
+  {
+   "id": "sulfur_dioxide",
+   "name": "Sulfur dioxide",
+   "formula": "SO₂",
+   "composition": {
+    "S": 1,
+    "O": 2
+   },
+   "triple": [
+    197.64,
+    1670
+   ],
+   "critical": [
+    430.64,
+    7884000.0
+   ],
+   "boil": 263.1,
+   "fusion": 7.4,
+   "vaporization": 24.94,
+   "melt_slope": 0.2,
+   "density": {
+    "solid": 1600,
+    "liquid": 1460
+   },
+   "heat_capacity": 640,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "S",
+      0,
+      0.3,
+      0
+     ],
+     [
+      "O",
+      1.24,
+      -0.42,
+      0
+     ],
+     [
+      "O",
+      -1.24,
+      -0.42,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      2
+     ],
+     [
+      0,
+      2,
+      2
+     ]
+    ]
+   },
+   "note": "Breathed out by volcanoes; with water it makes acid clouds.",
+   "approximate": false,
+   "kind": "compound"
+  },
+  {
+   "id": "sulfuric_acid",
+   "name": "Sulfuric acid",
+   "formula": "H₂SO₄",
+   "composition": {
+    "H": 2,
+    "S": 1,
+    "O": 4
+   },
+   "triple": [
+    283.46,
+    0.1
+   ],
+   "critical": [
+    924,
+    6400000.0
+   ],
+   "boil": 610,
+   "fusion": 10.7,
+   "vaporization": 50.2,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1900,
+    "liquid": 1830
+   },
+   "heat_capacity": 1340,
+   "approximate": true,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "S",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.85,
+      0.85,
+      0.85
+     ],
+     [
+      "O",
+      -0.85,
+      -0.85,
+      0.85
+     ],
+     [
+      "O",
+      -0.85,
+      0.85,
+      -0.85
+     ],
+     [
+      "O",
+      0.85,
+      -0.85,
+      -0.85
+     ],
+     [
+      "H",
+      1.6,
+      1.4,
+      1.1
+     ],
+     [
+      "H",
+      -1.6,
+      1.4,
+      -1.1
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      2
+     ],
+     [
+      0,
+      2,
+      2
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      0,
+      4,
+      1
+     ],
+     [
+      3,
+      6,
+      1
+     ],
+     [
+      1,
+      5,
+      1
+     ]
+    ]
+   },
+   "note": "The clouds of a hothouse world. (Its triple and critical points are estimates.)",
+   "kind": "compound"
+  },
+  {
+   "id": "iron",
+   "name": "Iron",
+   "formula": "Fe",
+   "composition": {
+    "Fe": 1
+   },
+   "triple": [
+    1811,
+    7.05
+   ],
+   "critical": [
+    9250,
+    875000000.0
+   ],
+   "boil": 3134,
+   "fusion": 13.81,
+   "vaporization": 340,
+   "melt_slope": 0.03,
+   "density": {
+    "solid": 7874,
+    "liquid": 6980
+   },
+   "heat_capacity": 449,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Fe"
+    ]
+   },
+   "note": "The core of rocky worlds; the metal of an age.",
+   "kind": "element",
+   "hardness": 4
+  },
+  {
+   "id": "copper",
+   "name": "Copper",
+   "formula": "Cu",
+   "composition": {
+    "Cu": 1
+   },
+   "triple": [
+    1357.77,
+    0.05
+   ],
+   "critical": [
+    8280,
+    800000000.0
+   ],
+   "boil": 2835,
+   "fusion": 13.26,
+   "vaporization": 300.4,
+   "melt_slope": 0.04,
+   "density": {
+    "solid": 8960,
+    "liquid": 8020
+   },
+   "heat_capacity": 385,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "fcc",
+    "atoms": [
+     "Cu"
+    ]
+   },
+   "note": "Soft, conducts heat and current; with tin, bronze.",
+   "kind": "element",
+   "hardness": 3
+  },
+  {
+   "id": "tin",
+   "name": "Tin",
+   "formula": "Sn",
+   "composition": {
+    "Sn": 1
+   },
+   "triple": [
+    505.08,
+    1e-20
+   ],
+   "critical": [
+    7600,
+    600000000.0
+   ],
+   "boil": 2875,
+   "fusion": 7.03,
+   "vaporization": 296,
+   "melt_slope": 0.03,
+   "density": {
+    "solid": 7265,
+    "liquid": 6990
+   },
+   "heat_capacity": 228,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Sn"
+    ]
+   },
+   "note": "Melts in a campfire; hardens copper into bronze.",
+   "kind": "element",
+   "hardness": 1.5
+  },
+  {
+   "id": "gold",
+   "name": "Gold",
+   "formula": "Au",
+   "composition": {
+    "Au": 1
+   },
+   "triple": [
+    1337.33,
+    0.0024
+   ],
+   "critical": [
+    7250,
+    510000000.0
+   ],
+   "boil": 3243,
+   "fusion": 12.55,
+   "vaporization": 324,
+   "melt_slope": 0.06,
+   "density": {
+    "solid": 19300,
+    "liquid": 17310
+   },
+   "heat_capacity": 129,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "fcc",
+    "atoms": [
+     "Au"
+    ]
+   },
+   "note": "Doesn't tarnish; washes down rivers from its veins.",
+   "kind": "element",
+   "hardness": 2.5
+  },
+  {
+   "id": "aluminium",
+   "name": "Aluminium",
+   "formula": "Al",
+   "composition": {
+    "Al": 1
+   },
+   "triple": [
+    933.47,
+    1.2e-06
+   ],
+   "critical": [
+    6700,
+    300000000.0
+   ],
+   "boil": 2743,
+   "fusion": 10.71,
+   "vaporization": 284,
+   "melt_slope": 0.06,
+   "density": {
+    "solid": 2700,
+    "liquid": 2375
+   },
+   "heat_capacity": 897,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "fcc",
+    "atoms": [
+     "Al"
+    ]
+   },
+   "note": "Common in rock but locked in oxides: it takes electricity to free.",
+   "kind": "element",
+   "hardness": 2.75
+  },
+  {
+   "id": "lead",
+   "name": "Lead",
+   "formula": "Pb",
+   "composition": {
+    "Pb": 1
+   },
+   "triple": [
+    600.61,
+    4e-07
+   ],
+   "critical": [
+    4870,
+    200000000.0
+   ],
+   "boil": 2022,
+   "fusion": 4.77,
+   "vaporization": 179.5,
+   "melt_slope": 0.07,
+   "density": {
+    "solid": 11340,
+    "liquid": 10660
+   },
+   "heat_capacity": 129,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "fcc",
+    "atoms": [
+     "Pb"
+    ]
+   },
+   "note": "Dense and soft; shields against radiation.",
+   "kind": "element",
+   "hardness": 1.5
+  },
+  {
+   "id": "mercury",
+   "name": "Mercury",
+   "formula": "Hg",
+   "composition": {
+    "Hg": 1
+   },
+   "triple": [
+    234.32,
+    0.000165
+   ],
+   "critical": [
+    1750,
+    172000000.0
+   ],
+   "boil": 629.88,
+   "fusion": 2.29,
+   "vaporization": 59.1,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 14184,
+    "liquid": 13534
+   },
+   "heat_capacity": 140,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Hg"
+    ]
+   },
+   "note": "The metal that's liquid at room temperature.",
+   "approximate": false,
+   "kind": "element"
+  },
+  {
+   "id": "silicon",
+   "name": "Silicon",
+   "formula": "Si",
+   "composition": {
+    "Si": 1
+   },
+   "triple": [
+    1687,
+    0.0004
+   ],
+   "critical": [
+    5160,
+    530000000.0
+   ],
+   "boil": 3538,
+   "fusion": 50.21,
+   "vaporization": 383,
+   "melt_slope": -0.058,
+   "density": {
+    "solid": 2329,
+    "liquid": 2570
+   },
+   "heat_capacity": 705,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "diamond",
+    "atoms": [
+     "Si"
+    ]
+   },
+   "note": "Denser as a liquid, like water. Purified, the heart of electronics.",
+   "kind": "element",
+   "hardness": 7
+  },
+  {
+   "id": "carbon",
+   "name": "Carbon (graphite)",
+   "formula": "C",
+   "composition": {
+    "C": 1
+   },
+   "triple": [
+    4600,
+    10800000.0
+   ],
+   "critical": [
+    6810,
+    220000000.0
+   ],
+   "boil": null,
+   "fusion": 117,
+   "vaporization": 355.8,
+   "melt_slope": 0.01,
+   "density": {
+    "solid": 2266,
+    "liquid": 1600
+   },
+   "heat_capacity": 710,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "layered",
+    "atoms": [
+     "C"
+    ]
+   },
+   "note": "Never melts at ordinary pressure: it turns straight to vapour near 3900 K.",
+   "kind": "element",
+   "sublime": 3915
+  },
+  {
+   "id": "salt",
+   "name": "Salt",
+   "formula": "NaCl",
+   "composition": {
+    "Na": 1,
+    "Cl": 1
+   },
+   "triple": [
+    1074,
+    30
+   ],
+   "critical": [
+    3400,
+    26000000.0
+   ],
+   "boil": 1738,
+   "fusion": 28.16,
+   "vaporization": 170,
+   "melt_slope": 0.2,
+   "density": {
+    "solid": 2165,
+    "liquid": 1556
+   },
+   "heat_capacity": 880,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Na",
+     "Cl"
+    ]
+   },
+   "note": "Left behind where seas dry up.",
+   "kind": "compound"
+  },
+  {
+   "id": "silica",
+   "name": "Silica (quartz)",
+   "formula": "SiO₂",
+   "composition": {
+    "Si": 1,
+    "O": 2
+   },
+   "triple": [
+    1996,
+    0.1
+   ],
+   "critical": [
+    5400,
+    200000000.0
+   ],
+   "boil": 2503,
+   "fusion": 9.6,
+   "vaporization": 520,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2650,
+    "liquid": 2200
+   },
+   "heat_capacity": 740,
+   "approximate": true,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "Si",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.93,
+      0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      -0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      0.93,
+      -0.93
+     ],
+     [
+      "O",
+      0.93,
+      -0.93,
+      -0.93
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      0,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Sand and most rock; melted, glass. (Drawn as one SiO₄ tetrahedron of its network.)",
+   "kind": "compound",
+   "hardness": 7
+  },
+  {
+   "id": "carbon_monoxide",
+   "name": "Carbon monoxide",
+   "formula": "CO",
+   "composition": {
+    "C": 1,
+    "O": 1
+   },
+   "triple": [
+    68.13,
+    15400
+   ],
+   "critical": [
+    132.9,
+    3499000.0
+   ],
+   "boil": 81.6,
+   "fusion": 0.833,
+   "vaporization": 6.04,
+   "melt_slope": 0.3,
+   "density": {
+    "solid": 929,
+    "liquid": 789
+   },
+   "heat_capacity": 1040,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      0.56,
+      0,
+      0
+     ],
+     [
+      "O",
+      -0.56,
+      0,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      3
+     ]
+    ]
+   },
+   "note": "What a fire starved of air makes; what pulls oxygen out of ore in a furnace. Poisonous.",
+   "approximate": false,
+   "kind": "compound"
+  },
+  {
+   "id": "hematite",
+   "name": "Hematite",
+   "formula": "Fe₂O₃",
+   "composition": {
+    "Fe": 2,
+    "O": 3
+   },
+   "triple": [
+    1838,
+    1
+   ],
+   "critical": [
+    4000,
+    100000000.0
+   ],
+   "boil": 3400,
+   "fusion": 87,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 5260,
+    "liquid": 4500
+   },
+   "heat_capacity": 650,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Fe",
+     "O"
+    ]
+   },
+   "note": "Red iron ore, and rust. Smelted with carbon monoxide it gives up its iron.",
+   "kind": "compound"
+  },
+  {
+   "id": "malachite",
+   "name": "Malachite",
+   "formula": "Cu₂CO₃(OH)₂",
+   "composition": {
+    "Cu": 2,
+    "C": 1,
+    "O": 5,
+    "H": 2
+   },
+   "triple": [
+    1000,
+    1
+   ],
+   "critical": [
+    3000,
+    50000000.0
+   ],
+   "boil": 2000,
+   "fusion": 40,
+   "vaporization": 200,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 3800,
+    "liquid": 3000
+   },
+   "heat_capacity": 760,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Cu",
+     "O"
+    ]
+   },
+   "note": "Green copper ore. Heated, it breaks down into copper oxide, giving off CO₂ and steam (well before it could melt).",
+   "kind": "compound"
+  },
+  {
+   "id": "copper_oxide",
+   "name": "Copper oxide",
+   "formula": "CuO",
+   "composition": {
+    "Cu": 1,
+    "O": 1
+   },
+   "triple": [
+    1599,
+    1
+   ],
+   "critical": [
+    4000,
+    100000000.0
+   ],
+   "boil": 2300,
+   "fusion": 11.8,
+   "vaporization": 200,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 6310,
+    "liquid": 5500
+   },
+   "heat_capacity": 540,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Cu",
+     "O"
+    ]
+   },
+   "note": "Black copper oxide: one step from metal, given carbon monoxide and heat.",
+   "kind": "compound"
+  },
+  {
+   "id": "calcite",
+   "name": "Calcite (limestone)",
+   "formula": "CaCO₃",
+   "composition": {
+    "Ca": 1,
+    "C": 1,
+    "O": 3
+   },
+   "triple": [
+    1612,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 2500,
+   "fusion": 36,
+   "vaporization": 300,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2711,
+    "liquid": 2400
+   },
+   "heat_capacity": 840,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Ca",
+     "O"
+    ]
+   },
+   "note": "Limestone and chalk, laid down in seas. Burned in a kiln it gives quicklime and CO₂ (well before it could melt).",
+   "kind": "compound"
+  },
+  {
+   "id": "lime",
+   "name": "Quicklime",
+   "formula": "CaO",
+   "composition": {
+    "Ca": 1,
+    "O": 1
+   },
+   "triple": [
+    2886,
+    1
+   ],
+   "critical": [
+    6000,
+    100000000.0
+   ],
+   "boil": 3123,
+   "fusion": 79,
+   "vaporization": 600,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 3340,
+    "liquid": 2600
+   },
+   "heat_capacity": 750,
+   "approximate": true,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Ca",
+     "O"
+    ]
+   },
+   "note": "Burned limestone: the base of mortar, cement and concrete.",
+   "kind": "compound"
+  },
+  {
+   "id": "glucose",
+   "name": "Glucose",
+   "formula": "C₆H₁₂O₆",
+   "composition": {
+    "C": 6,
+    "H": 12,
+    "O": 6
+   },
+   "triple": [
+    419,
+    0.001
+   ],
+   "critical": [
+    1000,
+    5000000.0
+   ],
+   "boil": 800,
+   "fusion": 32.4,
+   "vaporization": 100,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1540,
+    "liquid": 1500
+   },
+   "heat_capacity": 1240,
+   "approximate": true,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      1.45,
+      -0.25,
+      0.0
+     ],
+     [
+      "C",
+      0.725,
+      0.25,
+      1.256
+     ],
+     [
+      "C",
+      -0.725,
+      -0.25,
+      1.256
+     ],
+     [
+      "C",
+      -1.45,
+      0.25,
+      0.0
+     ],
+     [
+      "C",
+      -0.725,
+      -0.25,
+      -1.256
+     ],
+     [
+      "O",
+      0.725,
+      0.25,
+      -1.256
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      1,
+      2,
+      1
+     ],
+     [
+      2,
+      3,
+      1
+     ],
+     [
+      3,
+      4,
+      1
+     ],
+     [
+      4,
+      5,
+      1
+     ],
+     [
+      5,
+      0,
+      1
+     ]
+    ]
+   },
+   "note": "Sugar: what light builds from CO₂ and water, and what living things burn. (It chars before it could boil; drawn as its ring.)",
+   "kind": "compound"
+  },
+  {
+   "id": "olivine",
+   "name": "Olivine",
+   "formula": "Mg₂SiO₄",
+   "composition": {
+    "Mg": 2,
+    "Si": 1,
+    "O": 4
+   },
+   "triple": [
+    2163,
+    1
+   ],
+   "critical": [
+    5000,
+    100000000.0
+   ],
+   "boil": 3000,
+   "fusion": 71,
+   "vaporization": 500,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 3270,
+    "liquid": 2800
+   },
+   "heat_capacity": 840,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "Si",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.93,
+      0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      -0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      0.93,
+      -0.93
+     ],
+     [
+      "O",
+      0.93,
+      -0.93,
+      -0.93
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      0,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Green mineral of the mantle and of basalt. The first to crystallise from cooling magma.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "pyroxene",
+   "name": "Pyroxene",
+   "formula": "MgSiO₃",
+   "composition": {
+    "Mg": 1,
+    "Si": 1,
+    "O": 3
+   },
+   "triple": [
+    1830,
+    1
+   ],
+   "critical": [
+    5000,
+    100000000.0
+   ],
+   "boil": 2800,
+   "fusion": 73,
+   "vaporization": 450,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 3200,
+    "liquid": 2700
+   },
+   "heat_capacity": 800,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "Si",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.93,
+      0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      -0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      0.93,
+      -0.93
+     ],
+     [
+      "O",
+      0.93,
+      -0.93,
+      -0.93
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      0,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Dark chains of silica: much of basalt and the mantle.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "feldspar",
+   "name": "Feldspar",
+   "formula": "KAlSi₃O₈",
+   "composition": {
+    "K": 1,
+    "Al": 1,
+    "Si": 3,
+    "O": 8
+   },
+   "triple": [
+    1470,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 2500,
+   "fusion": 60,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2560,
+    "liquid": 2300
+   },
+   "heat_capacity": 710,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "K",
+     "Si"
+    ]
+   },
+   "note": "The commonest mineral of the crust: the pink and white grains of granite. Weathers into clay.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "plagioclase",
+   "name": "Plagioclase",
+   "formula": "NaAlSi₃O₈",
+   "composition": {
+    "Na": 1,
+    "Al": 1,
+    "Si": 3,
+    "O": 8
+   },
+   "triple": [
+    1391,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 2500,
+   "fusion": 60,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2620,
+    "liquid": 2300
+   },
+   "heat_capacity": 710,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Na",
+     "Si"
+    ]
+   },
+   "note": "Sodium feldspar: the pale crystals in basalt and andesite.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "mica",
+   "name": "Mica",
+   "formula": "KAl₃Si₃O₁₀(OH)₂",
+   "composition": {
+    "K": 1,
+    "Al": 3,
+    "Si": 3,
+    "O": 12,
+    "H": 2
+   },
+   "triple": [
+    1100,
+    1
+   ],
+   "critical": [
+    4000,
+    100000000.0
+   ],
+   "boil": 2200,
+   "fusion": 70,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2830,
+    "liquid": 2400
+   },
+   "heat_capacity": 760,
+   "structure": {
+    "type": "crystal",
+    "lattice": "layered",
+    "atoms": [
+     "Al"
+    ]
+   },
+   "note": "Splits into thin glittering sheets. (It breaks down before it could melt.)",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "kaolinite",
+   "name": "Kaolinite (clay)",
+   "formula": "Al₂Si₂O₅(OH)₄",
+   "composition": {
+    "Al": 2,
+    "Si": 2,
+    "O": 9,
+    "H": 4
+   },
+   "triple": [
+    1000,
+    1
+   ],
+   "critical": [
+    3500,
+    50000000.0
+   ],
+   "boil": 2000,
+   "fusion": 60,
+   "vaporization": 300,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2600,
+    "liquid": 2200
+   },
+   "heat_capacity": 940,
+   "structure": {
+    "type": "crystal",
+    "lattice": "layered",
+    "atoms": [
+     "Al"
+    ]
+   },
+   "note": "Clay: weathered feldspar. Wet, it shapes; fired in a kiln, it gives up its water and becomes pottery.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "metakaolin",
+   "name": "Fired clay",
+   "formula": "Al₂Si₂O₇",
+   "composition": {
+    "Al": 2,
+    "Si": 2,
+    "O": 7
+   },
+   "triple": [
+    2000,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 3000,
+   "fusion": 80,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2500,
+    "liquid": 2200
+   },
+   "heat_capacity": 900,
+   "structure": {
+    "type": "crystal",
+    "lattice": "layered",
+    "atoms": [
+     "Al"
+    ]
+   },
+   "note": "Clay that has been through the kiln: hard, and water won't soften it again. Pottery and brick.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "magnetite",
+   "name": "Magnetite",
+   "formula": "Fe₃O₄",
+   "composition": {
+    "Fe": 3,
+    "O": 4
+   },
+   "triple": [
+    1870,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 2900,
+   "fusion": 138,
+   "vaporization": 400,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 5170,
+    "liquid": 4500
+   },
+   "heat_capacity": 650,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Fe",
+     "O"
+    ]
+   },
+   "note": "Black iron ore, and a natural magnet: lodestone. Smelts like hematite.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "chalcopyrite",
+   "name": "Chalcopyrite",
+   "formula": "CuFeS₂",
+   "composition": {
+    "Cu": 1,
+    "Fe": 1,
+    "S": 2
+   },
+   "triple": [
+    1220,
+    1
+   ],
+   "critical": [
+    4000,
+    80000000.0
+   ],
+   "boil": 2000,
+   "fusion": 60,
+   "vaporization": 250,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 4200,
+    "liquid": 3800
+   },
+   "heat_capacity": 540,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Cu",
+     "S"
+    ]
+   },
+   "note": "Brassy copper ore from hydrothermal veins. Roasted, it gives off sulfur dioxide and leaves copper and iron oxides.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "cassiterite",
+   "name": "Cassiterite",
+   "formula": "SnO₂",
+   "composition": {
+    "Sn": 1,
+    "O": 2
+   },
+   "triple": [
+    1903,
+    1
+   ],
+   "critical": [
+    4500,
+    100000000.0
+   ],
+   "boil": 2800,
+   "fusion": 48,
+   "vaporization": 300,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 6950,
+    "liquid": 6000
+   },
+   "heat_capacity": 350,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Sn",
+     "O"
+    ]
+   },
+   "note": "Tin ore: heavy, so it gathers in river gravels below the granite it weathered from.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "galena",
+   "name": "Galena",
+   "formula": "PbS",
+   "composition": {
+    "Pb": 1,
+    "S": 1
+   },
+   "triple": [
+    1391,
+    1
+   ],
+   "critical": [
+    3500,
+    50000000.0
+   ],
+   "boil": 1554,
+   "fusion": 49,
+   "vaporization": 220,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 7600,
+    "liquid": 7000
+   },
+   "heat_capacity": 210,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Pb",
+     "S"
+    ]
+   },
+   "note": "Lead ore: silvery grey cubes. Often carries silver.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "lead_oxide",
+   "name": "Lead oxide",
+   "formula": "PbO",
+   "composition": {
+    "Pb": 1,
+    "O": 1
+   },
+   "triple": [
+    1161,
+    1
+   ],
+   "critical": [
+    3000,
+    50000000.0
+   ],
+   "boil": 1750,
+   "fusion": 25.5,
+   "vaporization": 200,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 9530,
+    "liquid": 8500
+   },
+   "heat_capacity": 230,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Pb",
+     "O"
+    ]
+   },
+   "note": "Roasted galena: one step from lead.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "pyrite",
+   "name": "Pyrite",
+   "formula": "FeS₂",
+   "composition": {
+    "Fe": 1,
+    "S": 2
+   },
+   "triple": [
+    1450,
+    1
+   ],
+   "critical": [
+    4000,
+    80000000.0
+   ],
+   "boil": 2200,
+   "fusion": 60,
+   "vaporization": 250,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 5010,
+    "liquid": 4500
+   },
+   "heat_capacity": 520,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Fe",
+     "S"
+    ]
+   },
+   "note": "Fool's gold. Roasted it gives sulfur dioxide; it sparks against steel. (It breaks down long before it could melt.)",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "sulfur",
+   "name": "Sulfur",
+   "formula": "S",
+   "composition": {
+    "S": 1
+   },
+   "triple": [
+    388.36,
+    2.68
+   ],
+   "critical": [
+    1314,
+    20700000.0
+   ],
+   "boil": 717.8,
+   "fusion": 1.72,
+   "vaporization": 45,
+   "melt_slope": 0.03,
+   "density": {
+    "solid": 2070,
+    "liquid": 1819
+   },
+   "heat_capacity": 710,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "S"
+    ]
+   },
+   "approximate": false,
+   "kind": "element",
+   "note": "Yellow crystals around volcanic vents. Burns with a blue flame into sulfur dioxide."
+  },
+  {
+   "id": "bronze",
+   "name": "Bronze",
+   "formula": "Cu₁₅Sn",
+   "composition": {
+    "Cu": 15,
+    "Sn": 1
+   },
+   "triple": [
+    1223,
+    0.001
+   ],
+   "critical": [
+    7500,
+    600000000.0
+   ],
+   "boil": 2700,
+   "fusion": 13,
+   "vaporization": 300,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 8800,
+    "liquid": 7900
+   },
+   "heat_capacity": 380,
+   "structure": {
+    "type": "crystal",
+    "lattice": "fcc",
+    "atoms": [
+     "Cu",
+     "Sn"
+    ]
+   },
+   "note": "Copper with about a tenth tin: harder than either, and it melts lower than copper, so it casts well. The first great alloy.",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 3.5
+  },
+  {
+   "id": "cast_iron",
+   "name": "Cast iron",
+   "formula": "Fe₂₂C₄",
+   "composition": {
+    "Fe": 22,
+    "C": 4
+   },
+   "triple": [
+    1420,
+    0.01
+   ],
+   "critical": [
+    8500,
+    700000000.0
+   ],
+   "boil": 3100,
+   "fusion": 14,
+   "vaporization": 330,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 7200,
+    "liquid": 6900
+   },
+   "heat_capacity": 460,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Fe",
+     "C"
+    ]
+   },
+   "note": "Iron that has soaked up carbon in the furnace: it melts hundreds of degrees lower than pure iron and pours into moulds, but it's brittle.",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 4.5
+  },
+  {
+   "id": "steel",
+   "name": "Steel",
+   "formula": "Fe₅₀C₂",
+   "composition": {
+    "Fe": 50,
+    "C": 2
+   },
+   "triple": [
+    1720,
+    5
+   ],
+   "critical": [
+    9000,
+    800000000.0
+   ],
+   "boil": 3100,
+   "fusion": 14,
+   "vaporization": 340,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 7850,
+    "liquid": 7000
+   },
+   "heat_capacity": 470,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Fe",
+     "C"
+    ]
+   },
+   "note": "Iron with a little carbon: hard and tough. Made by burning most of the carbon out of molten cast iron.",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 5.5
+  },
+  {
+   "id": "pewter",
+   "name": "Pewter",
+   "formula": "Sn₉Pb",
+   "composition": {
+    "Sn": 9,
+    "Pb": 1
+   },
+   "triple": [
+    500,
+    1e-15
+   ],
+   "critical": [
+    7000,
+    500000000.0
+   ],
+   "boil": 2700,
+   "fusion": 7,
+   "vaporization": 290,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 7300,
+    "liquid": 7000
+   },
+   "heat_capacity": 220,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Sn",
+     "Pb"
+    ]
+   },
+   "note": "Tin hardened with a little lead: plates, cups and toys. Melts in a cooking fire.",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 2
+  },
+  {
+   "id": "zinc",
+   "name": "Zinc",
+   "formula": "Zn",
+   "composition": {
+    "Zn": 1
+   },
+   "triple": [
+    692.68,
+    22
+   ],
+   "critical": [
+    3200,
+    300000000.0
+   ],
+   "boil": 1180,
+   "fusion": 7.32,
+   "vaporization": 115,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 7140,
+    "liquid": 6570
+   },
+   "heat_capacity": 388,
+   "structure": {
+    "type": "crystal",
+    "lattice": "bcc",
+    "atoms": [
+     "Zn"
+    ]
+   },
+   "note": "With copper, brass. It boils not far above where it melts, so it's hard to smelt.",
+   "approximate": true,
+   "kind": "element",
+   "hardness": 2.5
+  },
+  {
+   "id": "wood",
+   "name": "Wood",
+   "formula": "C₆H₁₀O₅",
+   "composition": {
+    "C": 6,
+    "H": 10,
+    "O": 5
+   },
+   "triple": [
+    600,
+    1
+   ],
+   "critical": [
+    1500,
+    5000000.0
+   ],
+   "boil": 1000,
+   "fusion": 30,
+   "vaporization": 100,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 600,
+    "liquid": 600
+   },
+   "heat_capacity": 1700,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      0,
+      0,
+      0
+     ],
+     [
+      "C",
+      1.4,
+      0.4,
+      0
+     ],
+     [
+      "C",
+      2.8,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.7,
+      -1.0,
+      0
+     ],
+     [
+      "O",
+      2.1,
+      1.4,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      1,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ],
+     [
+      1,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Cellulose, as far as chemistry cares: burns in air; heated without enough air it chars to charcoal. (It chars long before it could melt.)",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 2
+  },
+  {
+   "id": "soda_ash",
+   "name": "Soda ash",
+   "formula": "Na₂CO₃",
+   "composition": {
+    "Na": 2,
+    "C": 1,
+    "O": 3
+   },
+   "triple": [
+    1124,
+    1
+   ],
+   "critical": [
+    3500,
+    50000000.0
+   ],
+   "boil": 2000,
+   "fusion": 29,
+   "vaporization": 200,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2540,
+    "liquid": 1970
+   },
+   "heat_capacity": 1040,
+   "structure": {
+    "type": "crystal",
+    "lattice": "rocksalt",
+    "atoms": [
+     "Na",
+     "O"
+    ]
+   },
+   "note": "From burned seaweed or dried salt lakes. Melted with sand it makes glass at a heat a fire can reach.",
+   "approximate": true,
+   "kind": "compound"
+  },
+  {
+   "id": "glass",
+   "name": "Glass",
+   "formula": "Na₂SiO₃",
+   "composition": {
+    "Na": 2,
+    "Si": 1,
+    "O": 3
+   },
+   "triple": [
+    1361,
+    1
+   ],
+   "critical": [
+    4000,
+    80000000.0
+   ],
+   "boil": 2500,
+   "fusion": 52,
+   "vaporization": 300,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2400,
+    "liquid": 2300
+   },
+   "heat_capacity": 840,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "Si",
+      0,
+      0,
+      0
+     ],
+     [
+      "O",
+      0.93,
+      0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      -0.93,
+      0.93
+     ],
+     [
+      "O",
+      -0.93,
+      0.93,
+      -0.93
+     ],
+     [
+      "Na",
+      1.8,
+      -1.2,
+      0.4
+     ],
+     [
+      "Na",
+      -1.8,
+      1.2,
+      -0.4
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      0,
+      2,
+      1
+     ],
+     [
+      0,
+      3,
+      1
+     ]
+    ]
+   },
+   "note": "Sand and soda melted together and cooled before it can crystallise: clear, and it keeps the weather out.",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 5.5
+  },
+  {
+   "id": "slaked_lime",
+   "name": "Slaked lime",
+   "formula": "Ca(OH)₂",
+   "composition": {
+    "Ca": 1,
+    "O": 2,
+    "H": 2
+   },
+   "triple": [
+    853,
+    1
+   ],
+   "critical": [
+    3500,
+    50000000.0
+   ],
+   "boil": 1500,
+   "fusion": 30,
+   "vaporization": 200,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 2210,
+    "liquid": 2000
+   },
+   "heat_capacity": 1180,
+   "structure": {
+    "type": "crystal",
+    "lattice": "layered",
+    "atoms": [
+     "Ca"
+    ]
+   },
+   "note": "Quicklime that has drunk water, hissing hot. Mixed with sand it's mortar, which slowly turns back to limestone in the air.",
+   "approximate": true,
+   "kind": "compound"
+  }
+ ]
+}

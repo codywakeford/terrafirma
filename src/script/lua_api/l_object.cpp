@@ -3,6 +3,7 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "lua_api/l_object.h"
+#include <json/json.h>
 #include <cmath>
 #include <lauxlib.h>
 #include <lua.h>
@@ -2234,6 +2235,23 @@ int ObjectRef::l_set_sky(lua_State *L)
 		}
 		lua_pop(L, 1);
 
+		// Terra Firma: solar = { latitude, declination } follows the real
+		// sun; solar = false returns to the orbit tilt.
+		lua_getfield(L, 2, "solar");
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "latitude");
+			lua_getfield(L, -2, "declination");
+			sky_params.solar.on = true;
+			sky_params.solar.latitude = rangelim((float)luaL_checknumber(L, -2), -90.0f, 90.0f);
+			sky_params.solar.declination = rangelim((float)luaL_checknumber(L, -1), -90.0f, 90.0f);
+			lua_pop(L, 2);
+		} else if (lua_isboolean(L, -1) && !lua_toboolean(L, -1)) {
+			sky_params.solar.on = false;
+		} else if (!lua_isnil(L, -1)) {
+			throw LuaError("set_sky: solar must be { latitude, declination } or false");
+		}
+		lua_pop(L, 1);
+
 		lua_getfield(L, 2, "type");
 		if (!lua_isnil(L, -1))
 			sky_params.type = luaL_checkstring(L, -1);
@@ -2431,6 +2449,15 @@ int ObjectRef::l_get_sky(lua_State *L)
 	if (skybox_params.body_orbit_tilt != SkyboxParams::INVALID_SKYBOX_TILT) {
 		lua_pushnumber(L, skybox_params.body_orbit_tilt);
 		lua_setfield(L, -2, "body_orbit_tilt");
+	}
+	if (skybox_params.solar.on) {
+		lua_createtable(L, 0, 2);
+		setfloatfield(L, -1, "latitude", skybox_params.solar.latitude);
+		setfloatfield(L, -1, "declination", skybox_params.solar.declination);
+		lua_setfield(L, -2, "solar");
+	} else {
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "solar");
 	}
 	lua_newtable(L);
 	s16 i = 1;
@@ -2906,6 +2933,26 @@ int ObjectRef::l_set_lighting(lua_State *L)
 	return 0;
 }
 
+// set_ui(self, key, value): value (any JSON-able Lua value; nil clears the
+// key) goes to this player's page, which keeps the latest per key.
+int ObjectRef::l_set_ui(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	ObjectRef *ref = checkObject<ObjectRef>(L, 1);
+	RemotePlayer *player = getplayer(ref);
+	if (player == nullptr)
+		return 0;
+
+	std::string key = luaL_checkstring(L, 2);
+	Json::Value value;
+	if (!lua_isnoneornil(L, 3))
+		read_json_value(L, value, 3, 32);
+	Json::StreamWriterBuilder writer;
+	writer["indentation"] = "";
+	getServer(L)->setUi(player, key, Json::writeString(writer, value));
+	return 0;
+}
+
 // get_lighting(self)
 int ObjectRef::l_get_lighting(lua_State *L)
 {
@@ -3187,6 +3234,7 @@ luaL_Reg ObjectRef::methods[] = {
 	luamethod(ObjectRef, send_mapblock),
 	luamethod(ObjectRef, set_minimap_modes),
 	luamethod(ObjectRef, set_lighting),
+	luamethod(ObjectRef, set_ui),
 	luamethod(ObjectRef, get_lighting),
 	luamethod(ObjectRef, respawn),
 	luamethod(ObjectRef, set_flags),

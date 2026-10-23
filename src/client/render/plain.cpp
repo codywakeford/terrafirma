@@ -13,6 +13,7 @@
 #include "client/minimap.h"
 #include "client/shadows/dynamicshadowsrender.h"
 #include <IGUIEnvironment.h>
+#include "config.h"
 
 /// Draw3D pipeline step
 void Draw3D::run(PipelineContext &context)
@@ -45,8 +46,10 @@ void DrawHUD::run(PipelineContext &context)
 
 		context.hud->resizeHotbar();
 
+#if !USE_SHELL // the page draws the crosshair
 		if (context.draw_crosshair)
 			context.hud->drawCrosshair();
+#endif
 	}
 
 	context.hud->drawLuaElements(context.client->getCamera()->getOffset(), !context.show_hud);

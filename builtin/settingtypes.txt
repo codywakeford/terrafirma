@@ -190,6 +190,7 @@ keymap_dig (Dig/punch/use) key KEY_LBUTTON|GAMEPAD_AXIS_PLUS_5
 keymap_place (Place/use) key KEY_RBUTTON|GAMEPAD_AXIS_PLUS_4
 
 keymap_inventory (Open inventory) key SYSTEM_SCANCODE_12|GAMEPAD_BUTTON_3
+keymap_lab (Open the Lab panel, in the Lab) key SYSTEM_SCANCODE_15
 
 #    Key for opening the pause menu in-game.
 #    Pressing the escape key always opens the pause menu.

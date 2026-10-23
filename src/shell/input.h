@@ -6,7 +6,8 @@
 #include "irrlichttypes.h"
 #include <include/cef_browser.h>
 
-namespace irr { struct SEvent; namespace gui { class ICursorControl; } }
+struct SEvent;
+namespace gui { class ICursorControl; }
 
 namespace shell {
 

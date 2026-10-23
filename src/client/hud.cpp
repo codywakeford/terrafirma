@@ -28,6 +28,7 @@
 #include "gui/drawItemStack.h"
 #include <ICameraSceneNode.h>
 #include <IMesh.h>
+#include "config.h"
 
 #define OBJECT_CROSSHAIR_LINE_SIZE 8
 #define CROSSHAIR_LINE_SIZE 10
@@ -380,6 +381,12 @@ void Hud::drawLuaElements(const v3s16 &camera_offset, bool only_unhidable)
 	for (HudElement *e : elems) {
 		if (only_unhidable && e->hideable)
 			continue;
+#if USE_SHELL
+		// Drawn by the page from the shell's state stream.
+		if (e->type == HUD_ELEM_STATBAR || e->type == HUD_ELEM_HOTBAR ||
+				e->type == HUD_ELEM_INVENTORY)
+			continue;
+#endif
 
 		v2s32 pos(floor(e->pos.X * (float) m_screensize.X + 0.5),
 				floor(e->pos.Y * (float) m_screensize.Y + 0.5));

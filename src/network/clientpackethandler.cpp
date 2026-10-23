@@ -1449,6 +1449,11 @@ void Client::handleCommand_HudSetSky(NetworkPacket* pkt)
 			break;
 		// >= 5.16.0-dev
 		*pkt >> skybox.auto_dim_skybox;
+
+		if (!pkt->hasRemainingBytes())
+			break;
+		// Terra Firma
+		*pkt >> skybox.solar.on >> skybox.solar.latitude >> skybox.solar.declination;
 	} while (0);
 
 	ClientEvent *event = new ClientEvent();
@@ -1922,4 +1927,11 @@ void Client::handleCommand_SetLighting(NetworkPacket *pkt)
 			pkt->readRawString(reinterpret_cast<char*>(s.light_curve), sizeof(s.light_curve));
 		*pkt >> s.ao_gamma;
 	} while (0);
+}
+
+void Client::handleCommand_Ui(NetworkPacket *pkt)
+{
+	std::string key;
+	*pkt >> key;
+	m_ui_values.emplace_back(key, pkt->readLongString());
 }

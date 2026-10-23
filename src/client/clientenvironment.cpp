@@ -6,6 +6,7 @@
 #include "util/pointedthing.h"
 #include "client.h"
 #include "clientenvironment.h"
+#include "solar.h"
 #include "clientsimpleobject.h"
 #include "clientmap.h"
 #include "localplayer.h"
@@ -501,4 +502,9 @@ void ClientEnvironment::updateFrameTime(bool is_paused)
 		m_frame_dtime = new_frame_time - MYMAX(m_frame_time, m_frame_time_pause_accumulator);
 		m_frame_time = new_frame_time;
 	}
+}
+
+float ClientEnvironment::lightTimeOfDay(float time_of_day)
+{
+	return m_solar.on ? solar::apparentTime(m_solar, time_of_day) : time_of_day;
 }

@@ -35,6 +35,10 @@
 
 #include <algorithm>
 #include <csignal>
+#include "config.h"
+#if USE_SHELL
+#include "shell/shell.h"
+#endif
 
 
 /******************************************************************************/
@@ -375,6 +379,11 @@ void GUIEngine::run()
 			// The header *can* be drawn after the menu because it never intersects
 			// the menu.
 			drawHeader(driver);
+
+		#if USE_SHELL
+			if (g_shell)
+				g_shell->frame();
+		#endif
 
 			// Take screenshot if requested
 			// Must be before endScene() to capture the rendered frame

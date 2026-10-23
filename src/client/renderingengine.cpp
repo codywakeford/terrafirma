@@ -25,6 +25,10 @@
 #include "filesys.h"
 #include "irrlicht_changes/static_text.h"
 #include "irr_ptr.h"
+#include "config.h"
+#if USE_SHELL
+#include "shell/shell.h"
+#endif
 
 RenderingEngine *RenderingEngine::s_singleton = nullptr;
 
@@ -381,6 +385,10 @@ void RenderingEngine::draw_load_screen(const std::wstring &text,
 	}
 
 	guienv->drawAll();
+#if USE_SHELL
+	if (g_shell)
+		g_shell->frame();
+#endif
 	driver->endScene();
 	guitext->remove();
 	if (gui_bottom_text)

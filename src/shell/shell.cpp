@@ -6,6 +6,8 @@
 #include "bridge.h"
 #include "client.h"
 #include "ime.h"
+#include "options.h"
+#include "porting.h"
 #include "input.h"
 #include "pixels.h"
 #include "scheme.h"
@@ -14,6 +16,7 @@
 #include "log.h"
 #include <IVideoDriver.h>
 #include <json/json.h>
+#include <vector>
 
 shell::Shell *g_shell = nullptr;
 
@@ -27,12 +30,14 @@ static const char *modeName(Mode mode)
 struct Shell::Impl
 {
 	Opts opts;
+	std::string item_dir;
 	Viewport viewport;
 	Pixels pixels;
 	Surface surface;
 	Input input;
 	Ime ime;
-	Bridge *bridge = nullptr; // owned by the router's handler list for its lifetime
+	Options options;
+	Bridge bridge;
 	CefRefPtr<CefMessageRouterBrowserSide> router;
 	CefRefPtr<Client> client;
 	CefRefPtr<CefBrowser> browser;
@@ -42,9 +47,11 @@ struct Shell::Impl
 	bool ready = false;
 	bool keyboard = false;
 	Mode mode = Mode::Menu;
+	std::vector<Json::Value> pending;
 
 	explicit Impl(const Opts &o) :
 		opts(o),
+		item_dir(o.cache_dir + "/items"),
 		surface(o.driver),
 		input(o.cursor, pixels, viewport),
 		ime(o.guienv)
@@ -58,13 +65,24 @@ struct Shell::Impl
 		Json::Value message;
 		message["kind"] = "mode";
 		message["mode"] = modeName(mode);
-		bridge->send(browser, message);
+		bridge.send(browser, message);
+	}
+
+	void send(const Json::Value &message)
+	{
+		if (ready)
+			bridge.send(browser, message);
+		else
+			pending.push_back(message);
 	}
 
 	void onReady()
 	{
 		ready = true;
 		sendMode();
+		for (const auto &message : pending)
+			bridge.send(browser, message);
+		pending.clear();
 	}
 
 	void onCapture(bool on)
@@ -90,19 +108,44 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 	CefString(&settings.root_cache_path) = opts.cache_dir;
 	CefString(&settings.log_file) = opts.cache_dir + "/chromium.log";
 
-	CefRefPtr<App> app = new App();
+	CefRefPtr<App> app = new App(opts.gpu);
 	if (!CefInitialize(mainArgs(), settings, app, nullptr))
 		throw BaseException("shell: Chromium failed to initialize (see " +
 				opts.cache_dir + "/chromium.log)");
 
 	CefRegisterSchemeHandlerFactory(SCHEME, UI_HOST, new UiScheme(opts.ui_dir));
+	CefRegisterSchemeHandlerFactory(SCHEME, ITEM_HOST, new UiScheme(m->item_dir));
 
-	m->router = CefMessageRouterBrowserSide::Create(routerConfig());
-	m->bridge = new Bridge({
-		[this] { m->onReady(); },
-		[this](bool on) { m->onCapture(on); },
+	m->bridge.on("ready", [this](const Json::Value &) {
+		m->onReady();
+		return Json::Value();
 	});
-	m->router->AddHandler(m->bridge, true);
+	m->bridge.on("capture", [this](const Json::Value &intent) {
+		if (!intent["keyboard"].isBool())
+			throw Refused("capture needs a boolean 'keyboard'");
+		m->onCapture(intent["keyboard"].asBool());
+		return Json::Value();
+	});
+	// Available on every screen, menu or game.
+	m->bridge.on("settings.get", [this](const Json::Value &) {
+		return m->options.get();
+	});
+	m->bridge.on("settings.set", [this](const Json::Value &intent) {
+		if (!intent["key"].isString())
+			throw Refused("settings.set needs a string 'key'");
+		m->options.set(intent["key"].asString(), intent["value"]);
+		return Json::Value();
+	});
+	m->bridge.on("open", [](const Json::Value &intent) {
+		std::string url = intent["url"].isString() ? intent["url"].asString() : "";
+		if (url.rfind("https://", 0) != 0)
+			throw Refused("only https links can be opened");
+		if (!porting::open_url(url))
+			throw BaseException("shell: the system could not open " + url);
+		return Json::Value();
+	});
+	m->router = CefMessageRouterBrowserSide::Create(routerConfig());
+	m->router->AddHandler(&m->bridge, true);
 	m->client = new Client(m->pixels, m->viewport, m->router, [this] { m->onNavigate(); });
 
 	CefWindowInfo window;
@@ -129,9 +172,9 @@ Shell::~Shell()
 		CefDoMessageLoopWork();
 	m->browser = nullptr;
 
-	m->router->RemoveHandler(m->bridge);
-	delete m->bridge;
+	m->router->RemoveHandler(&m->bridge);
 	m->router = nullptr;
+	m->bridge.stop(); // no answers posted into a Chromium that's shutting down
 	m->client = nullptr;
 
 	CefShutdown();
@@ -161,6 +204,31 @@ void Shell::setMode(Mode mode)
 	m->mode = mode;
 	if (m->ready)
 		m->sendMode();
+}
+
+void Shell::on(const std::string &kind, Verb verb)
+{
+	m->bridge.on(kind, std::move(verb));
+}
+
+void Shell::onAsync(const std::string &kind, Verb verb)
+{
+	m->bridge.onAsync(kind, std::move(verb));
+}
+
+void Shell::off(const std::string &kind)
+{
+	m->bridge.off(kind);
+}
+
+void Shell::send(const Json::Value &message)
+{
+	m->send(message);
+}
+
+const std::string &Shell::itemDir() const
+{
+	return m->item_dir;
 }
 
 } // namespace shell

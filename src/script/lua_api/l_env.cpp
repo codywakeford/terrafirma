@@ -721,6 +721,21 @@ int ModApiEnv::l_set_timeofday(lua_State *L)
 	return 0;
 }
 
+// set_time_speed(speed): game minutes per real minute for this session, as
+// the time_speed setting (72 by default); nil returns to the setting.
+int ModApiEnv::l_set_time_speed(lua_State *L)
+{
+	GET_ENV_PTR;
+	if (lua_isnoneornil(L, 1)) {
+		getServer(L)->setTimeSpeed(std::nullopt);
+		return 0;
+	}
+	float speed = readParam<float>(L, 1);
+	luaL_argcheck(L, speed >= 0.0f, 1, "speed must not be negative");
+	getServer(L)->setTimeSpeed(speed);
+	return 0;
+}
+
 int ModApiEnv::l_get_timeofday(lua_State *L)
 {
 	GET_PLAIN_ENV_PTR;
@@ -1387,6 +1402,7 @@ void ModApiEnv::Initialize(lua_State *L, int top)
 	API_FCT(get_objects_in_area);
 	API_FCT(get_objects_inside_radius);
 	API_FCT(set_timeofday);
+	API_FCT(set_time_speed);
 	API_FCT(get_timeofday);
 	API_FCT(get_gametime);
 	API_FCT(get_day_count);

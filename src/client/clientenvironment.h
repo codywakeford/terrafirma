@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "skyparams.h"
+
 #include "environment.h"
 #include "util/numeric.h" // IntervalLimiter
 #include "activeobjectmgr.h" // client::ActiveObjectMgr
@@ -137,7 +139,14 @@ public:
 	u64 getFrameTime() const { return m_frame_time; }
 	u64 getFrameTimeDelta() const { return m_frame_dtime; }
 
+	// Terra Firma: light the world by the real sun (set with the sky).
+	void setSolar(const SkySolar &solar) { m_solar = solar; }
+
+protected:
+	float lightTimeOfDay(float time_of_day) override;
+
 private:
+	SkySolar m_solar;
 	irr_ptr<ClientMap> m_map;
 	LocalPlayer *m_local_player = nullptr;
 	ITextureSource *m_texturesource;

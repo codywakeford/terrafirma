@@ -438,6 +438,10 @@ add_subdirectory(threading)
 add_subdirectory(content)
 add_subdirectory(database)
 add_subdirectory(mapgen)
+add_subdirectory(terragen)
+add_subdirectory(matter)
+add_subdirectory(fluid)
+add_subdirectory(weather)
 add_subdirectory(network)
 add_subdirectory(script)
 add_subdirectory(util)
@@ -537,6 +541,10 @@ set(common_SRCS
 	${common_SCRIPT_SRCS}
 	${common_server_SRCS}
 	${mapgen_SRCS}
+	${terragen_SRCS}
+	${matter_SRCS}
+	${fluid_SRCS}
+	${weather_SRCS}
 	${server_network_SRCS}
 	${test_SRCS}
 	${unittest_SRCS}
@@ -752,6 +760,11 @@ if(BUILD_CLIENT)
 	)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE "MT_BUILDTARGET=1")
 	if(USE_SHELL)
+		# CEF's headers require C++20; the rest of the engine stays on its own standard.
+		# (Source properties are directory-scoped, so they are set here, by the target.)
+		set_source_files_properties(${shell_SRCS} PROPERTIES
+			COMPILE_OPTIONS "-std=c++20"
+			SKIP_PRECOMPILE_HEADERS ON)
 		target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE "${CEF_ROOT}")
 		target_link_libraries(${PROJECT_NAME} libcef_dll_wrapper "${CEF_LIB_RELEASE}")
 		# libcef.so and its resources sit next to the executable.

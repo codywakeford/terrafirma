@@ -8,11 +8,12 @@
 
 extern const u16 LATEST_PROTOCOL_VERSION;
 
-// Server's supported network protocol range
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 37;
+// Server's supported network protocol range. Terra Firma: only our own
+// protocol; stock Luanti peers are refused cleanly.
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 55;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 37;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 55;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -713,7 +714,15 @@ enum ToClientCommand : u16
 			u8[len] serialized ParticleParameters
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x65,
+	TOCLIENT_UI = 0x65,
+	/*
+		Terra Firma: a value for the player's page (player:set_ui)
+		std::string key
+		u32 len
+		u8[len] value, JSON (null clears the key)
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x66,
 };
 
 enum ToServerCommand : u16
@@ -923,7 +932,15 @@ enum ToServerCommand : u16
 		v2f32 max_fs_info
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x54,
+	TOSERVER_UI = 0x54,
+	/*
+		Terra Firma: an event from the player's page (core.register_on_ui_event)
+		std::string name
+		u32 len
+		u8[len] payload, JSON
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x55,
 };
 
 enum AuthMechanism

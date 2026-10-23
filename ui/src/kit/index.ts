@@ -1,0 +1,12 @@
+// The UI kit: every screen builds from these, so the whole game reads as one thing.
+export { default as Button } from "./Button.vue"
+export { default as Choice } from "./Choice.vue"
+export { default as Field } from "./Field.vue"
+export { default as IconTile } from "./IconTile.vue"
+export { default as Notice } from "./Notice.vue"
+export { default as Panel } from "./Panel.vue"
+export { default as Section } from "./Section.vue"
+export { default as Segmented } from "./Segmented.vue"
+export { default as Slider } from "./Slider.vue"
+export { default as Tabs } from "./Tabs.vue"
+export { default as Toggle } from "./Toggle.vue"

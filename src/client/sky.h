@@ -45,6 +45,8 @@ public:
 			bool sunlight_seen, CameraMode cam_mode, float yaw, float pitch);
 
 	float getBrightness() { return m_brightness; }
+	// The time of day the sky is lit by: apparent when solar.
+	float getLightTimeOfDay() const { return m_time_of_day; }
 
 	video::SColor getBgColor() const
 	{
@@ -95,6 +97,8 @@ public:
 		if (body_orbit_tilt != SkyboxParams::INVALID_SKYBOX_TILT)
 			m_sky_params.body_orbit_tilt = rangelim(body_orbit_tilt, -90.f, 90.f);
 	}
+	// Terra Firma: follow the real sun (see SkySolar).
+	void setSolar(const SkySolar &solar) { m_sky_params.solar = solar; }
 	void overrideColors(video::SColor bgcolor, video::SColor skycolor)
 	{
 		m_bgcolor = bgcolor;
@@ -175,7 +179,8 @@ private:
 	// Used when m_visible=false
 	video::SColor m_fallback_bg_color = video::SColor(255, 255, 255, 255);
 	bool m_first_update = true; // Set before the sky is updated for the first time
-	float m_time_of_day;
+	float m_time_of_day; // apparent when solar (see solar::apparentTime)
+	float m_body_time = 0.0f; // the real time of day, placing solar bodies
 	float m_time_brightness;
 	bool m_sunlight_seen;
 	float m_brightness = 0.5f;
@@ -227,8 +232,18 @@ private:
 	void draw_stars(video::IVideoDriver *driver, float wicked_time_of_day);
 	void place_sky_body(std::array<video::S3DVertex, 4> &vertices,
 		float horizon_position,	float day_position);
+
+	// Where the bodies' circle sits (see getSkyBodyPosition). The stock sky
+	// turns it with the time of day and the orbit tilt; the solar sky with
+	// the real time, tilts it to the latitude and shifts it toward the pole
+	// by the declination.
+	float bodyHorizon(bool sun) const;
+	float bodyDay(float wicked_time_of_day) const;
+	float bodyTilt() const;
 };
 
 // calculates value for sky body positions for the given observed time of day
 // this is used to draw both Sun/Moon and shadows
 float getWickedTimeOfDay(float time_of_day);
+// The inverse: the time of day at which the stock sun has that position.
+float getTimeOfDayFromWicked(float wicked);

@@ -29,6 +29,7 @@
 #include "mapgen_v7.h"
 #include "mapgen_valleys.h"
 #include "mapgen_singlenode.h"
+#include "mapgen_terra.h"
 #include "cavegen.h"
 #include "dungeongen.h"
 
@@ -78,6 +79,7 @@ static MapgenDesc g_reg_mapgens[] = {
 	{"fractal",    true},
 	{"singlenode", true},
 	{"v6",         true},
+	{"terra",      true},
 };
 
 static_assert(
@@ -165,6 +167,8 @@ Mapgen *Mapgen::createMapgen(MapgenType mgtype, MapgenParams *params,
 		return new MapgenV7((MapgenV7Params *)params, emerge);
 	case MAPGEN_VALLEYS:
 		return new MapgenValleys((MapgenValleysParams *)params, emerge);
+	case MAPGEN_TERRA:
+		return new MapgenTerra((MapgenTerraParams *)params, emerge);
 	default:
 		return nullptr;
 	}
@@ -190,6 +194,8 @@ MapgenParams *Mapgen::createMapgenParams(MapgenType mgtype)
 		return new MapgenV7Params;
 	case MAPGEN_VALLEYS:
 		return new MapgenValleysParams;
+	case MAPGEN_TERRA:
+		return new MapgenTerraParams;
 	default:
 		return nullptr;
 	}

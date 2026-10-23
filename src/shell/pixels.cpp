@@ -2,29 +2,45 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "pixels.h"
+#include <algorithm>
+#include <array>
 
 namespace shell {
 
-void Pixels::write(const void *premultiplied, u32 w, u32 h)
+// UNPREMULTIPLY[a][c] = c * 255 / a: a table lookup instead of a division per channel.
+static const auto UNPREMULTIPLY = [] {
+	std::array<std::array<u8, 256>, 256> table{};
+	for (u32 a = 1; a < 256; a++)
+		for (u32 c = 0; c < 256; c++)
+			table[a][c] = (u8)std::min<u32>(255, c * 255 / a);
+	return table;
+}();
+
+void Pixels::write(const void *premultiplied, u32 w, u32 h, const std::vector<CefRect> &changed)
 {
-	width = w;
-	height = h;
-	bgra.resize((size_t)w * h * 4);
+	std::vector<CefRect> rects = changed;
+	if (w != width || h != height) {
+		width = w;
+		height = h;
+		bgra.assign((size_t)w * h * 4, 0);
+		rects = { CefRect(0, 0, (int)w, (int)h) }; // nothing old is reusable
+	}
 
 	const u8 *src = static_cast<const u8 *>(premultiplied);
-	u8 *dst = bgra.data();
-	for (size_t i = 0; i < bgra.size(); i += 4) {
-		u8 a = src[i + 3];
-		if (a == 0 || a == 255) {
-			dst[i] = src[i];
-			dst[i + 1] = src[i + 1];
-			dst[i + 2] = src[i + 2];
-		} else {
-			dst[i] = (u8)(src[i] * 255 / a);
-			dst[i + 1] = (u8)(src[i + 1] * 255 / a);
-			dst[i + 2] = (u8)(src[i + 2] * 255 / a);
+	for (const CefRect &r : rects) {
+		u32 x0 = (u32)std::max(0, r.x), y0 = (u32)std::max(0, r.y);
+		u32 x1 = std::min(w, (u32)(r.x + r.width)), y1 = std::min(h, (u32)(r.y + r.height));
+		for (u32 y = y0; y < y1; y++) {
+			const u8 *s = src + ((size_t)y * w + x0) * 4;
+			u8 *d = bgra.data() + ((size_t)y * w + x0) * 4;
+			for (u32 x = x0; x < x1; x++, s += 4, d += 4) {
+				const auto &row = UNPREMULTIPLY[s[3]];
+				d[0] = row[s[0]];
+				d[1] = row[s[1]];
+				d[2] = row[s[2]];
+				d[3] = s[3];
+			}
 		}
-		dst[i + 3] = a;
 	}
 	dirty = true;
 }

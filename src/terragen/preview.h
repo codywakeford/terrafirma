@@ -1,0 +1,44 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#pragma once
+
+#include "world.h"
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+namespace terragen {
+
+/*
+	The model sampled on a resolution × resolution grid (row 0 = the north
+	edge), quantized for the page: elevation × 10000 (int16), heat and
+	moisture × 100 (int8, clamped), the biome index (see BIOME_NAMES), and a
+	lake flag. Rivers come as segments on the coarse grid, 5 bytes each:
+	cell x, cell z (0..GRID−1), the step to the cell it drains into (dx, dz in
+	−1..1, int8), and strength (1..255: √ of flow over the river threshold, ×16).
+*/
+struct Preview
+{
+	int32_t resolution;
+	std::vector<int16_t> elevation;
+	std::vector<int8_t> heat;
+	std::vector<int8_t> wet;
+	std::vector<uint8_t> biome;
+	std::vector<uint8_t> lake;
+	int32_t grid;                 // the coarse grid's size, for the river cells
+	std::vector<uint8_t> rivers;  // 5 bytes per segment, as above
+	// geology, per pixel: the province (PROVINCE_NAMES), the plate, and the
+	// boundary kind where a plate edge runs through (0 none, 1 converging,
+	// 2 spreading, 3 sliding); volcanoes as 5 bytes each: u and v (uint16,
+	// little-endian, 0..65535 across the world) and 1 if active
+	std::vector<uint8_t> province;
+	std::vector<uint8_t> plate;
+	std::vector<uint8_t> boundary;
+	std::vector<uint8_t> volcanoes;
+};
+
+// `date` (0..1) shows that day's climate; none shows the yearly mean.
+Preview preview(const World &world, std::optional<fix> date, int32_t resolution);
+
+} // namespace terragen

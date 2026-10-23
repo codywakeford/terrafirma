@@ -1,0 +1,132 @@
+{
+ "rocks": [
+  {
+   "id": "granite",
+   "name": "Granite",
+   "minerals": {
+    "silica": 0.3,
+    "feldspar": 0.55,
+    "mica": 0.15
+   },
+   "origin": "igneous",
+   "note": "Magma that cooled slowly deep down: coarse grains of quartz, feldspar and mica. The roots of continents and mountains."
+  },
+  {
+   "id": "gneiss",
+   "name": "Gneiss",
+   "minerals": {
+    "feldspar": 0.5,
+    "silica": 0.3,
+    "mica": 0.2
+   },
+   "origin": "metamorphic",
+   "note": "Granite and sediment squeezed and heated deep in a mountain belt until its minerals lined up in bands."
+  },
+  {
+   "id": "slate",
+   "name": "Slate",
+   "minerals": {
+    "mica": 0.5,
+    "silica": 0.3,
+    "kaolinite": 0.2
+   },
+   "origin": "metamorphic",
+   "note": "Mudstone baked and pressed in a mountain belt: splits into flat sheets."
+  },
+  {
+   "id": "basalt",
+   "name": "Basalt",
+   "minerals": {
+    "pyroxene": 0.45,
+    "plagioclase": 0.45,
+    "olivine": 0.1
+   },
+   "origin": "igneous",
+   "note": "Lava cooled fast at the surface. The ocean floors, lava fields and volcanic islands."
+  },
+  {
+   "id": "andesite",
+   "name": "Andesite",
+   "minerals": {
+    "plagioclase": 0.6,
+    "pyroxene": 0.3,
+    "silica": 0.1
+   },
+   "origin": "igneous",
+   "note": "The lava of volcanic arcs above sinking plates."
+  },
+  {
+   "id": "tuff",
+   "name": "Tuff",
+   "minerals": {
+    "silica": 0.6,
+    "feldspar": 0.3,
+    "plagioclase": 0.1
+   },
+   "origin": "igneous",
+   "note": "Volcanic ash, settled and welded into rock."
+  },
+  {
+   "id": "obsidian",
+   "name": "Obsidian",
+   "minerals": {
+    "silica": 0.75,
+    "feldspar": 0.25
+   },
+   "origin": "igneous",
+   "note": "Lava cooled so fast it became glass. Flakes to an edge sharper than steel."
+  },
+  {
+   "id": "sandstone",
+   "name": "Sandstone",
+   "minerals": {
+    "silica": 0.9,
+    "feldspar": 0.1
+   },
+   "origin": "sedimentary",
+   "note": "Sand of old beaches, rivers and deserts, buried and cemented."
+  },
+  {
+   "id": "shale",
+   "name": "Shale",
+   "minerals": {
+    "kaolinite": 0.6,
+    "silica": 0.3,
+    "calcite": 0.1
+   },
+   "origin": "sedimentary",
+   "note": "Mud settled in quiet water, pressed into thin layers. Where coal seams lie."
+  },
+  {
+   "id": "limestone",
+   "name": "Limestone",
+   "minerals": {
+    "calcite": 0.95,
+    "silica": 0.05
+   },
+   "origin": "sedimentary",
+   "note": "The shells of sea life, piled up on old sea floors. Water dissolves it into caves."
+  },
+  {
+   "id": "coal",
+   "name": "Coal",
+   "minerals": {
+    "carbon": 0.9,
+    "pyrite": 0.1
+   },
+   "origin": "sedimentary",
+   "note": "Swamp forests buried and pressed for millions of years. Burns hot, with a little sulfur."
+  },
+  {
+   "id": "gravel",
+   "name": "Gravel",
+   "minerals": {
+    "silica": 0.7,
+    "feldspar": 0.2,
+    "magnetite": 0.1
+   },
+   "origin": "sediment",
+   "note": "Broken rock, rounded by rivers."
+  }
+ ]
+}

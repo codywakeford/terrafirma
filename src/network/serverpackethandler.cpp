@@ -4,6 +4,8 @@
 
 #include "chatmessage.h"
 #include "server.h"
+#include <json/json.h>
+#include <sstream>
 #include "serverenvironment.h"
 #include "log.h"
 #include "emerge.h"
@@ -1793,4 +1795,29 @@ void Server::handleCommand_UpdateClientInfo(NetworkPacket *pkt)
 	session_t peer_id = pkt->getPeerId();
 	RemoteClient *client = getClient(peer_id, CS_Invalid);
 	client->setDynamicInfo(info);
+}
+
+void Server::handleCommand_Ui(NetworkPacket *pkt)
+{
+	RemotePlayer *player = m_env->getPlayer(pkt->getPeerId());
+	if (!player)
+		return;
+	PlayerSAO *playersao = player->getPlayerSAO();
+	if (!playersao)
+		return;
+
+	std::string name;
+	*pkt >> name;
+	std::string payload = pkt->readLongString();
+
+	// from a client: refuse what isn't JSON rather than trust it
+	Json::Value value;
+	std::string errors;
+	std::istringstream in(payload);
+	if (!Json::parseFromStream(Json::CharReaderBuilder(), in, &value, &errors)) {
+		warningstream << "Ignoring UI event \"" << name << "\" from " << player->getName()
+				<< ": payload isn't JSON (" << errors << ")" << std::endl;
+		return;
+	}
+	m_script->on_ui_event(playersao, name, value);
 }

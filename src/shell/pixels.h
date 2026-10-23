@@ -4,6 +4,7 @@
 #pragma once
 
 #include "irrlichttypes.h"
+#include <include/internal/cef_types_wrappers.h>
 #include <vector>
 
 namespace shell {
@@ -16,8 +17,9 @@ struct Pixels
 	std::vector<u8> bgra;
 	bool dirty = false;
 
-	// Chromium paints premultiplied BGRA; Irrlicht blends straight alpha.
-	void write(const void *premultiplied, u32 w, u32 h);
+	// Chromium paints premultiplied BGRA; Irrlicht's 2D drawing blends straight
+	// alpha. Only the rectangles Chromium reports as changed are converted.
+	void write(const void *premultiplied, u32 w, u32 h, const std::vector<CefRect> &changed);
 	u8 alphaAt(s32 x, s32 y) const;
 };
 

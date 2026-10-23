@@ -21,6 +21,16 @@ struct SkyColor
 	video::SColor indoors;
 };
 
+// Terra Firma: the real sun for where the player stands and the day of the
+// year (degrees). When on, the sun, moon and stars follow it instead of the
+// orbit tilt, and the sky is lit by how high the sun really is.
+struct SkySolar
+{
+	bool on { false };
+	float latitude { 0.0f };    // north positive
+	float declination { 0.0f }; // the latitude under the noon sun
+};
+
 struct SkyboxParams
 {
 	static constexpr float INVALID_SKYBOX_TILT = -1024.f;
@@ -38,6 +48,7 @@ struct SkyboxParams
 	float fog_start { -1.0f };
 	video::SColor fog_color { 0 }; // override, only used if alpha > 0
 	bool auto_dim_skybox { true };
+	SkySolar solar;
 };
 
 struct SunParams

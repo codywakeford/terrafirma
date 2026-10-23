@@ -5,7 +5,7 @@
 
 #include "irrlichttypes.h"
 
-namespace irr::video { class IVideoDriver; class ITexture; }
+namespace video { class IVideoDriver; class ITexture; }
 
 namespace shell {
 
