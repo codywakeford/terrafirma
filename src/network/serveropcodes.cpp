@@ -218,4 +218,5 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_UI",                       0, true }, // 0x65 Terra Firma
 	{ "TOCLIENT_HORIZON",                  0, true }, // 0x66 Terra Firma
 	{ "TOCLIENT_ALOFT",                    0, true }, // 0x67 Terra Firma
+	{ "TOCLIENT_PLANET",                   0, true }, // 0x68 Terra Firma
 };

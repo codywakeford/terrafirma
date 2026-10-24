@@ -17,6 +17,7 @@
 #include "util/string.h" // StringMap
 #include "far/terrain.h" // Terra Firma: far::Horizon
 #include "far/aloft.h" // Terra Firma: far::Aloft
+#include "planet/planet.h" // Terra Firma
 
 #include <map>
 #include <memory>
@@ -198,6 +199,7 @@ public:
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Horizon(NetworkPacket *pkt);
 	void handleCommand_Aloft(NetworkPacket *pkt);
+	void handleCommand_Planet(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -252,6 +254,8 @@ public:
 	void sendUiEvent(const std::string &name, const std::string &payload_json);
 	// Terra Firma: set once the server says this is a terra world (the far view's input).
 	const std::optional<far::Horizon> &getHorizon() const { return m_horizon; }
+	// Terra Firma: the planet the world is, if it is one
+	const planet::Planet *getPlanet() const { return m_planet ? &*m_planet : nullptr; }
 	// Where the server says the player is over the planet, carried forward
 	// to now; none while that's where they stand.
 	std::optional<far::Aloft> getAloft() const;
@@ -481,6 +485,7 @@ public:
 private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
+	std::optional<planet::Planet> m_planet;
 	std::optional<far::Aloft> m_aloft;
 	u64 m_aloft_at = 0; // ms, when it came
 

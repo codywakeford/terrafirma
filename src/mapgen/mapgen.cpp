@@ -1074,6 +1074,7 @@ void MapgenParams::readParams(const Settings *settings)
 
 	settings->getS16NoEx("water_level", water_level);
 	settings->getS16NoEx("mapgen_limit", mapgen_limit);
+	settings->getS32NoEx("planet_half", planet_half);
 	settings->getFlagStrNoEx("mg_flags", flags, flagdesc_mapgen);
 
 	std::string chunksize_str;
@@ -1113,6 +1114,8 @@ void MapgenParams::writeParams(Settings *settings) const
 	settings->setU64("seed", seed);
 	settings->setS16("water_level", water_level);
 	settings->setS16("mapgen_limit", mapgen_limit);
+	if (planet_half != 0)
+		settings->setS32("planet_half", planet_half);
 	settings->setFlagStr("mg_flags", flags, flagdesc_mapgen);
 
 	// Write as number if cubic, for backwards-compatibility

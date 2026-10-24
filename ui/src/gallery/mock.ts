@@ -4,8 +4,8 @@
 import { inject, type InjectionKey } from "vue"
 import { BridgeError } from "../bridge"
 import { FailureCode } from "../bridge/types"
-import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
-import { decodeWorldCode } from "../worldgen/config"
+import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CommunityCatalog, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
+import { DEFAULTS, decodeWorldCode, encodeWorldCode } from "../worldgen/config"
 import { mockPreview, mockWeather } from "./mockWorld"
 
 type Handlers = { [K in IntentKind]: (request: Intents[K]["request"]) => Intents[K]["response"] }
@@ -31,10 +31,35 @@ export function MockBridge() {
         { name: "Pine Ridge", path: "/worlds/pine_ridge" },
         { name: "Saltwater", path: "/worlds/saltwater" },
     ]
+    const worldCodes = new Map([
+        ["/worlds/pine_ridge", encodeWorldCode({ ...DEFAULTS, seed: "pine ridge" })],
+        ["/worlds/saltwater", encodeWorldCode({ ...DEFAULTS, seed: "saltwater" })],
+    ])
+    const community: CommunityCatalog = {
+        mods: [
+            { id: "games/terrafirma/mods/tf_world", name: "tf_world", title: "World", description: "Base terrain, water, biomes, and trees.", author: "ArcLabs", source: "builtIn", depends: ["tf_lab"], enabledWorlds: [], configurable: false },
+            { id: "games/terrafirma/mods/tf_weather", name: "tf_weather", title: "Weather", description: "Climate-driven clouds, rain, snow, and ash.", author: "ArcLabs", source: "builtIn", depends: ["tf_world"], enabledWorlds: [], configurable: false },
+            { id: "mods/lanterns", name: "lanterns", title: "Lanterns", description: "Small placeable lanterns for the gallery.", author: "Wren", source: "installed", depends: ["tf_world"], enabledWorlds: ["/worlds/pine_ridge"], configurable: true },
+        ],
+        textures: [
+            { id: "/textures/stonework", name: "Stonework", description: "A gallery example of an installed texture pack.", author: "Ash", active: false },
+            { id: "/textures/clear_skies", name: "Clear Skies", description: "A gallery example with bright skies and quieter terrain.", author: "Juno", active: false },
+        ],
+        worlds: [],
+    }
+    const communityView = (): CommunityCatalog => ({
+        mods: community.mods.map((mod) => ({ ...mod, enabledWorlds: [...mod.enabledWorlds] })),
+        textures: community.textures.map((pack) => ({ ...pack })),
+        worlds: worlds.map((world) => ({ ...world, code: worldCodes.get(world.path) ?? null })),
+    })
     const settings: Record<string, number | boolean> = {
         viewing_range: 200, fov: 72, fps_max: 60, mouse_sensitivity: 0.2, sound_volume: 0.8,
         fullscreen: false, vsync: false, enable_dynamic_shadows: true,
         far_view: true, far_view_detail: 2, far_view_max: 16000,
+        fps_max_unfocused: 10, sound_volume_unfocused: 0.3, hud_scaling: 1,
+        view_bobbing_amount: 1, enable_bloom: false, enable_fog: true,
+        enable_3d_clouds: true, invert_mouse: false, doubletap_jump: true,
+        toggle_sneak_key: false, mute_sound: false, hurt_flash_enabled: true,
     }
 
     // The device flow, played out: the "browser" approves a few seconds after
@@ -201,13 +226,28 @@ export function MockBridge() {
         ready: () => null,
         capture: () => null,
         "worlds.list": () => worlds,
-        "worlds.create": ({ name }) => {
+        "worlds.create": ({ name, code }) => {
             const world = { name: name, path: `/worlds/${name.toLowerCase().replace(/\W+/g, "_")}` }
             worlds = [...worlds, world]
+            worldCodes.set(world.path, code)
             return world
         },
         "worlds.delete": ({ path }) => {
             worlds = worlds.filter((w) => w.path !== path)
+            worldCodes.delete(path)
+            return null
+        },
+        "community.list": () => communityView(),
+        "community.mod.set": ({ id, world, enabled }) => {
+            const mod = community.mods.find((item) => item.id === id)
+            if (!mod || !mod.configurable) throw refuse("community.mod.set", "this mod cannot be changed")
+            if (!worlds.some((item) => item.path === world)) throw refuse("community.mod.set", "that world no longer exists")
+            mod.enabledWorlds = enabled ? [...new Set([...mod.enabledWorlds, world])] : mod.enabledWorlds.filter((path) => path !== world)
+            return null
+        },
+        "community.texture.set": ({ id }) => {
+            if (id && !community.textures.some((pack) => pack.id === id)) throw refuse("community.texture.set", "that texture pack is not installed")
+            for (const pack of community.textures) pack.active = pack.id === id
             return null
         },
         play: () => null,
@@ -251,6 +291,10 @@ export function MockBridge() {
         "settings.get": () => ({ ...settings }),
         "settings.set": ({ key, value }) => {
             settings[key] = value
+            return null
+        },
+        "settings.apply": ({ values }) => {
+            Object.assign(settings, values)
             return null
         },
         open: () => null,

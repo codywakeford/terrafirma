@@ -4,6 +4,7 @@
 #pragma once
 
 #include "content/subgames.h"
+#include "community.h"
 #include "online/join.h"
 #include <mutex>
 #include <optional>
@@ -51,6 +52,7 @@ private:
 	RenderingEngine *m_engine;
 	const Worlds &m_worlds;
 	const Lab &m_lab;
+	Community m_community;
 	std::optional<Choice> m_choice;
 	bool m_quit = false;
 	// Set on the bridge's worker once a join is ready; taken by run().

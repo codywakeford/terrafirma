@@ -45,7 +45,8 @@ const view = ref<"menu" | "settings" | "friends">("menu")
     background: rgb(4 8 12 / 0.55);
 }
 .menu { width: max-content; min-width: 440px; }
-.settings { width: min(760px, 92vw); height: min(520px, 80vh); }
+.settings { width: min(1200px, 96vw); height: min(760px, 92vh); }
+.settings :deep(.body) { padding: 0; overflow: hidden; }
 nav { display: grid; gap: 12px; }
 nav > :deep(.btn), .pair :deep(.btn) { width: 100%; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

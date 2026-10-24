@@ -196,7 +196,7 @@ void main(void)
 #endif
 
 	worldPosition = (mWorld * pos).xyz;
-	gl_Position = mWorldViewProj * pos;
+	gl_Position = sphereClip(pos, mWorld);
 
 	eyeVec = -(mWorldView * pos).xyz;
 #ifdef SECONDSTAGE

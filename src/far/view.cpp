@@ -141,7 +141,8 @@ public:
 		std::vector<Surface> surfaces;
 	};
 
-	Workers(const Horizon &horizon, const Colours &colours) : m_horizon(horizon), m_colours(colours)
+	Workers(const Horizon &horizon, const Colours &colours, const std::optional<planet::Planet> &planet) :
+		m_horizon(horizon), m_colours(colours), m_planet(planet)
 	{
 		unsigned n = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
 		for (unsigned i = 0; i < n; i++)
@@ -215,7 +216,7 @@ private:
 			Result r{ key, {}, {} };
 			try {
 				Tile tile = m_generator->build(key);
-				r.mesh = mesh(tile, m_colours);
+				r.mesh = mesh(tile, m_colours, m_planet);
 				r.surfaces = surfaces(tile);
 			} catch (const std::exception &e) {
 				lock.lock();
@@ -230,6 +231,7 @@ private:
 
 	const Horizon &m_horizon;
 	const Colours &m_colours;
+	const std::optional<planet::Planet> m_planet;
 	std::unique_ptr<Generator> m_generator;
 
 	std::mutex m_mutex;
@@ -250,16 +252,17 @@ static void settingChanged(const std::string &, void *data)
 static const char *const SETTINGS[] = { "far_view", "far_view_detail", "far_view_max" };
 
 View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc,
-		const NodeDefManager *ndef, const Horizon &horizon) :
+		const NodeDefManager *ndef, const Horizon &horizon, const planet::Planet *planet) :
 	scene::ISceneNode(smgr->getRootSceneNode(), smgr, -1),
 	m_horizon(horizon),
+	m_planet(planet ? std::optional<planet::Planet>(*planet) : std::nullopt),
 	m_globe(terragen::WorldCode::decode(horizon.code).size, terragen::home().radius),
 	m_state(std::make_shared<DrawState>())
 {
 	terragen::WorldCode code = terragen::WorldCode::decode(horizon.code);
 	m_size = code.size;
 	m_colours = std::make_unique<Colours>(ndef, tsrc, blocksIn(m_horizon));
-	m_workers = std::make_unique<Workers>(m_horizon, *m_colours);
+	m_workers = std::make_unique<Workers>(m_horizon, *m_colours, m_planet);
 
 	m_uniforms = make_irr<Uniforms>(m_state);
 	u32 shader = ssrc->getShader("far_shader", ShaderConstants{}, video::EMT_SOLID, m_uniforms.get());
@@ -329,6 +332,14 @@ void View::readSettings()
 float View::distance(const Key &key, v2f eye) const
 {
 	float s = span(key.level), x0 = key.x * s - 0.5f, z0 = key.z * s - 0.5f;
+	if (m_planet) {
+		// over the planet: from the eye to the tile's middle, less its half diagonal
+		const float cx = x0 + 0.5f * s, cz = z0 + 0.5f * s;
+		const int face = m_planet->nearest(cx, cz);
+		const terragen::Sphere::Vec p = m_planet->sphere().point(m_planet->place(face, cx, cz), 0);
+		const float d = (float)std::hypot(p.x - m_eye_point.x, p.y - m_eye_point.y, p.z - m_eye_point.z);
+		return std::max(d - 0.7072f * s, 0.0f);
+	}
 	float dx = std::max({ x0 - eye.X, 0.0f, eye.X - (x0 + s) });
 	float dz = std::max({ z0 - eye.Y, 0.0f, eye.Y - (z0 + s) });
 	return std::sqrt(dx * dx + dz * dz);
@@ -417,6 +428,17 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	float horizon = (float)std::sqrt(2 * R * h + h * h); // m
 	if (!fog_limit && m_share > 0)
 		range = std::min((float)m_size / 2, std::max(range, 1.1f * horizon / block));
+	// On a planet the land is drawn by the sphere lens (client/shaders/sphere/
+	// lens.glsl), out to the planet's horizon (at most half way round), and
+	// how far a tile is goes by the planet, not the net: faces that meet on
+	// the planet can be far apart in the map.
+	if (m_planet) {
+		const double r = m_planet->sphere().radius();
+		const float edge = (float)std::sqrt(2 * r * h + h * h);
+		range = std::min(std::max(range, 1.1f * edge), (float)(M_PI * r));
+		const int face = m_planet->nearest(eye.X, eye.Z);
+		m_eye_point = m_planet->sphere().point(m_planet->place(face, eye.X, eye.Z), 0);
+	}
 	m_cut = m_aloft ? 0 : near_range; // in space the near world is the bubble's cell, not the land
 	m_range = range;
 	m_reach = std::max(range, horizon) * BS + m_altitude * BS;
@@ -434,6 +456,12 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 		top++;
 	s32 lo_x = (s32)std::floor((flat.X - range) / span(top)), hi_x = (s32)std::floor((flat.X + range) / span(top));
 	s32 lo_z = (s32)std::floor((flat.Y - range) / span(top)), hi_z = (s32)std::floor((flat.Y + range) / span(top));
+	if (m_planet) { // the whole net: distance() says which tiles are in reach
+		const float pitch = (float)(m_planet->width() + planet::Planet::GAP), low = (float)planet::Planet::ORIGIN;
+		lo_x = lo_z = (s32)std::floor(low / span(top));
+		hi_x = (s32)std::floor((low + 3 * pitch) / span(top));
+		hi_z = (s32)std::floor((low + 2 * pitch) / span(top));
+	}
 	for (s32 z = lo_z; z <= hi_z; z++)
 		for (s32 x = lo_x; x <= hi_x; x++)
 			choose({ top, x, z }, flat, m_draw, want);
@@ -630,7 +658,7 @@ void View::render()
 		float dz = std::max(std::fabs(box.MinEdge.Z - eye.Z), std::fabs(box.MaxEdge.Z - eye.Z));
 		float past = std::max(std::sqrt(dx * dx + dz * dz) - m_state->cut, 0.0f);
 		box.MinEdge.Y -= past * (past + 2 * m_state->cut) / (2 * m_state->radius);
-		if (m_share == 0 && outside(frustum, box))
+		if (m_share == 0 && !m_planet && outside(frustum, box))
 			continue;
 		for (const auto &part : it->second.parts)
 			driver->drawMeshBuffer(part.get());

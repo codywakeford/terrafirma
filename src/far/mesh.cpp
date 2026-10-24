@@ -225,7 +225,21 @@ static int subtract(Span s, Span cover, Span out[2])
 
 } // namespace
 
-Mesh mesh(const Tile &tile, const Colours &colours)
+// The pieces of [low, high] (map nodes) on a planet's faces, along x or z:
+// three columns of faces, or two rows.
+static std::vector<Span> onFaces(const planet::Planet &planet, Span s, int count)
+{
+	std::vector<Span> out;
+	const float pitch = (float)(planet.width() + planet::Planet::GAP);
+	for (int i = 0; i < count; i++) {
+		float lo = (float)planet::Planet::ORIGIN + i * pitch - 0.5f, hi = lo + (float)planet.width();
+		if (std::max(lo, s.low) < std::min(hi, s.high))
+			out.push_back({ std::max(lo, s.low), std::min(hi, s.high) });
+	}
+	return out;
+}
+
+Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::Planet> &planet)
 {
 	Builder b;
 	const s32 cell = tile.key.cell();
@@ -249,18 +263,26 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 			const Cell &c = tile.at(i, j);
 			if (c.space)
 				continue;
-			float x0 = (float)(i * cell) - 0.5f, x1 = x0 + (float)cell;
-			bool wet = c.water > c.ground;
+			const float cx0 = (float)(i * cell) - 0.5f, cx1 = cx0 + (float)cell;
+			const bool wet = c.water > c.ground;
+			auto draw = [&](float x0, float x1, float z0, float z1, bool whole) {
+			// a whole cell's top goes in its row's strips; a cut one alone
+			auto put = [&](Row &row, float y, video::SColorf colour, Layer layer) {
+				if (whole)
+					row.add(x0, x1, y, colour, layer);
+				else
+					b.flat(x0, x1, z0, z1, y, UP, colour, layer);
+			};
 
 			if (!wet) {
-				surface.add(x0, x1, top(c.ground), colours.face(c.top, UP), Layer::SOLID);
+				put(surface, top(c.ground), colours.face(c.top, UP), Layer::SOLID);
 			} else {
 				float lit = lightAt(top(c.ground), c.water);
 				video::SColorf floor = colours.face(c.top, UP);
 				// the liquid, seen through as the near world's is; and the floor
 				// alone, for where the near world lays its own liquid over it
-				surface.add(x0, x1, top(c.water), colours.through(c.liquid, floor, lit), Layer::LIQUID);
-				floors.add(x0, x1, top(c.ground), video::SColorf(floor.r * lit, floor.g * lit, floor.b * lit, 1), Layer::UNDER);
+				put(surface, top(c.water), colours.through(c.liquid, floor, lit), Layer::LIQUID);
+				put(floors, top(c.ground), video::SColorf(floor.r * lit, floor.g * lit, floor.b * lit, 1), Layer::UNDER);
 			}
 
 			for (int k = 0; k < 4; k++) {
@@ -317,6 +339,21 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 					for (int p = 0; p < count; p++)
 						b.side(x0, x1, z0, z1, pieces[p].low, pieces[p].high, SIDE[k], colours.face(run->node, SIDE[k]));
 				}
+			}
+			};
+
+			if (!planet) {
+				draw(cx0, cx1, z0, z1, true);
+				continue;
+			}
+			// on a planet: the cell's pieces on each face (tile-local ↔ map nodes)
+			const float ox = (float)(tile.key.x * tile.key.span()), oz = (float)(tile.key.z * tile.key.span());
+			const std::vector<Span> xs = onFaces(*planet, { cx0 + ox, cx1 + ox }, 3);
+			const std::vector<Span> zs = onFaces(*planet, { z0 + oz, z1 + oz }, 2);
+			for (const Span &zp : zs)
+			for (const Span &xp : xs) {
+				const bool whole = xp.low == cx0 + ox && xp.high == cx1 + ox && zp.low == z0 + oz && zp.high == z1 + oz;
+				draw(xp.low - ox, xp.high - ox, zp.low - oz, zp.high - oz, whole);
 			}
 		}
 	}

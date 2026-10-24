@@ -1943,6 +1943,13 @@ void Client::handleCommand_Horizon(NetworkPacket *pkt)
 	m_horizon = far::read(*pkt);
 }
 
+void Client::handleCommand_Planet(NetworkPacket *pkt)
+{
+	s32 half;
+	*pkt >> half;
+	m_planet.emplace(half); // throws on a size the map can't hold
+}
+
 void Client::handleCommand_Aloft(NetworkPacket *pkt)
 {
 	u8 present;

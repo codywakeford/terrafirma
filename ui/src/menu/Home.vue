@@ -5,8 +5,6 @@ import type { Screen } from "./screens"
 
 defineEmits<{ go: [screen: Screen] }>()
 const bridge = useBridge()
-
-const REPO = "https://github.com/codywakeford/terrafirma"
 const TITLE = "Terra Firma"
 </script>
 
@@ -25,12 +23,7 @@ const TITLE = "Terra Firma"
             <Button variant="primary" size="lg" @click="$emit('go', 'worlds')">Play</Button>
             <Button size="lg" @click="$emit('go', 'settings')">Settings</Button>
             <div class="pair">
-                <Button size="lg" @click="bridge.send('open', { url: REPO })">
-                    <svg viewBox="0 0 8 8" width="18" height="18" shape-rendering="crispEdges" aria-hidden="true">
-                        <path fill="currentColor" d="M2 0h4v1h1v1h1v4h-1v1h-2v-2h-2v2h-2v-1h-1v-4h1v-1h1z" />
-                    </svg>
-                    GitHub
-                </Button>
+                <Button size="lg" @click="$emit('go', 'community')">Community</Button>
                 <Button size="lg" @click="bridge.send('quit', {})">Quit</Button>
             </div>
         </nav>

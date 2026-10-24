@@ -12,6 +12,7 @@
 #include "client/keys.h"
 #include "client/mapblock_mesh.h"
 #include "client/sound.h"
+#include "client/sphere_lens.h"
 #include "clientmap.h"
 #include "clientmedia.h" // For clientMediaUpdateCacheCopy
 #include "config.h"
@@ -179,7 +180,7 @@ public:
 
 		v3f camera_position = m_client->getCamera()->getPosition();
 		m_camera_position_pixel.set(camera_position, services);
-		m_camera_position_pixel.set(camera_position, services);
+		m_camera_position_vertex.set(camera_position, services);
 
 		m_texel_size0_vertex.set(m_texel_size0, services);
 		m_texel_size0_pixel.set(m_texel_size0, services);
@@ -924,6 +925,7 @@ bool Game::createClient(const GameStartData &start_data)
 
 	shader_src->addShaderUniformSetterFactory(
 		std::make_unique<FogShaderUniformSetterFactory>());
+	shader_src->addShaderUniformSetterFactory(std::make_unique<SphereLensFactory>(client));
 
 	ShadowRenderer::preInit(shader_src);
 
@@ -3528,7 +3530,7 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	// what it reaches (from high up, the planet's horizon).
 	if (!far_view && client->getHorizon())
 		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(),
-				*client->getHorizon());
+				*client->getHorizon(), client->getPlanet()); // the planet comes first (Server::SendPlanet)
 	if (far_view) {
 		std::optional<float> fog_limit;
 		if (sky->getFogDistance() >= 0)

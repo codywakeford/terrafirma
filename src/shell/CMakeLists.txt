@@ -4,6 +4,7 @@ set(shell_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/bridge.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/client.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/community.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ime.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/input.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/items.cpp

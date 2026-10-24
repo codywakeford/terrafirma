@@ -18,6 +18,8 @@ public:
 	Json::Value get() const;
 	// Validates, applies, and saves to the user's config. Throws Refused.
 	void set(const std::string &key, const Json::Value &value) const;
+	// Validate every value before applying a preset, then save once.
+	void apply(const Json::Value &values) const;
 };
 
 } // namespace shell

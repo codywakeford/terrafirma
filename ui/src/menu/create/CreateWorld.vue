@@ -3,7 +3,7 @@ import { onMounted, provide, ref, watch } from "vue"
 import { BridgeError } from "../../bridge"
 import { useBridge } from "../../bridge/use"
 import { Button, Notice, Panel, Tabs } from "../../kit"
-import { encodeWorldCode } from "../../worldgen/config"
+import { decodeWorldCode, encodeWorldCode } from "../../worldgen/config"
 import { worldName } from "../../worldgen/names"
 import { SYSTEM_PREVIEW, SystemPreview } from "../../system/preview"
 import type { Screen } from "../screens"
@@ -18,9 +18,11 @@ import { TABS, type TabId } from "./tabs"
 import Viewer from "./Viewer.vue"
 
 const emit = defineEmits<{ go: [screen: Screen] }>()
+const props = defineProps<{ initialCode?: string | null }>()
 const bridge = useBridge()
 
 const draft = WorldDraft()
+if (props.initialCode) draft.config = decodeWorldCode(props.initialCode)
 // every body's card from the engine, for the tabs and the viewer alike
 const system = SystemPreview({ bridge: bridge })
 provide(SYSTEM_PREVIEW, system)

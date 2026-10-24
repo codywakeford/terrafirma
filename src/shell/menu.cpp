@@ -16,6 +16,7 @@
 #include "exceptions.h"
 #include "client/renderingengine.h"
 #include "porting.h"
+#include "settings.h"
 #include "social.h"
 #include <ICursorControl.h>
 #include <IVideoDriver.h>
@@ -26,7 +27,7 @@ namespace shell {
 
 static const char *const VERBS[] = {
 	"worlds.list", "worlds.create", "worlds.delete", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
-	"social.join",
+	"social.join", "community.list", "community.mod.set", "community.texture.set",
 };
 
 static Json::Value worldJson(const WorldSpec &world)
@@ -145,8 +146,22 @@ static std::string stringField(const Json::Value &intent, const char *field)
 }
 
 Menu::Menu(const Opts &opts) :
-	m_shell(opts.shell), m_engine(opts.engine), m_worlds(opts.worlds), m_lab(opts.lab)
+	m_shell(opts.shell), m_engine(opts.engine), m_worlds(opts.worlds), m_lab(opts.lab),
+	m_community(opts.worlds, g_settings->get("game_id"))
 {
+	m_shell.on("community.list", [this](const Json::Value &) {
+		return m_community.list();
+	});
+	m_shell.on("community.mod.set", [this](const Json::Value &intent) {
+		if (!intent["enabled"].isBool())
+			throw Refused("community.mod.set needs enabled");
+		m_community.setMod(stringField(intent, "id"), stringField(intent, "world"), intent["enabled"].asBool());
+		return Json::Value();
+	});
+	m_shell.on("community.texture.set", [this](const Json::Value &intent) {
+		m_community.setTexture(stringField(intent, "id"));
+		return Json::Value();
+	});
 	m_shell.on("worlds.list", [this](const Json::Value &) {
 		Json::Value out(Json::arrayValue);
 		for (const auto &world : m_worlds.list())

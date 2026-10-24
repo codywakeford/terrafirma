@@ -94,11 +94,13 @@
 	PROTOCOL VERSION 58 (Terra Firma)
 		AUTH_MECHANISM_TICKET, TOSERVER_TICKET: friends join with an ArcLabs
 		ticket (src/online/gate.h), and must run the host's build
-		Only 58 is accepted on either side.
+	PROTOCOL VERSION 59 (Terra Firma)
+		TOCLIENT_PLANET: the world is a planet, and its size
+		Only 59 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 58;
+const u16 LATEST_PROTOCOL_VERSION = 59;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

@@ -122,7 +122,7 @@ void main(void)
 #endif
 	varTexCoord = (mTexture * vec4(inTexCoord0.xy, 1.0, 1.0)).st;
 
-	gl_Position = mWorldViewProj * skinPos;
+	gl_Position = sphereClip(skinPos, mWorld);
 
 	vNormal = (mWorld * vec4(skinNormal, 0.0)).xyz;
 	worldPosition = (mWorld * skinPos).xyz;

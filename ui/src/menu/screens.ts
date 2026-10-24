@@ -1,1 +1,1 @@
-export type Screen = "home" | "worlds" | "create" | "settings" | "wiki"
+export type Screen = "home" | "worlds" | "create" | "settings" | "community" | "wiki"

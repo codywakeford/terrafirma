@@ -16,5 +16,6 @@ defineEmits<{ go: [screen: Screen] }>()
 </template>
 
 <style scoped>
-.settings { width: min(760px, 92vw); height: min(520px, 80vh); }
+.settings { width: min(1200px, 96vw); height: min(760px, 92vh); }
+.settings :deep(.body) { padding: 0; overflow: hidden; }
 </style>

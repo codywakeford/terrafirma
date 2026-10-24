@@ -730,6 +730,12 @@ enum ToClientCommand : u16
 		(terra::Blocks), and the tree species (terra::Species).
 	*/
 
+	TOCLIENT_PLANET = 0x68,
+	/*
+		Terra Firma: this world is a planet (src/planet/planet.h). Sent once,
+		on join. s32 half: blocks from a face's centre to its edge.
+	*/
+
 	TOCLIENT_ALOFT = 0x67,
 	/*
 		Terra Firma: where the player is over the planet when that isn't
@@ -739,7 +745,7 @@ enum ToClientCommand : u16
 		sea), and their rates per second; or u8 0: where they stand again.
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x68,
+	TOCLIENT_NUM_MSG_TYPES = 0x69,
 };
 
 enum ToServerCommand : u16

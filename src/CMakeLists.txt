@@ -454,6 +454,7 @@ add_subdirectory(content)
 add_subdirectory(database)
 add_subdirectory(mapgen)
 add_subdirectory(terragen)
+add_subdirectory(planet)
 add_subdirectory(far)
 add_subdirectory(matter)
 add_subdirectory(fluid)
@@ -561,6 +562,7 @@ set(common_SRCS
 	${common_server_SRCS}
 	${mapgen_SRCS}
 	${terragen_SRCS}
+	${planet_SRCS}
 	${far_SRCS}
 	${matter_SRCS}
 	${fluid_SRCS}

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref } from "vue"
 import Corner from "../account/Corner.vue"
+import { useBridge } from "../bridge/use"
 import PixelIcon from "../game/PixelIcon.vue"
 import { IconTile } from "../kit"
 import CreateWorld from "./create/CreateWorld.vue"
 import Home from "./Home.vue"
+import Community from "./Community.vue"
 import Settings from "./Settings.vue"
 import type { Screen } from "./screens"
 import WorldSelect from "./WorldSelect.vue"
@@ -16,6 +18,18 @@ defineProps<{ error: string | null }>()
 defineEmits<{ dismiss: [] }>()
 
 const screen = ref<Screen>("home")
+const seedCode = ref<string | null>(null)
+const bridge = useBridge()
+const REPO = "https://github.com/codywakeford/terrafirma"
+
+function go(next: Screen) {
+    if (next === "create") seedCode.value = null
+    screen.value = next
+}
+function createFromCode(code: string) {
+    seedCode.value = code
+    screen.value = "create"
+}
 
 // a 9×9 pictogram for the workshop row: an open book
 const WIKI_ICON = {
@@ -32,10 +46,11 @@ const WIKI_ICON = {
         </div>
 
         <Transition name="screen" mode="out-in">
-            <Home v-if="screen === 'home'" @go="screen = $event" />
-            <WorldSelect v-else-if="screen === 'worlds'" @go="screen = $event" />
-            <CreateWorld v-else-if="screen === 'create'" @go="screen = $event" />
-            <Settings v-else-if="screen === 'settings'" @go="screen = $event" />
+            <Home v-if="screen === 'home'" @go="go" />
+            <WorldSelect v-else-if="screen === 'worlds'" @go="go" />
+            <CreateWorld v-else-if="screen === 'create'" :initial-code="seedCode" @go="go" />
+            <Settings v-else-if="screen === 'settings'" @go="go" />
+            <Community v-else-if="screen === 'community'" @go="go" @create-code="createFromCode" />
             <WikiScreen v-else-if="screen === 'wiki'" place="menu" @close="screen = 'home'" />
         </Transition>
 
@@ -48,6 +63,11 @@ const WIKI_ICON = {
                 <nav class="tools" aria-label="Workshop">
                     <IconTile label="Wiki — what everything is made of, and how it behaves" side="left" @click="screen = 'wiki'">
                         <PixelIcon :rows="WIKI_ICON.rows" :palette="WIKI_ICON.palette" style="--u: 3px" />
+                    </IconTile>
+                    <IconTile label="Terra Firma on GitHub" side="left" @click="bridge.send('open', { url: REPO })">
+                        <svg viewBox="0 0 16 16" width="23" height="23" aria-hidden="true">
+                            <path fill="currentColor" d="M8 1a7 7 0 0 0-2.21 13.64c.35.06.48-.15.48-.34v-1.19c-1.96.42-2.37-.83-2.37-.83-.32-.81-.78-1.03-.78-1.03-.64-.44.05-.43.05-.43.71.05 1.08.73 1.08.73.63 1.07 1.65.76 2.05.58.06-.46.25-.76.45-.93-1.56-.18-3.2-.78-3.2-3.48 0-.77.27-1.4.72-1.9-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.73A6.7 6.7 0 0 1 8 4.45c.59 0 1.18.08 1.73.23 1.34-.92 1.93-.73 1.93-.73.38.97.14 1.69.07 1.87.45.5.72 1.13.72 1.9 0 2.71-1.64 3.3-3.2 3.47.25.22.48.64.48 1.29v1.82c0 .19.13.4.48.34A7 7 0 0 0 8 1Z" />
+                        </svg>
                     </IconTile>
                 </nav>
                 <footer>v0.1 · built on luanti</footer>

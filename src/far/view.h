@@ -4,6 +4,7 @@
 #pragma once
 
 #include "far/aloft.h"
+#include "planet/planet.h"
 #include "far/terrain.h"
 #include "terragen/map.h"
 #include "irr_ptr.h"
@@ -72,7 +73,7 @@ class View : public scene::ISceneNode
 {
 public:
 	View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc,
-			const NodeDefManager *ndef, const Horizon &horizon);
+			const NodeDefManager *ndef, const Horizon &horizon, const planet::Planet *planet);
 	~View();
 
 	// Once a frame, before drawing. `near_range`: how far the map blocks are
@@ -148,6 +149,8 @@ private:
 	float m_altitude = 0;         // m above the sea
 	float m_share = 0;            // how far the map has become the planet
 	float m_curve = 1;            // m: the radius the land curves with
+	const std::optional<planet::Planet> m_planet; // the world's, if it's a planet
+	terragen::Sphere::Vec m_eye_point{};          // on a planet: the eye over the sea, m from the centre
 	terragen::Map::Across m_across{ 1, 1 }; // m of planet per block, where the eye is
 	float m_lift = 0;             // blocks: the height that counts toward a tile's distance
 	v3s16 m_camera_offset;

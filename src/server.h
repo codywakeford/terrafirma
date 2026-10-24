@@ -70,6 +70,7 @@ struct SkyboxParams;
 struct SoundSpec;
 struct StarParams;
 struct ServerTerra; // Terra Firma
+#include "planet/planet.h" // Terra Firma
 struct SunParams;
 
 namespace con {
@@ -421,6 +422,8 @@ public:
 
 	// Terra Firma: what core.terra keeps for this server.
 	ServerTerra &terra() { return *m_terra; }
+	// Terra Firma: the planet this world is, if it is one (planet/planet.h)
+	const planet::Planet *planet() const { return m_planet ? &*m_planet : nullptr; }
 
 	// Terra Firma: a value for the player's page (JSON; null clears).
 	void setUi(RemotePlayer *player, const std::string &key, const std::string &value_json);
@@ -576,6 +579,7 @@ private:
 	void SendTimeOfDay(session_t peer_id, u16 time, f32 time_speed);
 	// Terra Firma: what the far view needs, on a terra world
 	void SendHorizon(session_t peer_id);
+	void SendPlanet(session_t peer_id);
 
 	void SendLocalPlayerAnimations(session_t peer_id, v2f animation_frames[4],
 		f32 animation_speed);
@@ -835,6 +839,7 @@ private:
 	// ModChannel manager
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
 	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
+	std::optional<planet::Planet> m_planet; // Terra Firma: from the world's planet_half
 	std::unique_ptr<online::Gate> m_gate; // Terra Firma: null unless hosted for friends
 
 	// Inventory manager

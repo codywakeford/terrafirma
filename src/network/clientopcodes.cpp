@@ -115,6 +115,7 @@ const ToClientCommandHandler toClientCommandTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_UI",                       TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Ui }, // 0x65 Terra Firma
 	{ "TOCLIENT_HORIZON",                  TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Horizon }, // 0x66 Terra Firma
 	{ "TOCLIENT_ALOFT",                    TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Aloft }, // 0x67 Terra Firma
+	{ "TOCLIENT_PLANET",                   TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Planet }, // 0x68 Terra Firma
 };
 
 const static ServerCommandFactory null_command_factory = { nullptr, 0, false };

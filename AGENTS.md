@@ -36,7 +36,7 @@ cmake/Modules/CEF.cmake   fetches the pinned CEF build
 scripts/dev.ts    the dev loop behind `bun dev`
 scripts/terragen-check.sh  generate a world headless and check it against standalone terragen
 planning/         sprint plans and their outcomes
-builtin/, games/devtest, irr/, lib/, android/   upstream; leave alone unless asked
+builtin/, games/devtest, irr/, lib/   upstream; leave alone unless asked (Android, Docker and Luanti CI are removed)
 ```
 
 ## Running and checking

@@ -15,6 +15,19 @@ export type SlotRef = { list: string; index: number }
 
 export type World = { name: string; path: string }
 
+/** Local content: reported by src/shell/community.cpp, not a remote catalog. */
+export type CommunityMod = {
+    id: string; name: string; title: string; description: string; author: string
+    source: "builtIn" | "installed"; depends: string[]; enabledWorlds: string[]; configurable: boolean; issue?: string
+}
+export type CommunityTexture = {
+    id: string; name: string; description: string; author: string; active: boolean
+}
+export type CommunityWorld = World & { code: string | null }
+export type CommunityCatalog = {
+    mods: CommunityMod[]; textures: CommunityTexture[]; worlds: CommunityWorld[]
+}
+
 /** How to show an item; icon is null when it has nothing to draw. */
 export type ItemInfo = { description: string; icon: string | null }
 export type CreativeItem = ItemInfo & { item: string; stackMax: number; category: "building" | "nature" | "functional" | "tools" | "items" }
@@ -305,6 +318,11 @@ export type Intents = {
     ready: { request: {}; response: null }
     capture: { request: { keyboard: boolean }; response: null }
     "worlds.list": { request: {}; response: World[] }
+    "community.list": { request: {}; response: CommunityCatalog }
+    /** User-installed mods are selected per world; built-ins are required by this build. */
+    "community.mod.set": { request: { id: string; world: string; enabled: boolean }; response: null }
+    /** A local texture pack is used after restarting Terra Firma; empty id restores defaults. */
+    "community.texture.set": { request: { id: string }; response: null }
     /** settings: written to the world's world.mt — creative_mode, enable_damage, tf_* (src/shell/worlds.cpp) */
     "worlds.create": { request: { name: string; code: string; settings: Record<string, string | number | boolean> }; response: World }
     /** terragen's preview of a world code; date 0..1 through the year (src/shell/menu.cpp) */
@@ -344,6 +362,7 @@ export type Intents = {
     quit: { request: {}; response: null }
     "settings.get": { request: {}; response: Record<string, number | boolean> }
     "settings.set": { request: { key: string; value: number | boolean }; response: null }
+    "settings.apply": { request: { values: Record<string, number | boolean> }; response: null }
     open: { request: { url: string }; response: null }
     /** The ArcLabs account (src/shell/account.cpp); changes arrive as `account` messages. */
     "account.get": { request: {}; response: Account }

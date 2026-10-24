@@ -70,6 +70,7 @@ set(client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/renderingengine.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/shader.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/sky.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/sphere_lens.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/solar.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/sound_maker.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/tile.cpp

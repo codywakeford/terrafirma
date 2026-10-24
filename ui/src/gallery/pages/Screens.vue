@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import { Segmented } from "../../kit"
+import { Panel, Segmented } from "../../kit"
 import MainMenu from "../../menu/MainMenu.vue"
 import SettingsPanel from "../../settings/SettingsPanel.vue"
 
@@ -17,7 +17,7 @@ const error = ref<string | null>(null)
         </div>
         <div class="frame">
             <MainMenu v-if="screen === 'menu'" :error="error" @dismiss="error = null" />
-            <div v-else class="pad"><SettingsPanel /></div>
+            <div v-else class="pad"><Panel title="Settings" class="settings"><SettingsPanel /></Panel></div>
         </div>
     </div>
 </template>
@@ -29,4 +29,6 @@ const error = ref<string | null>(null)
 .err { border: 0; background: none; color: var(--accent-hi); font-size: 12px; }
 .frame { flex: 1; min-height: 640px; border: var(--b) solid var(--edge); overflow: hidden; background: #060d16; }
 .pad { padding: 24px; height: 100%; background: var(--stone-1); }
+.settings { width: min(1200px, 100%); height: min(760px, 100%); margin: auto; }
+.settings :deep(.body) { padding: 0; overflow: hidden; }
 </style>

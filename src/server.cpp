@@ -575,6 +575,8 @@ void Server::init()
 	if (!servermap.settings_mgr.makeMapgenParams())
 		FATAL_ERROR("Couldn't create any mapgen type");
 	m_emerge->initMapgens(servermap.getMapgenParams());
+	if (s32 half = m_emerge->mgparams->planet_half)
+		m_planet.emplace(half); // throws on a size the map can't hold
 
 	if (g_settings->getBool("enable_rollback_recording")) {
 		// Create rollback manager
@@ -4663,6 +4665,16 @@ void Server::SendHorizon(session_t peer_id)
 	h.species = m_terra->resolve(m_nodedef);
 	NetworkPacket pkt(TOCLIENT_HORIZON, 0, peer_id);
 	far::write(pkt, h);
+	Send(&pkt);
+}
+
+// Terra Firma: the planet's size, so the client draws the faces as one
+void Server::SendPlanet(session_t peer_id)
+{
+	if (!m_planet)
+		return;
+	NetworkPacket pkt(TOCLIENT_PLANET, 4, peer_id);
+	pkt << (s32)m_planet->half();
 	Send(&pkt);
 }
 

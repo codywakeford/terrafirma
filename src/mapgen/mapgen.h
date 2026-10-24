@@ -118,6 +118,9 @@ struct MapgenParams {
 	u64 seed = 0;
 	s16 water_level = 1;
 	s16 mapgen_limit = MAX_MAP_GENERATION_LIMIT;
+	// Terra Firma: the planet's faces, blocks from a face's centre to its edge
+	// (planet::Planet); 0 a flat world. Any mapgen.
+	s32 planet_half = 0;
 	// Flags set in readParams
 	u32 flags = 0;
 	u32 spflags = 0;

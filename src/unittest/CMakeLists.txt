@@ -36,6 +36,8 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_sandbox.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_matter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_sphere.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_planet.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_far.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_objdef.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_profiler.cpp

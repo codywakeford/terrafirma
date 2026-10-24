@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import AccountCard from "../../account/AccountCard.vue"
+import ProfileDropdown from "../../account/ProfileDropdown.vue"
 import type { Account, Social } from "../../bridge"
 import FriendsPanel from "../../social/FriendsPanel.vue"
 import { cannedSocial } from "../mock"
 import Specimen from "../Specimen.vue"
 
-/** Every state of the account card and the friends panel. The menu's corner (Screens) runs both against the mock. */
+/** Account and social states, including the combined menu dropdown. */
 const STATES: { note: string; account: Account }[] = [
     { note: "signed out", account: { status: "signedOut" } },
     { note: "signed out, after a problem", account: { status: "signedOut", problem: "The sign-in code expired. Try again." } },
@@ -28,6 +29,18 @@ const FRIENDS: { note: string; social: Social; error?: string; joining?: string 
 
 <template>
     <div class="grid">
+        <Specimen name="ProfileDropdown" note="signed in: activity, friends, account actions">
+            <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" />
+        </Specimen>
+        <Specimen name="ProfileDropdown" note="add friend view">
+            <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" initial-page="add" />
+        </Specimen>
+        <Specimen name="ProfileDropdown" note="account details">
+            <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" initial-page="account" />
+        </Specimen>
+        <Specimen name="ProfileDropdown" note="signed out: sign-in flow">
+            <ProfileDropdown :account="STATES[0]!.account" :social="null" :error="null" :busy="false" :joining="null" />
+        </Specimen>
         <Specimen v-for="state in STATES" :key="state.note" name="AccountCard" :note="state.note">
             <AccountCard :account="state.account" />
         </Specimen>

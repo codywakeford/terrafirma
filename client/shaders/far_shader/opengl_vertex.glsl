@@ -55,6 +55,9 @@ void main(void)
 	vec3 at = globe(d, height);
 	at.y += cut * cut / (2.0 * farRadius / BS);
 	vec4 pos = vec4(farEye + at * BS - mWorld[3].xyz, 1.0);
+	// on the sphere (client/shaders/sphere/lens.glsl): the near world's lens, so the two are one surface
+	if (sphereEye.w != 0.0)
+		pos = vec4(sphereLens(world) - mWorld[3].xyz, 1.0);
 
 	flatPos = world.xz;
 	varAltitude = height;

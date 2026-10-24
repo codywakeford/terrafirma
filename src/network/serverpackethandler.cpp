@@ -320,6 +320,7 @@ void Server::handleCommand_Init2(NetworkPacket* pkt)
 	float time_speed = g_settings->getFloat("time_speed");
 	SendTimeOfDay(peer_id, time, time_speed);
 
+	SendPlanet(peer_id); // before the horizon: the far view is made with both
 	SendHorizon(peer_id);
 
 	SendCSMRestrictionFlags(peer_id);

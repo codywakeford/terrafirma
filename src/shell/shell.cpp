@@ -163,6 +163,10 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 		m->options.set(intent["key"].asString(), intent["value"]);
 		return Json::Value();
 	});
+	m->bridge.on("settings.apply", [this](const Json::Value &intent) {
+		m->options.apply(intent["values"]);
+		return Json::Value();
+	});
 	m->bridge.on("open", [](const Json::Value &intent) {
 		std::string url = intent["url"].isString() ? intent["url"].asString() : "";
 		if (url.rfind("https://", 0) != 0)

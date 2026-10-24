@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "planet/planet.h"
+#include <optional>
+
 #include "far/terrain.h"
 #include "irrlichttypes_bloated.h"
 #include <S3DVertex.h>
@@ -62,6 +65,9 @@ struct Mesh
 	std::vector<Part> parts;
 };
 
-Mesh mesh(const Tile &tile, const Colours &colours);
+// A tile's mesh. On a planet (src/planet/planet.h) no cell crosses from one
+// face onto another: a cell over a face's edge is cut there, each piece
+// drawn on its own face, and nothing is drawn in the gaps between them.
+Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::Planet> &planet);
 
 } // namespace far
