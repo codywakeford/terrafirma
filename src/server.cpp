@@ -24,6 +24,7 @@
 #include "profiler.h"
 #include "remoteplayer.h"
 #include "server/ban.h"
+#include "online/gate.h"
 #include "serverenvironment.h"
 #include "servermap.h"
 #include "server/player_sao.h"
@@ -72,6 +73,7 @@
 #include "database/database-files.h"
 #include "database/database-dummy.h"
 
+#include "server/terra.h" // Terra Firma
 #include <iostream>
 #include <queue>
 #include <algorithm>
@@ -301,7 +303,8 @@ Server::Server(
 	m_clients(m_con),
 	m_admin_chat(iface),
 	m_shutdown_errmsg(shutdown_errmsg),
-	m_modchannel_mgr(new ModChannelMgr())
+	m_modchannel_mgr(new ModChannelMgr()),
+	m_terra(std::make_unique<ServerTerra>())
 {
 	if (m_path_world.empty())
 		throw ServerError("Supplied empty world path");
@@ -672,6 +675,17 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 	{
 		// Send blocks to clients
 		SendBlocks(dtime);
+	}
+
+	// Terra Firma: answers on joiners' tickets. Admitting runs Lua (auth,
+	// on_authplayer): under the environment lock, as packet handling is.
+	if (m_gate) {
+		std::vector<online::Gate::Decision> decisions = m_gate->poll();
+		if (!decisions.empty()) {
+			EnvAutoLock envlock(this);
+			for (const online::Gate::Decision &d : decisions)
+				admit(d.peer, d.admit, d.reason);
+		}
 	}
 
 	// If paused, this function is called with a 0.0f literal
@@ -3130,6 +3144,39 @@ void Server::DisconnectPeer(session_t peer_id)
 	m_con->DisconnectPeer(peer_id);
 }
 
+void Server::setGate(std::unique_ptr<online::Gate> gate)
+{
+	m_gate = std::move(gate);
+}
+
+void Server::setStrayHandler(con::IConnection::StrayHandler handler)
+{
+	m_con->setStrayHandler(std::move(handler));
+}
+
+size_t Server::clientCount()
+{
+	return m_clients.getClientIDs(CS_Created).size();
+}
+
+void Server::admit(session_t peer_id, bool ok, const std::string &reason)
+{
+	RemoteClient *client = getClientNoEx(peer_id, CS_Invalid);
+	if (!client || client->getState() != CS_HelloSent)
+		return; // gone while their ticket was checked
+	const std::string name = client->getName();
+	if (!ok) {
+		actionstream << "Server: " << name << " was refused: " << reason << std::endl;
+		DenyAccess(peer_id, SERVER_ACCESSDENIED_CUSTOM_STRING, reason);
+		return;
+	}
+	// A ticket is the account; the auth entry only holds privileges.
+	if (!m_script->getAuth(name, nullptr, nullptr))
+		m_script->createAuth(name, "");
+	m_script->on_authplayer(name, client->getAddress().serializeString(), true);
+	acceptAuth(peer_id, false);
+}
+
 void Server::acceptAuth(session_t peer_id, bool forSudoMode)
 {
 	if (!forSudoMode) {
@@ -4594,6 +4641,16 @@ void Server::setUi(RemotePlayer *player, const std::string &key, const std::stri
 	Send(&pkt);
 }
 
+void Server::setAloft(RemotePlayer *player, const std::optional<far::Aloft> &aloft)
+{
+	sanity_check(player);
+	NetworkPacket pkt(TOCLIENT_ALOFT, 0, player->getPeerId());
+	pkt << (u8)(aloft ? 1 : 0);
+	if (aloft)
+		pkt << aloft->x << aloft->z << aloft->altitude << aloft->east << aloft->north << aloft->climb;
+	Send(&pkt);
+}
+
 void Server::SendHorizon(session_t peer_id)
 {
 	const MapgenParams *params = m_emerge->mgparams;
@@ -4603,7 +4660,7 @@ void Server::SendHorizon(session_t peer_id)
 	h.code = static_cast<const MapgenTerraParams *>(params)->code;
 	h.water_level = params->water_level;
 	h.blocks = terraBlocks(m_emerge->getBiomeManager(), m_nodedef);
-	h.species = terra::resolve(terra::registered(), m_nodedef);
+	h.species = m_terra->resolve(m_nodedef);
 	NetworkPacket pkt(TOCLIENT_HORIZON, 0, peer_id);
 	far::write(pkt, h);
 	Send(&pkt);

@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 56;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 58;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 56;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 58;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -730,7 +730,16 @@ enum ToClientCommand : u16
 		(terra::Blocks), and the tree species (terra::Species).
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x67,
+	TOCLIENT_ALOFT = 0x67,
+	/*
+		Terra Firma: where the player is over the planet when that isn't
+		where they stand (in space, a bubble's cell is somewhere else on the
+		map), for the far view (src/far/aloft.h).
+		u8 1, then f32 x, z (map blocks, fractional), altitude (m above the
+		sea), and their rates per second; or u8 0: where they stand again.
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x68,
 };
 
 enum ToServerCommand : u16
@@ -948,7 +957,14 @@ enum ToServerCommand : u16
 		u8[len] payload, JSON
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x55,
+	TOSERVER_TICKET = 0x55,
+	/*
+		Terra Firma: the answer to AUTH_MECHANISM_TICKET
+		std::string ticket   the joiner's ArcLabs ticket, or the host's own secret
+		std::string build    the client's build (g_version_hash): must be the host's
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x56,
 };
 
 enum AuthMechanism
@@ -964,6 +980,10 @@ enum AuthMechanism
 
 	// Establishes a srp verification key, for first login and password changing
 	AUTH_MECHANISM_FIRST_SRP = 1 << 2,
+
+	// Terra Firma: a world hosted for friends admits by ArcLabs ticket only
+	// (src/online/gate.h); the ticket is the client's password field
+	AUTH_MECHANISM_TICKET = 1 << 3,
 };
 
 enum AccessDeniedCode : u8 {

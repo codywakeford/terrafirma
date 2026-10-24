@@ -16,6 +16,7 @@ struct MainMenuData;
 
 #if USE_SHELL
 #include "shell/shell.h"
+#include "shell/menu.h"
 #include "shell/wiki.h"
 #include <memory>
 #endif
@@ -31,6 +32,9 @@ public:
 
 private:
 	void init_args(GameStartData &start_data, const Settings &cmd_args);
+#if USE_SHELL
+	bool online(GameStartData &start_data, shell::Choice &choice, std::string &error_message);
+#endif
 	void init_engine();
 	void init_input();
 

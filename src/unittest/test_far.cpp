@@ -22,6 +22,7 @@ public:
 	void testTileMatchesColumns();
 	void testCoarseCellsSampleCentres();
 	void testPolarWall();
+	void testWholeMap();
 };
 
 static TestFar g_test_instance;
@@ -32,6 +33,7 @@ void TestFar::runTests(IGameDef *gamedef)
 	TEST(testTileMatchesColumns);
 	TEST(testCoarseCellsSampleCentres);
 	TEST(testPolarWall);
+	TEST(testWholeMap);
 }
 
 // A horizon with made-up block ids: the far view only compares them.
@@ -115,7 +117,22 @@ void TestFar::testPolarWall()
 {
 	Horizon h = horizon();
 	Generator gen(h);
-	Cell c = gen.column(0, gen.world().code().size); // well beyond the north–south extent
+	Cell c = gen.column(0, gen.world().code().size / 2 + 10); // just past the pole
 	UASSERTEQ(s32, c.ground, 1 + POLAR_WALL);
 	UASSERT(c.top.getContent() == h.blocks.ice);
+	UASSERT(!c.space);
+	// past the wall, space: nothing to draw
+	UASSERT(gen.column(0, gen.world().spaceFrom()).space);
+}
+
+// From high up the far view reaches the whole map, past both poles and
+// into space: every tile builds.
+void TestFar::testWholeMap()
+{
+	Horizon h = horizon();
+	Generator gen(h);
+	const s32 level = 6, span = TILE << level, size = gen.world().code().size;
+	for (s32 z = -size / span - 1; z <= size / span + 1; z++)
+		for (s32 x = -size / span / 2; x < size / span / 2; x += 3)
+			gen.build({ level, x, z });
 }

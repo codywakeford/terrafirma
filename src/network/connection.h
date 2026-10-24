@@ -6,6 +6,7 @@
 #include "irrlichttypes.h"
 #include "networkprotocol.h" // session_t
 #include "socket.h" // Address, UDPSocket
+#include <functional>
 
 class NetworkPacket;
 class PeerHandler;
@@ -64,6 +65,12 @@ public:
 	virtual Address GetPeerAddress(session_t peer_id) = 0;
 	virtual float getPeerStat(session_t peer_id, rtt_stat_type type) = 0;
 	virtual float getLocalStat(rate_stat_type type) = 0;
+
+	// Terra Firma: datagrams on this socket that aren't the game's (a STUN
+	// server's answers, src/online/host.h) go here instead of being dropped.
+	// Called on the receive thread.
+	using StrayHandler = std::function<void(const Address &sender, const u8 *data, size_t size)>;
+	virtual void setStrayHandler(StrayHandler handler) = 0;
 };
 
 // MTP = Minetest Protocol

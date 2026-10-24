@@ -54,6 +54,9 @@
 #include "config.h"
 #if USE_SHELL
 #include "shell/shell.h"
+#include "shell/social.h"
+#include "online/gate.h"
+#include "online/players.h"
 #endif
 
 #if USE_SOUND
@@ -623,6 +626,11 @@ void Game::shutdown()
 {
 #if USE_SHELL
 	m_shell_session.reset();
+	if (m_online_host) {
+		if (server)
+			server->setStrayHandler(nullptr); // its receive thread calls into the host
+		m_online_host.reset(); // before the server closes its socket
+	}
 #endif
 	// Delete text and menus first
 	m_game_ui->clearText();
@@ -772,7 +780,12 @@ bool Game::createServer(GameStartData &start_data)
 
 	Address bind_addr(0, 0, 0, 0, start_data.socket_port);
 
-	if (g_settings->getBool("ipv6_server"))
+	bool ipv6 = g_settings->getBool("ipv6_server");
+#if USE_SHELL
+	// Terra Firma: hosting for friends is IPv4 (STUN, punching: src/online)
+	ipv6 = ipv6 && start_data.online.kind != online::Launch::Kind::Host;
+#endif
+	if (ipv6)
 		bind_addr.setAddress(static_cast<IPv6AddressBytes*>(nullptr));
 	try {
 		bind_addr.Resolve(bind_str.c_str());
@@ -791,9 +804,29 @@ bool Game::createServer(GameStartData &start_data)
 	// in singleplayer mode the OS assigns us the port in bind
 	start_data.socket_port = server_socket.GetLocalAddress().getPort();
 
+#if USE_SHELL
+	// Terra Firma: hosted for friends; a world played alone carries over.
+	if (start_data.online.kind == online::Launch::Kind::Host) {
+		online::adoptSingleplayer(start_data.world_spec.path, start_data.name);
+		// Returns at once: where the world can be reached is learned alongside.
+		m_online_host = std::make_unique<online::Host>(start_data.online.api,
+				server_socket.GetHandle(), start_data.socket_port);
+	}
+#endif
+
 	server = new Server(start_data.world_spec.path, start_data.game_spec,
 		simple_singleplayer_mode, std::move(server_socket),
 		false, nullptr, &(errordata->message));
+#if USE_SHELL
+	if (m_online_host) {
+		server->setGate(std::make_unique<online::Gate>(online::Gate::Opts{
+			start_data.online.api, start_data.name, start_data.password, g_version_hash }));
+		online::Host *host = m_online_host.get();
+		server->setStrayHandler([host](const Address &sender, const u8 *data, size_t size) {
+			host->stray(sender, data, size);
+		});
+	}
+#endif
 
 	auto start_thread = runInThread([=] {
 		server->start();
@@ -1054,7 +1087,19 @@ bool Game::connectToServer(const GameStartData &start_data,
 		Wait for server to accept connection
 	*/
 
+#if USE_SHELL
+	m_online_kind = start_data.online.kind;
+	m_online_host_name = start_data.online.host_name;
+	if (start_data.online.kind == online::Launch::Kind::Join) {
+		// From the socket STUN mapped: the host is punching toward it.
+		client->connect(connect_address, address_name, std::move(*start_data.online.socket));
+		fallback_address = Address();
+	} else {
+		client->connect(connect_address, address_name);
+	}
+#else
 	client->connect(connect_address, address_name);
+#endif
 
 	try {
 		input->clear();
@@ -1106,6 +1151,11 @@ bool Game::connectToServer(const GameStartData &start_data,
 				did_fallback = true;
 			} else if (wait_time > GAME_CONNECTION_TIMEOUT) {
 				*error_message = gettext("Connection timed out.");
+#if USE_SHELL
+				if (m_online_kind == online::Launch::Kind::Join)
+					*error_message = "Couldn't reach " + m_online_host_name + "'s world. One of your "
+						"networks may not allow direct connections between games.";
+#endif
 				errorstream << *error_message << std::endl;
 				break;
 			}
@@ -2134,7 +2184,12 @@ void Game::updatePlayerControl(const CameraOrientation &cam)
 void Game::updatePauseState()
 {
 	bool was_paused = this->m_is_paused;
-	this->m_is_paused = this->simple_singleplayer_mode && g_menumgr.pausesGame();
+	bool alone = this->simple_singleplayer_mode;
+#if USE_SHELL
+	// Terra Firma: a world hosted for friends pauses only while no friend is in it
+	alone = alone || (m_online_host && server && server->clientCount() <= 1);
+#endif
+	this->m_is_paused = alone && g_menumgr.pausesGame();
 
 	if (!was_paused && this->m_is_paused) {
 		this->pauseAnimation();
@@ -3470,7 +3525,7 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 
 	// Terra Firma: the far view, once the server says this is a terra world.
 	// Created after the sky, so it draws right after it. The fog moves out to
-	// its horizon.
+	// what it reaches (from high up, the planet's horizon).
 	if (!far_view && client->getHorizon())
 		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(),
 				*client->getHorizon());
@@ -3479,9 +3534,9 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 		if (sky->getFogDistance() >= 0)
 			fog_limit = sky->getFogDistance();
 		far_view->update(*camera, client->getEnv().getClientMap(), draw_control->wanted_range,
-				draw_control->range_all, fog_limit);
+				draw_control->range_all, fog_limit, client->getAloft());
 		if (far_view->showing())
-			runData.fog_range = far_view->range() * BS;
+			runData.fog_range = far_view->reach();
 	}
 
 	/*
@@ -3755,6 +3810,11 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 
 #if USE_SHELL
 	m_shell_session->update({ this->m_game_ui->m_flags.show_hud, draw_crosshair });
+	if (m_online_host) {
+		m_online_host->step();
+		if (std::optional<online::Endpoint> endpoint = m_online_host->changed())
+			g_shell->social().hosting(online::toJson(*endpoint));
+	}
 #endif
 
 	this->m_rendering_engine->draw_scene(sky_color, this->m_game_ui->m_flags.show_hud,

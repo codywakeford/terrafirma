@@ -16,6 +16,7 @@ static const char *const VERBS[] = {
 
 Session::Session(const Opts &opts) :
 	m_shell(opts.shell),
+	m_page(opts.shell.pageLoads()),
 	m_items({ opts.client, opts.driver, opts.shell.itemDir(), std::to_string(porting::getTimeMs()) }),
 	m_state({ opts.shell, opts.client, m_items }),
 	m_ui({ opts.shell, opts.client }),
@@ -62,6 +63,18 @@ Session::Session(const Opts &opts) :
 		g_gamecallback->exitToOS();
 		return Json::Value();
 	});
+}
+
+void Session::update(const HudView &view)
+{
+	if (m_shell.pageLoads() != m_page) { // a reloaded page: tell it everything again
+		m_page = m_shell.pageLoads();
+		m_state.forget();
+		m_ui.replay();
+	}
+	m_state.update(view);
+	m_ui.update();
+	m_director.update();
 }
 
 Session::~Session()

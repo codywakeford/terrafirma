@@ -1,0 +1,111 @@
+# Terra Firma releases. A pushed tag v* builds every platform we ship and
+# attaches each to that tag's GitHub Release (`arc deploy release` pushes the
+# tag: repo.config.ts). Run it by hand to get the builds as artifacts without
+# releasing.
+#
+# Built on the oldest system we support (Ubuntu 22.04, glibc 2.35), so the
+# result runs on that and anything newer. scripts/release/package-linux.sh
+# bundles the libraries a desktop may lack.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp a test build with'
+        default: 'dev'
+
+permissions:
+  contents: write # attach builds to the release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake g++-12 gettext zstd \
+            libpng-dev libjpeg-dev libgl1-mesa-dev libsdl2-dev libfreetype-dev \
+            libsqlite3-dev libcurl4-openssl-dev libzstd-dev libssl-dev libgmp-dev \
+            libogg-dev libvorbis-dev libopenal-dev libzip-dev \
+            libluajit-5.1-dev libjsoncpp-dev libminiupnpc-dev
+
+      # Chromium (CEF) is a large download: keep it between runs.
+      - name: Cache CEF
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: cef-linux64-${{ hashFiles('cmake/Modules/CEF.cmake') }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Build the UI
+        working-directory: ui
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 \
+            -DRUN_IN_PLACE=TRUE \
+            -DENABLE_POSTGRESQL=OFF -DENABLE_LEVELDB=OFF \
+            -DENABLE_UPDATE_CHECKER=OFF \
+            -DTERRAFIRMA_VERSION="$VERSION"
+
+      - name: Build the engine
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Unit tests
+        run: |
+          ./bin/luanti --test-module TestOnline
+          ./bin/luanti --test-module TestTerragen
+
+      - name: Package
+        run: scripts/release/package-linux.sh "$VERSION" dist
+
+      # The package on its own: its libraries resolve, and a world boots.
+      - name: Smoke test the package
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
+            libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libxkbcommon0
+          pkg="dist/terrafirma-$VERSION-linux-x86_64"
+          if LD_LIBRARY_PATH="$pkg/lib" ldd "$pkg/bin/luanti" | grep "not found"; then exit 1; fi
+          "$pkg/terrafirma" --version | tee /dev/stderr | grep -F "$VERSION"
+          set +e
+          timeout 20 "$pkg/terrafirma" --server --gameid terrafirma --world "$RUNNER_TEMP/world" --port 30500 2>&1 | tee boot.log
+          set -e
+          grep -q 'listening on' boot.log
+          ! grep -q 'ERROR\[' boot.log
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst
+          generate_release_notes: true
+
+      - name: Keep as an artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terrafirma-${{ env.VERSION }}-linux-x86_64
+          path: dist/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst

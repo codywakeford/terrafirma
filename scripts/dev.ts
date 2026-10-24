@@ -1,9 +1,15 @@
 // The dev loop: rebuild the engine, serve the UI with hot reload, and run the
 // game against the dev server. Extra arguments go to luanti (e.g. --go).
+// A second game alongside the first, as another player:
+//     bun dev --profile two
+// It shares the first one's UI server, and signs in on its own.
 
 const root = `${import.meta.dir}/..`
 const ui = `${root}/ui`
 const devUrl = "http://localhost:5173"
+// Accounts and friends come from the local ArcLabs stack (`arc status` in
+// ../arclabs lists it); ARCLABS_URL points elsewhere, e.g. production.
+const arclabsUrl = process.env.ARCLABS_URL ?? "http://localhost:3099"
 
 async function run(cmd: string[], cwd: string) {
     const code = await Bun.spawn(cmd, { cwd: cwd, stdio: ["inherit", "inherit", "inherit"] }).exited
@@ -25,7 +31,7 @@ async function launchGame(args: string[]) {
     const binary = `${root}/bin/luanti`
     while (true) {
         try {
-            return Bun.spawn(["./bin/luanti", "--shell-url", devUrl, ...args], {
+            return Bun.spawn(["./bin/luanti", "--shell-url", devUrl, "--arclabs-url", arclabsUrl, ...args], {
                 cwd: root,
                 stdio: ["inherit", "inherit", "inherit"],
             })
@@ -50,11 +56,15 @@ async function launchGame(args: string[]) {
 await run(["cmake", "--build", "build", "-j"], root)
 if (!(await Bun.file(`${ui}/node_modules/.bin/vite`).exists())) await run(["bun", "install"], ui)
 
-const vite = Bun.spawn(["bun", "run", "dev"], { cwd: ui, stdio: ["ignore", "inherit", "inherit"] })
+// Another game's dev loop may already serve the UI: share it rather than fail
+// on the port. (It goes away when that game closes.)
+const serving = await fetch(devUrl).then(() => true, () => false)
+const vite = serving ? null : Bun.spawn(["bun", "run", "dev"], { cwd: ui, stdio: ["ignore", "inherit", "inherit"] })
+if (serving) console.log(`dev: sharing the UI server already at ${devUrl}`)
 let game: ReturnType<typeof Bun.spawn> | null = null
 const stop = () => {
     game?.kill("SIGINT") // lets the engine shut Chromium down cleanly
-    vite.kill()
+    vite?.kill()
 }
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)

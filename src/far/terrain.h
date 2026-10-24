@@ -32,13 +32,6 @@ struct Horizon
 	std::vector<terra::Species> species;
 };
 
-// The radius the horizon curves with, in blocks. The world is flat; its
-// roundness is drawn. Not the wrap's literal radius (size / 2π puts the
-// horizon ~90 blocks away): chosen so the horizon falls inside the far
-// view from any height worth standing at, so the land ends at the curve
-// and not at the edge of what's drawn. A small world is a small planet.
-constexpr float RADIUS_PER_SIZE = 8.0f;
-float radius(const terragen::WorldCode &code);
 
 // The polar edge is ice to the build limit; the far view draws it this high
 // above the sea.
@@ -55,6 +48,7 @@ struct Run
 // What a column (or cell of columns) shows from afar.
 struct Cell
 {
+	bool space;      // past the polar wall, where the map is space: nothing to draw
 	s32 ground;      // the top solid block
 	MapNode top;     // that block
 	// a cliff shows `top` down to top_end, `filler` down to filler_end, then `rock`

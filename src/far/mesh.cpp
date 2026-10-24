@@ -247,6 +247,8 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 		Row surface(b, z0, z1), floors(b, z0, z1);
 		for (s32 i = 0; i < TILE; i++) {
 			const Cell &c = tile.at(i, j);
+			if (c.space)
+				continue;
 			float x0 = (float)(i * cell) - 0.5f, x1 = x0 + (float)cell;
 			bool wet = c.water > c.ground;
 

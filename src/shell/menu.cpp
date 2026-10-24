@@ -16,6 +16,7 @@
 #include "exceptions.h"
 #include "client/renderingengine.h"
 #include "porting.h"
+#include "social.h"
 #include <ICursorControl.h>
 #include <IVideoDriver.h>
 #include <IrrlichtDevice.h>
@@ -25,6 +26,7 @@ namespace shell {
 
 static const char *const VERBS[] = {
 	"worlds.list", "worlds.create", "worlds.delete", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
+	"social.join",
 };
 
 static Json::Value worldJson(const WorldSpec &world)
@@ -160,16 +162,20 @@ Menu::Menu(const Opts &opts) :
 		return Json::Value();
 	});
 	m_shell.on("play", [this](const Json::Value &intent) {
-		m_choice = m_worlds.find(stringField(intent, "path"));
-		m_worlds.select(*m_choice);
+		WorldSpec world = m_worlds.find(stringField(intent, "path"));
+		m_worlds.select(world);
+		m_shell.social().enter(world.name, true);
+		m_choice = Choice{ world, false, std::nullopt };
 		return Json::Value();
 	});
 	m_shell.on("lab.list", [this](const Json::Value &) {
 		return m_lab.list();
 	});
 	m_shell.on("lab.enter", [this](const Json::Value &intent) {
-		m_choice = m_worlds.lab(m_lab.find(stringField(intent, "id")));
-		m_worlds.select(*m_choice);
+		WorldSpec world = m_worlds.lab(m_lab.find(stringField(intent, "id")));
+		m_worlds.select(world);
+		m_shell.social().enter("the Lab", false); // its worlds are one player's
+		m_choice = Choice{ world, true, std::nullopt };
 		return Json::Value();
 	});
 	// ~150 ms when the land changes (the water simulation): off the main
@@ -193,6 +199,14 @@ Menu::Menu(const Opts &opts) :
 		m_quit = true;
 		return Json::Value();
 	});
+	// A few seconds of STUN and ArcLabs: off the main thread. The menu
+	// leaves for the friend's world on its next frame.
+	m_shell.onAsync("social.join", [this](const Json::Value &intent) {
+		online::JoinPlan plan = m_shell.social().join(stringField(intent, "id"), stringField(intent, "name"));
+		std::lock_guard<std::mutex> lock(m_join_lock);
+		m_join = std::move(plan);
+		return Json::Value();
+	});
 
 }
 
@@ -202,7 +216,7 @@ Menu::~Menu()
 		m_shell.off(verb);
 }
 
-std::optional<WorldSpec> Menu::run(const std::string &error)
+std::optional<Choice> Menu::run(const std::string &error)
 {
 	if (!error.empty()) {
 		Json::Value message;
@@ -223,6 +237,15 @@ std::optional<WorldSpec> Menu::run(const std::string &error)
 	const u64 frame_ms = 1000 / 60;
 
 	while (m_engine->run() && !*kill && !m_choice && !m_quit) {
+		{
+			std::lock_guard<std::mutex> lock(m_join_lock);
+			if (m_join) {
+				m_shell.social().enter(m_join->world, false); // in a friend's world
+				m_choice = Choice{ std::nullopt, false, std::move(m_join) };
+				m_join.reset();
+				break;
+			}
+		}
 		u64 start = porting::getTimeMs();
 		driver->beginScene(true, true, video::SColor(255, 12, 14, 12));
 		orbit.draw((porting::getTimeMs() - scene_start) / 1000.0f);

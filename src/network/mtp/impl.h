@@ -242,6 +242,9 @@ public:
 	Address GetPeerAddress(session_t peer_id);
 	float getPeerStat(session_t peer_id, rtt_stat_type type);
 	float getLocalStat(rate_stat_type type);
+	void setStrayHandler(StrayHandler handler);
+	// Terra Firma: the receive thread hands a stray datagram on; false if nobody takes them
+	bool stray(const Address &sender, const u8 *data, size_t size);
 	u32 GetProtocolID() const { return m_protocol_id; };
 	const std::string getDesc();
 	void DisconnectPeer(session_t peer_id);
@@ -289,6 +292,8 @@ private:
 
 	std::map<session_t, Peer *> m_peers;
 	std::vector<session_t> m_peer_ids;
+	std::mutex m_stray_mutex;
+	StrayHandler m_stray;
 	std::mutex m_peers_mutex;
 
 	std::unique_ptr<ConnectionSendThread> m_sendThread;

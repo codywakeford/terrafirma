@@ -29,6 +29,13 @@ void State::update(const HudView &view)
 	send("inventory", inv);
 }
 
+void State::forget()
+{
+	m_sent.clear();
+	m_sent_items.clear();
+	m_new_items = Json::objectValue;
+}
+
 Json::Value State::player(LocalPlayer &player) const
 {
 	const ObjectProperties &props = player.getCAO()->getProperties();

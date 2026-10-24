@@ -162,8 +162,7 @@ fluid::Sample Weather::sample(int32_t x, int32_t y, int32_t z, double now) const
 	fix fv = m_world.v(z);
 	int32_t surface = m_world.ground(x, z, m_world.sunlight(fv, (fix)(date * ONE))).terrain + 1;
 	double climate = toDouble(m_world.temperature(x, z, (fix)(date * ONE), (fix)(hour * ONE))) + 273.15;
-	double t = climate + m_layer->departure(u, v, date)
-			- m_layer->lapse() * std::max(0, y - surface) * BLOCK_METRES;
+	double t = m_layer->aloft(climate + m_layer->departure(u, v, date), std::max(0, y - surface) * BLOCK_METRES);
 	// the same vapour at the new temperature
 	s.humidity = std::min(1.0, s.humidity * m_layer->saturation(s.temperature, s.pressure) / m_layer->saturation(t, s.pressure));
 	s.temperature = t;

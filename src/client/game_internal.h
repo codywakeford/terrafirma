@@ -26,6 +26,7 @@
 #include "config.h"
 #if USE_SHELL
 #include "shell/session.h"
+#include "online/host.h"
 #endif
 
 /* DO NOT INCLUDE THIS FROM OUTSIDE GAME.CPP */
@@ -333,6 +334,12 @@ private:
 	std::unique_ptr<GameUI> m_game_ui;
 #if USE_SHELL
 	std::unique_ptr<shell::Session> m_shell_session;
+	// Terra Firma: this world hosted for friends (src/online/host.h); null otherwise.
+	// Holds the server's socket handle, so it goes before the server does.
+	std::unique_ptr<online::Host> m_online_host;
+	// Terra Firma: joining a friend's world: how to say a failed connection
+	online::Launch::Kind m_online_kind = online::Launch::Kind::Offline;
+	std::string m_online_host_name;
 #endif
 	irr_ptr<GUIChatConsole> gui_chat_console;
 	MapDrawControl *draw_control = nullptr;

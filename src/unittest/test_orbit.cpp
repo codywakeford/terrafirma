@@ -22,6 +22,7 @@ public:
 	void testTerminalSpeed();
 	void testCannonball();
 	void testWhereRoundTrip();
+	void testFrameIsTheGround();
 };
 
 static TestOrbit g_test_instance;
@@ -34,6 +35,7 @@ void TestOrbit::runTests(IGameDef *gamedef)
 	TEST(testTerminalSpeed);
 	TEST(testCannonball);
 	TEST(testWhereRoundTrip);
+	TEST(testFrameIsTheGround);
 }
 
 static const Craft PERSON{ 100, 0.7 };
@@ -124,4 +126,21 @@ void TestOrbit::testWhereRoundTrip()
 	UASSERT(std::fabs(b.latitude - w.latitude) < 1e-9 && std::fabs(b.longitude - w.longitude) < 1e-9);
 	UASSERT(std::fabs(b.altitude - w.altitude) < 1e-6);
 	UASSERT((b.velocity - w.velocity).length() < 1e-9);
+}
+
+// The frame over a place reads a velocity as `where` does (east, up, north),
+// and a step along its north is a step north on the planet.
+void TestOrbit::testFrameIsTheGround()
+{
+	Flight f(terragen::home());
+	Where w{ 0.6, -2.1, 30000, { 10, -3, 7 } };
+	State s = f.at(w);
+	Frame fr = f.frame(s);
+	UASSERT((fr.in(s.vel) - w.velocity).length() < 1e-9);
+	UASSERT((fr.in(fr.out({ 1, 2, 3 })) - Vec{ 1, 2, 3 }).length() < 1e-12);
+	Where north = f.where({ s.pos + fr.north * 1000, s.vel });
+	UASSERT(north.latitude > w.latitude && std::fabs(north.longitude - w.longitude) < 1e-9);
+	bool threw = false;
+	try { f.frame({ { 0, f.planet().radius, 0 }, {} }); } catch (const std::invalid_argument &) { threw = true; }
+	UASSERT(threw);
 }

@@ -403,6 +403,11 @@ Client::~Client()
 
 void Client::connect(const Address &address, const std::string &address_name)
 {
+	connect(address, address_name, UDPSocket::CreateEphemeral(address.isIPv6()));
+}
+
+void Client::connect(const Address &address, const std::string &address_name, UDPSocket &&socket)
+{
 	if (m_con) {
 		// can't do this if the connection has entered auth phase
 		sanity_check(m_state == LC_Created && m_proto_ver == 0);
@@ -414,8 +419,7 @@ void Client::connect(const Address &address, const std::string &address_name)
 	}
 
 	m_address_name = address_name;
-	m_con.reset(con::createMTP(/*is_server=*/false,
-			UDPSocket::CreateEphemeral(address.isIPv6()), this));
+	m_con.reset(con::createMTP(/*is_server=*/false, std::move(socket), this));
 
 	infostream << "Connecting to server at ";
 	address.print(infostream);
@@ -1198,6 +1202,7 @@ void Client::deleteAuthData()
 			m_auth_data = NULL;
 			break;
 		case AUTH_MECHANISM_NONE:
+		case AUTH_MECHANISM_TICKET: // Terra Firma: nothing kept
 			break;
 	}
 	m_chosen_auth_mech = AUTH_MECHANISM_NONE;
@@ -1206,6 +1211,9 @@ void Client::deleteAuthData()
 
 AuthMechanism Client::choseAuthMech(const u32 mechs)
 {
+	if (mechs & AUTH_MECHANISM_TICKET) // Terra Firma: a world hosted for friends
+		return AUTH_MECHANISM_TICKET;
+
 	if (mechs & AUTH_MECHANISM_SRP)
 		return AUTH_MECHANISM_SRP;
 
@@ -1236,6 +1244,12 @@ void Client::startAuth(AuthMechanism chosen_auth_mechanism)
 	std::string playername = m_env.getLocalPlayer()->getName();
 
 	switch (chosen_auth_mechanism) {
+		case AUTH_MECHANISM_TICKET: { // Terra Firma: the ticket is the password field
+			NetworkPacket resp_pkt(TOSERVER_TICKET, 0);
+			resp_pkt << m_password << std::string(g_version_hash);
+			Send(&resp_pkt);
+			break;
+		}
 		case AUTH_MECHANISM_FIRST_SRP: {
 			// send srp verifier to server
 			std::string verifier;

@@ -16,6 +16,7 @@
 #include "util/numeric.h"
 #include "util/string.h" // StringMap
 #include "far/terrain.h" // Terra Firma: far::Horizon
+#include "far/aloft.h" // Terra Firma: far::Aloft
 
 #include <map>
 #include <memory>
@@ -140,6 +141,9 @@ public:
 	bool isShutdown();
 
 	void connect(const Address &address, const std::string &address_name);
+	// Terra Firma: connect from this socket — the one STUN mapped, whose
+	// public address the host is punching toward (src/online/join.h).
+	void connect(const Address &address, const std::string &address_name, UDPSocket &&socket);
 
 	/*
 		Stuff that references the environment is valid only as
@@ -193,6 +197,7 @@ public:
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Horizon(NetworkPacket *pkt);
+	void handleCommand_Aloft(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -247,6 +252,9 @@ public:
 	void sendUiEvent(const std::string &name, const std::string &payload_json);
 	// Terra Firma: set once the server says this is a terra world (the far view's input).
 	const std::optional<far::Horizon> &getHorizon() const { return m_horizon; }
+	// Where the server says the player is over the planet, carried forward
+	// to now; none while that's where they stand.
+	std::optional<far::Aloft> getAloft() const;
 
 	ClientEnvironment& getEnv() { return m_env; }
 	ITextureSource *tsrc() { return getTextureSource(); }
@@ -473,6 +481,8 @@ public:
 private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
+	std::optional<far::Aloft> m_aloft;
+	u64 m_aloft_at = 0; // ms, when it came
 
 	struct PendingMediaDownload {
 		// Tokens to ack to the server. multiple because server can send duplicate

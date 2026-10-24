@@ -8,6 +8,7 @@ import { useStore } from "./game/store"
 import { useLab } from "./lab/flow"
 import LabView from "./lab/LabView.vue"
 import MainMenu from "./menu/MainMenu.vue"
+import InviteToast from "./social/InviteToast.vue"
 
 // the wiki brings three.js: loaded when first opened
 const WikiScreen = defineAsyncComponent(() => import("./wiki/WikiScreen.vue"))
@@ -27,6 +28,7 @@ const lab = useLab()
         <InventoryScreen v-else-if="store.screen === 'inventory'" />
         <WikiScreen v-else-if="store.screen === 'wiki'" place="game" @close="bridge.send('screen.close', {})" />
     </template>
+    <InviteToast v-if="bridge.connected" />
 </template>
 
 <style scoped>

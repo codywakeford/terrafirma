@@ -5,7 +5,7 @@
 import { inject, provide, reactive, shallowRef, type InjectionKey, type ShallowRef } from "vue"
 import type { MatterElement, MatterReaction, MatterRock, MatterSubstance } from "../bridge"
 
-export type Section = "matter" | "reactions" | "reactor" | "lab"
+export type Section = "matter" | "reactions" | "reactor" | "lab" | "flight"
 
 export type Table = {
     elements: MatterElement[]
@@ -23,7 +23,7 @@ export type Table = {
 export function WikiNav(opts: { place: "menu" | "game"; seen: () => Set<string> | null }) {
     const state = reactive({
         section: "matter" as Section,
-        chosen: { matter: "water", reactions: null, reactor: null, lab: null } as Record<Section, string | null>,
+        chosen: { matter: "water", reactions: null, reactor: null, lab: null, flight: null } as Record<Section, string | null>,
     })
     const table: ShallowRef<Table | null> = shallowRef(null)
     return {

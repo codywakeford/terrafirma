@@ -10,6 +10,7 @@
 local SPRINT = 1.6 -- × walking speed
 local CREATIVE = { fly = true, fast = true, noclip = true }
 local creative = core.settings:get_bool("creative_mode", false)
+local damage = core.settings:get_bool("enable_damage", true)
 
 -- Match the player inventory's nine-column layout. Existing worlds may have
 -- items in the old 3×3 craft list, so move them before resizing it.
@@ -30,6 +31,10 @@ core.register_on_joinplayer(function(player)
 	inv:set_size("main", math.max(inv:get_size("main"), 36))
 	inv:set_width("main", 9)
 	player:hud_set_hotbar_itemcount(9)
+	-- with no damage (creative worlds) health and breath can't change: no bars
+	if not damage then
+		player:hud_set_flags({ healthbar = false, breathbar = false })
+	end
 	if creative then
 		player:set_ui("creative", true)
 	end

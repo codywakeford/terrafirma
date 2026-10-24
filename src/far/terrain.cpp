@@ -28,10 +28,6 @@ static s32 chunkMin(s32 v)
 	return (s32)std::floor((double)(v - CHUNK_ORIGIN) / CHUNK) * CHUNK + CHUNK_ORIGIN;
 }
 
-float radius(const WorldCode &code)
-{
-	return RADIUS_PER_SIZE * (float)code.size;
-}
 
 Generator::Generator(const Horizon &horizon) :
 	m_horizon(horizon),
@@ -78,6 +74,11 @@ static Cell cellOf(const terra::Columns &columns, const terra::Column &c, s32 x,
 {
 	const terra::Blocks &b = columns.blocks();
 	Cell cell{};
+	if (c.space) {
+		cell.space = true;
+		cell.ground = cell.water = columns.waterLevel(); // the wall's face toward it runs down to the sea
+		return cell;
+	}
 	if (c.beyond) {
 		cell.ground = columns.waterLevel() + POLAR_WALL;
 		cell.top = cell.filler = cell.rock = MapNode(b.ice);

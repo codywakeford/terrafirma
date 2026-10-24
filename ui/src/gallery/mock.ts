@@ -2,7 +2,9 @@
 // intent, and emit() to push engine messages through the real store.
 
 import { inject, type InjectionKey } from "vue"
-import type { SandboxFrame, BodyCard, BodyKind, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
+import { BridgeError } from "../bridge"
+import { FailureCode } from "../bridge/types"
+import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
 import { decodeWorldCode } from "../worldgen/config"
 import { mockPreview, mockWeather } from "./mockWorld"
 
@@ -34,6 +36,29 @@ export function MockBridge() {
         fullscreen: false, vsync: false, enable_dynamic_shadows: true,
         far_view: true, far_view_detail: 2, far_view_max: 16000,
     }
+
+    // The device flow, played out: the "browser" approves a few seconds after
+    // signing in starts.
+    let account: Account = { status: "signedOut" }
+    let approval: ReturnType<typeof setTimeout> | null = null
+    const setAccount = (next: Account) => {
+        account = next
+        emitAll({ kind: "account", account: account })
+        setSocial(next.status === "signedIn" ? social ?? cannedSocial() : null)
+    }
+
+    // Friends as the backend would answer them: a few in different places.
+    let social: Social | null = null
+    const setSocial = (next: Social | null) => {
+        social = next
+        emitAll({ kind: "social", social: social })
+    }
+    const view = () => {
+        if (!social?.view) throw new Error("mock: social action while signed out")
+        return social.view
+    }
+    const refuse = (kind: IntentKind, message: string) => new BridgeError(kind, FailureCode.Refused, message)
+    const STRANGERS: Player[] = [{ id: "00000000-0000-4000-8000-00000000000a", username: "wren", name: "Wren" }]
 
     // A tiny stand-in for the server's inventory rules: enough to click through.
     const lists: Record<string, { width: number; stacks: (Stack | null)[] }> = {
@@ -229,6 +254,59 @@ export function MockBridge() {
             return null
         },
         open: () => null,
+        "account.get": () => account,
+        "account.signIn": () => {
+            setAccount({ status: "pending", code: "TFM-4K2", url: "https://axon.arclabs.it/auth/device?code=TFM-4K2&client=terrafirma" })
+            approval = setTimeout(() => setAccount({ status: "signedIn", id: "u-1", username: "cody", name: "Cody" }), 4000)
+            return null
+        },
+        "account.cancel": () => {
+            if (approval) clearTimeout(approval)
+            setAccount({ status: "signedOut" })
+            return null
+        },
+        "account.signOut": () => { setAccount({ status: "signedOut" }); return null },
+        "account.retry": () => { setAccount({ status: "signedIn", id: "u-1", username: "cody", name: "Cody" }); return null },
+        "social.get": () => social,
+        "social.open": ({ open }) => {
+            if (!social?.joinable) throw refuse("social.open", "friends can only join your own world")
+            setSocial({ ...social, me: { ...social.me, open: open } })
+            return null
+        },
+        "social.request": ({ username }) => {
+            const v = view()
+            const known = [...v.friends, ...v.incoming, ...v.outgoing]
+            if (username === "cody") throw refuse("social.request", "that's you")
+            if (known.some((p) => p.username === username)) throw refuse("social.request", "already friends, or already asked")
+            const stranger = STRANGERS.find((p) => p.username === username)
+            if (!stranger) throw refuse("social.request", "no ArcLabs account has that username")
+            setSocial({ ...social!, view: { ...v, outgoing: [...v.outgoing, stranger] } })
+            return null
+        },
+        "social.accept": ({ id }) => {
+            const v = view()
+            const from = v.incoming.find((p) => p.id === id)
+            if (!from) throw refuse("social.accept", "no request from that player")
+            setSocial({ ...social!, view: { ...v, incoming: v.incoming.filter((p) => p.id !== id), friends: [...v.friends, { ...from, presence: { state: "menu", world: null, open: false } }] } })
+            return null
+        },
+        "social.remove": ({ id }) => {
+            const v = view()
+            const keep = <T extends { id: string }>(list: T[]) => list.filter((p) => p.id !== id)
+            setSocial({ ...social!, view: { friends: keep(v.friends), incoming: keep(v.incoming), outgoing: keep(v.outgoing), invites: v.invites.filter((i) => i.from.id !== id) } })
+            return null
+        },
+        "social.invite": () => {
+            if (social?.me.state === "menu") throw refuse("social.invite", "you're not in a world to invite them to")
+            return null
+        },
+        // the real engine leaves for their world; the gallery has none to go to
+        "social.join": ({ name }) => { throw refuse("social.join", `the gallery can't reach ${name}'s world: it has no engine`) },
+        "social.dismiss": ({ id }) => {
+            const v = view()
+            setSocial({ ...social!, view: { ...v, invites: v.invites.filter((i) => i.id !== id) } })
+            return null
+        },
         "system.preview": ({ bodies }) => bodies.map((b) => cannedCard(b.id, CANNED[b.id] ?? "airless")),
         "matter.list": () => ({ elements: ELEMENTS, substances: [WATER], reactions: [], rocks: [] }),
         // the mixture comes back as it went in: the gallery runs no chemistry
@@ -238,6 +316,7 @@ export function MockBridge() {
         "sandbox.step": ({ seconds }) => { sandboxTime += seconds; return cannedSandbox(sandboxTime) },
         "sandbox.set": () => cannedSandbox(sandboxTime),
         "sandbox.drop": () => null,
+        "orbit.coast": () => { throw new Error("orbit.coast is not wired in the gallery: it needs the engine") },
         "matter.state": () => ({ state: "liquid", boils_at: 373.15, melts_at: 273.15 }),
         "worldgen.preview": ({ code, date, resolution }) => mockPreview(decodeWorldCode(code), date, resolution),
         "weather.preview": ({ snapshots }) => mockWeather(snapshots),
@@ -294,7 +373,12 @@ export function MockBridge() {
         connected: true,
         send<K extends IntentKind>(kind: K, request: Intents[K]["request"]): Promise<Intents[K]["response"]> {
             console.info(`[mock] ${kind}`, request)
-            return Promise.resolve(handlers[kind](request))
+            // a handler's throw is the engine refusing: a rejected promise, as the real bridge gives
+            try {
+                return Promise.resolve(handlers[kind](request))
+            } catch (error) {
+                return Promise.reject(error)
+            }
         },
         on(listener: (message: EngineMessage) => void) {
             listeners.add(listener)
@@ -305,6 +389,26 @@ export function MockBridge() {
         stock(stacks: Record<number, Stack>) {
             for (const [i, s] of Object.entries(stacks)) lists.main!.stacks[Number(i)] = s
             publish()
+        },
+    }
+}
+
+/** A friends list in every state the panel draws. Also the gallery's specimen data. */
+export function cannedSocial(opts: { inWorld?: boolean } = {}): Social {
+    const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`
+    return {
+        me: opts.inWorld ? { state: "hosting", world: "Riverlands", open: false } : { state: "menu", world: null, open: false },
+        joinable: opts.inWorld ?? false,
+        view: {
+            friends: [
+                { id: id(1), username: "ash", name: "Ash", presence: { state: "hosting", world: "Saltwater", open: true } },
+                { id: id(2), username: "bram", name: null, presence: { state: "hosting", world: "Pine Ridge", open: false } },
+                { id: id(3), username: "juno", name: "Juno", presence: { state: "menu", world: null, open: false } },
+                { id: id(4), username: "oskar", name: null, presence: null },
+            ],
+            incoming: [{ id: id(5), username: "pip", name: "Pip" }],
+            outgoing: [{ id: id(6), username: "tamsin", name: null }],
+            invites: [{ id: "10000000-0000-4000-8000-000000000001", from: { id: id(1), username: "ash", name: "Ash" }, world: "Saltwater", expiresAt: "2026-10-24T12:00:00Z" }],
         },
     }
 }

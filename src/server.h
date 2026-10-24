@@ -29,8 +29,11 @@
 #include <string_view>
 #include <shared_mutex>
 #include <condition_variable>
+#include "far/aloft.h" // Terra Firma
+#include "network/connection.h" // Terra Firma: IConnection::StrayHandler
 
 class BanManager;
+namespace online { class Gate; }
 class ChatEvent;
 class EmergeManager;
 class Inventory;
@@ -66,6 +69,7 @@ struct RollbackAction;
 struct SkyboxParams;
 struct SoundSpec;
 struct StarParams;
+struct ServerTerra; // Terra Firma
 struct SunParams;
 
 namespace con {
@@ -243,6 +247,9 @@ public:
 	void handleCommand_HaveMedia(NetworkPacket *pkt);
 	void handleCommand_UpdateClientInfo(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
+	void handleCommand_Ticket(NetworkPacket *pkt); // Terra Firma
+	// Terra Firma: the gate's answer on a joiner's ticket
+	void admit(session_t peer_id, bool ok, const std::string &reason);
 
 	void ProcessData(NetworkPacket *pkt);
 
@@ -358,6 +365,15 @@ public:
 	inline bool isSingleplayer() const
 			{ return m_simple_singleplayer_mode; }
 
+	// Terra Firma: a world hosted for friends admits by ArcLabs ticket only
+	// (src/online/gate.h). Set before start().
+	void setGate(std::unique_ptr<online::Gate> gate);
+	// Terra Firma: clients connected or connecting, the host's own included.
+	size_t clientCount();
+	// Terra Firma: datagrams on the server's socket that aren't the game's
+	// (STUN answers for src/online/host.h); null to stop.
+	void setStrayHandler(con::IConnection::StrayHandler handler);
+
 	struct StepSettings {
 		float steplen;
 		bool pause;
@@ -403,8 +419,12 @@ public:
 
 	void setLighting(RemotePlayer *player, const Lighting &lighting);
 
+	// Terra Firma: what core.terra keeps for this server.
+	ServerTerra &terra() { return *m_terra; }
+
 	// Terra Firma: a value for the player's page (JSON; null clears).
 	void setUi(RemotePlayer *player, const std::string &key, const std::string &value_json);
+	void setAloft(RemotePlayer *player, const std::optional<far::Aloft> &aloft);
 
 	/* con::PeerHandler implementation. */
 	void peerAdded(con::IPeer *peer) override;
@@ -814,6 +834,8 @@ private:
 
 	// ModChannel manager
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
+	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
+	std::unique_ptr<online::Gate> m_gate; // Terra Firma: null unless hosted for friends
 
 	// Inventory manager
 	std::unique_ptr<ServerInventoryManager> m_inventory_mgr;

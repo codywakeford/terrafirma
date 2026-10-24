@@ -3,10 +3,13 @@ import { ref } from "vue"
 import { useBridge } from "../bridge/use"
 import { Button, Panel } from "../kit"
 import SettingsPanel from "../settings/SettingsPanel.vue"
+import SocialPanel from "../social/SocialPanel.vue"
+import { useStore } from "./store"
 
 /** Esc in-game. The engine has paused singleplayer while this is open; Esc again resumes. */
 const bridge = useBridge()
-const view = ref<"menu" | "settings">("menu")
+const store = useStore()
+const view = ref<"menu" | "settings" | "friends">("menu")
 </script>
 
 <template>
@@ -15,6 +18,7 @@ const view = ref<"menu" | "settings">("menu")
             <nav>
                 <Button variant="primary" size="lg" @click="bridge.send('screen.close', {})">Resume</Button>
                 <Button size="lg" @click="view = 'settings'">Settings</Button>
+                <Button v-if="store.social" size="lg" @click="view = 'friends'">Friends</Button>
                 <div class="pair">
                     <Button size="lg" @click="bridge.send('game.leave', {})">Main menu</Button>
                     <Button size="lg" variant="danger" @click="bridge.send('game.quit', {})">Quit game</Button>
@@ -23,7 +27,9 @@ const view = ref<"menu" | "settings">("menu")
             <template #footer><span class="hint">esc to resume</span></template>
         </Panel>
 
-        <Panel v-else title="Settings" class="settings">
+        <SocialPanel v-else-if="view === 'friends' && store.social" @close="view = 'menu'" />
+
+        <Panel v-else-if="view === 'settings'" title="Settings" class="settings">
             <template #actions><Button size="sm" @click="view = 'menu'">Back</Button></template>
             <SettingsPanel />
         </Panel>

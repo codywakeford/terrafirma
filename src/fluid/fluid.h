@@ -166,6 +166,9 @@ public:
 	// Whether the condensable falls as its solid at t and p.
 	bool frozen(double t, double p) const;
 	double lapse() const; // K/m: how the air cools with height
+	// Air at t, `rise` metres higher: cooler by the lapse up through the
+	// troposphere, holding its temperature above it.
+	double aloft(double t, double rise) const;
 
 	int32_t width() const { return m_opts.width; }
 	int32_t height() const { return m_opts.height; }

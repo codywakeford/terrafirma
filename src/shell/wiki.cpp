@@ -4,11 +4,13 @@
 #include "wiki.h"
 #include "bridge.h"
 #include "shell.h"
+#include <cmath>
 
 namespace shell {
 
 static const char *const VERBS[] = {
 	"matter.list", "matter.state", "matter.react", "sandbox.create", "sandbox.step", "sandbox.set", "sandbox.drop",
+	"orbit.coast",
 };
 
 static const size_t MOST_SANDBOXES = 8; // a page shows one or two; more is a leak
@@ -32,6 +34,7 @@ Wiki::Wiki(Shell &shell) : m_shell(shell)
 		std::lock_guard<std::mutex> lock(m_lock);
 		return set(intent);
 	});
+	m_shell.on("orbit.coast", [this](const Json::Value &intent) { return coast(intent); });
 	m_shell.on("sandbox.drop", [this](const Json::Value &intent) {
 		std::lock_guard<std::mutex> lock(m_lock);
 		m_sandboxes.erase(intent["id"].asInt());
@@ -170,6 +173,43 @@ Json::Value Wiki::view(const sandbox::Sandbox &s) const
 	out["activity"] = activity;
 	out["vapour"] = vapour;
 	out["haze"] = haze;
+	return out;
+}
+
+// Newton's cannonball: fired from the equator, east or west, at a speed and
+// an angle above the horizon, then left to gravity and the air (orbit::Flight,
+// the same flight the game's craft use). The path comes back in the plane it
+// flies in, against the stars, in planet radii (x along the launch's east, y up).
+Json::Value Wiki::coast(const Json::Value &intent)
+{
+	double altitude = number(intent, "altitude"), speed = number(intent, "speed"), angle = number(intent, "angle");
+	double mass = number(intent, "mass"), drag = number(intent, "drag_area"), seconds = number(intent, "seconds");
+	if (altitude < 0 || speed < 0 || mass <= 0 || drag < 0 || seconds <= 0 || seconds > 86400)
+		throw Refused("orbit.coast: altitude, speed, drag ≥ 0; mass > 0; 0 < seconds ≤ a day");
+	const orbit::Flight &f = m_flight;
+	double a = angle * M_PI / 180;
+	orbit::State s = f.at({ 0, 0, altitude, { speed * std::cos(a), speed * std::sin(a), 0 } });
+	orbit::Arc arc = f.coast(s, { mass, drag }, seconds, std::max(1.0, seconds / 2000));
+	const terragen::Planet &p = f.planet();
+	Json::Value out;
+	out["radius"] = p.radius;
+	out["scale_height"] = p.scale_height;
+	out["seconds"] = arc.seconds;
+	out["end"] = arc.end == orbit::Arc::End::Ground ? "ground" : arc.end == orbit::Arc::End::Around ? "around" : "time";
+	orbit::Elements e = f.elements(s);
+	out["bound"] = e.bound;
+	out["periapsis"] = e.periapsis;
+	if (e.bound)
+		out["apoapsis"] = e.apoapsis;
+	out["orbital_speed"] = e.orbital_speed;
+	Json::Value points(Json::arrayValue);
+	for (const orbit::Vec &v : arc.points) {
+		Json::Value pt(Json::arrayValue);
+		pt.append(v.x / p.radius);
+		pt.append(v.z / p.radius);
+		points.append(pt);
+	}
+	out["points"] = points;
 	return out;
 }
 

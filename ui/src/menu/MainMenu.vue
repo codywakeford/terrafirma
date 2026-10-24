@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref } from "vue"
+import Corner from "../account/Corner.vue"
+import PixelIcon from "../game/PixelIcon.vue"
+import { IconTile } from "../kit"
 import CreateWorld from "./create/CreateWorld.vue"
 import Home from "./Home.vue"
 import Settings from "./Settings.vue"
@@ -13,6 +16,12 @@ defineProps<{ error: string | null }>()
 defineEmits<{ dismiss: [] }>()
 
 const screen = ref<Screen>("home")
+
+// a 9×9 pictogram for the workshop row: an open book
+const WIKI_ICON = {
+    rows: [".........", "BBBB.BBBB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BBBBBBBBB", "....B...."],
+    palette: { B: "#c9d4dc", P: "#f0ead8", L: "#8a8478" },
+} as const
 </script>
 
 <template>
@@ -28,6 +37,21 @@ const screen = ref<Screen>("home")
             <CreateWorld v-else-if="screen === 'create'" @go="screen = $event" />
             <Settings v-else-if="screen === 'settings'" @go="screen = $event" />
             <WikiScreen v-else-if="screen === 'wiki'" place="menu" @close="screen = 'home'" />
+        </Transition>
+
+        <!-- the home screen's corners: outside the screen transition, whose
+             transform would carry anything pinned to the window along with it -->
+        <Transition name="corners">
+            <div v-if="screen === 'home'" class="corners">
+                <Corner />
+                <!-- the workshop: places to see the engine's building blocks and mechanics -->
+                <nav class="tools" aria-label="Workshop">
+                    <IconTile label="Wiki — what everything is made of, and how it behaves" side="left" @click="screen = 'wiki'">
+                        <PixelIcon :rows="WIKI_ICON.rows" :palette="WIKI_ICON.palette" style="--u: 3px" />
+                    </IconTile>
+                </nav>
+                <footer>v0.1 · built on luanti</footer>
+            </div>
         </Transition>
     </main>
 </template>
@@ -65,6 +89,20 @@ const screen = ref<Screen>("home")
     box-shadow: var(--raised), 6px 6px 0 rgb(0 0 0 / 0.35);
 }
 .error button { border: 0; background: none; padding: 0 4px; }
+
+.corners { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.corners > * { pointer-events: auto; }
+.tools { position: absolute; right: 20px; bottom: 40px; display: flex; gap: 10px; }
+footer {
+    position: absolute;
+    right: 20px;
+    bottom: 14px;
+    font: 11px var(--font-display);
+    color: var(--ink-faint);
+    text-transform: uppercase;
+}
+.corners-enter-active, .corners-leave-active { transition: opacity 140ms steps(4); }
+.corners-enter-from, .corners-leave-to { opacity: 0; }
 
 .screen-enter-active, .screen-leave-active { transition: opacity 140ms steps(4), transform 140ms steps(4); }
 .screen-enter-from { opacity: 0; transform: translateY(12px); }

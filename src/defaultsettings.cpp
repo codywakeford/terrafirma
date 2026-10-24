@@ -85,6 +85,9 @@ void set_default_settings()
 	settings->setDefault("shell_url", "terra://ui/index.html");
 	settings->setDefault("game_id", "terrafirma");
 	settings->setDefault("shell_gpu", "true");
+	// Terra Firma: the ArcLabs API accounts sign in to (src/shell/account.cpp);
+	// the approval page it sends players to is on axon.arclabs.it
+	settings->setDefault("arclabs_url", "https://axon-api-t53zrgvpga-ew.a.run.app");
 	// Terra Firma: the far view (planning/sprint-20-horizon.md)
 	settings->setDefault("far_view", "true");
 	settings->setDefault("far_view_detail", "2");

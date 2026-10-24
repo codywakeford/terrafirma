@@ -73,6 +73,16 @@ struct Directions
 	Vec prograde, radial, normal;
 };
 
+// The ground's own directions at a place, unit vectors in the turning frame:
+// what someone standing there (or a bubble of space riding over it) calls
+// east, up and north. The game's x, y and z there.
+struct Frame
+{
+	Vec east, up, north;
+	Vec out(const Vec &local) const { return east * local.x + up * local.y + north * local.z; }
+	Vec in(const Vec &v) const { return { v.dot(east), v.dot(up), v.dot(north) }; }
+};
+
 // A path flown without thrust (Flight::coast).
 struct Arc
 {
@@ -97,6 +107,8 @@ public:
 
 	Elements elements(const State &s) const;
 	Directions directions(const State &s) const;
+	// East, up and north over where a state is. Throws over a pole, where east isn't one direction.
+	Frame frame(const State &s) const;
 	// The orbit as it is now (no drag, no thrust): `points` around it (the
 	// part within a few radii if it escapes), in the turning frame at this instant.
 	std::vector<Vec> path(const State &s, int points) const;

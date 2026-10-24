@@ -78,6 +78,20 @@ if(BUILD_CLIENT AND ENABLE_SHELL)
 endif()
 
 
+# Terra Firma: hosts ask the router to open their port (src/online/upnp.cpp)
+option(ENABLE_UPNP "Open the hosting port with UPnP (miniupnpc)" TRUE)
+set(USE_UPNP FALSE)
+if(BUILD_CLIENT AND ENABLE_UPNP)
+	find_path(MINIUPNPC_INCLUDE_DIR miniupnpc/miniupnpc.h)
+	find_library(MINIUPNPC_LIBRARY miniupnpc)
+	if(MINIUPNPC_INCLUDE_DIR AND MINIUPNPC_LIBRARY)
+		message(STATUS "UPnP enabled (miniupnpc).")
+		set(USE_UPNP TRUE)
+	else()
+		message(WARNING "miniupnpc not found: hosts rely on hole punching alone")
+	endif()
+endif()
+
 option(ENABLE_CURL "Enable cURL support" TRUE)
 set(USE_CURL FALSE)
 
@@ -410,6 +424,7 @@ add_custom_target(GenerateVersion
 	-D "GENERATE_VERSION_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
 	-D "VERSION_STRING=${VERSION_STRING}"
 	-D "DEVELOPMENT_BUILD=${DEVELOPMENT_BUILD}"
+	-D "TERRAFIRMA_VERSION=${TERRAFIRMA_VERSION}"
 	-P "${CMAKE_SOURCE_DIR}/cmake/Modules/GenerateVersion.cmake"
 	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -445,6 +460,7 @@ add_subdirectory(fluid)
 add_subdirectory(orbit)
 add_subdirectory(weather)
 add_subdirectory(sandbox)
+add_subdirectory(online)
 add_subdirectory(network)
 add_subdirectory(script)
 add_subdirectory(util)
@@ -551,6 +567,7 @@ set(common_SRCS
 	${orbit_SRCS}
 	${weather_SRCS}
 	${sandbox_SRCS}
+	${online_SRCS}
 	${server_network_SRCS}
 	${test_SRCS}
 	${unittest_SRCS}
@@ -602,6 +619,7 @@ list(APPEND client_SRCS
 	${client_network_SRCS}
 	${client_irrlicht_changes_SRCS}
 	${shell_SRCS}
+	${online_client_SRCS}
 	${far_client_SRCS}
 	${client_SCRIPT_SRCS}
 	${test_client_SRCS}
@@ -798,6 +816,10 @@ if(BUILD_CLIENT)
 			${PROJECT_NAME}
 			${CURL_LIBRARY}
 		)
+	endif()
+	if(USE_UPNP)
+		target_include_directories(${PROJECT_NAME} PRIVATE ${MINIUPNPC_INCLUDE_DIR})
+		target_link_libraries(${PROJECT_NAME} ${MINIUPNPC_LIBRARY})
 	endif()
 	if(FREETYPE_PKGCONFIG_FOUND)
 		set_target_properties(${PROJECT_NAME}

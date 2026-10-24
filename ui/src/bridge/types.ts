@@ -196,8 +196,8 @@ export type UiValues = {
     /** tf_matter: the last block the probe (or heat gun) read (core.matter.inspect) */
     probe: { node: string; empty?: boolean; temperature?: number; substance?: string; state?: string; fill?: number
         activity?: number; vapour?: string; haze?: number; awake?: boolean }
-    /** tf_flight: the craft the player rides (core.orbit), near the blocks or above the ceiling */
-    flight: FlightNear | FlightOrbit
+    /** tf_flight: riding the pack over the blocks, or in space (core.orbit) */
+    flight: FlightNear | FlightSpace
     /** tf_weather: the weather where the player stands (core.terra.weather) */
     weather: {
         temperature: number // °C
@@ -211,26 +211,26 @@ export type UiValues = {
 }
 
 type FlightCommon = {
-    code: string       // the world's code: the globe is drawn from its preview
-    ceiling: number    // m above the sea where the blocks let go
-    radius: number     // m: the planet's
+    boundary: number   // m above the sea where space begins
     altitude: number   // m above the sea
     speed: number      // m/s over the ground
     climb: number      // m/s up
 }
-/** Over the blocks. */
+/** Riding the flight pack over the planet's blocks. */
 export type FlightNear = FlightCommon & { regime: "near"; resting?: boolean }
-/** Above the ceiling, flying the planet itself. */
-export type FlightOrbit = FlightCommon & {
-    regime: "orbit"
-    latitude: number; longitude: number // radians, north and east
+/** In a bubble of space (pack or not): the orbit it's on. */
+export type FlightSpace = FlightCommon & {
+    regime: "space"
+    radius: number         // m: the planet's
     orbital_speed: number  // m/s against the stars
     apoapsis?: number      // m above the sea; absent when it escapes
     periapsis: number      // m; below 0, the orbit meets the ground
     period?: number        // s; absent when it escapes
     inclination: number    // radians
     density: number        // kg/m³: the air here
-    path: [number, number, number][] // the orbit now: latitude, longitude, altitude
+    riding: boolean        // in the pack (else floating on foot)
+    lone: boolean          // alone in the bubble: the pack's thrust moves the orbit
+    buildable: boolean     // blocks can go here (the orbit stays above the boundary)
 }
 
 export type UiMessage = {
@@ -255,12 +255,48 @@ export type UiEvents = {
 
 export type UiEvent = { [E in keyof UiEvents]: { name: E; payload: UiEvents[E] } }[keyof UiEvents]
 
+/**
+ * The player's ArcLabs account (src/shell/account.cpp). Signing in is the
+ * device flow: `pending` holds the code the browser's approval page shows.
+ * Sent whole as an `account` message whenever it changes.
+ */
+export type Account =
+    | { status: "signedOut"; problem?: string }
+    | { status: "starting" }
+    | { status: "pending"; code: string; url: string }
+    | { status: "checking" }
+    | { status: "signedIn"; id: string; username: string; name: string | null }
+    | { status: "unreachable"; problem: string }
+
+/** An ArcLabs player, as Terra Firma's friends list shows them. */
+export type Player = { id: string; username: string; name: string | null }
+/** Where a player is: the menu, someone's world, or their own (hosting; `open`: friends can join). */
+export type Presence = { state: "menu" | "playing" | "hosting"; world: string | null; open: boolean }
+/** A friend, with where they are now (null: offline). */
+export type Friend = Player & { presence: Presence | null }
+export type Invite = { id: string; from: Player; world: string; expiresAt: string }
+
+/**
+ * Friends, presence and invites (src/shell/social.cpp ← arclabs
+ * platform/terrafirma/social.ts). Null while signed out. `view` is null until
+ * the backend first answers; `problem` says why it may be stale.
+ */
+export type Social = {
+    me: Presence
+    /** In the player's own world: they can open it to friends and invite. */
+    joinable: boolean
+    view: { friends: Friend[]; incoming: Player[]; outgoing: Player[]; invites: Invite[] } | null
+    problem?: string
+}
+
 /** Engine → UI */
 export type EngineMessage =
     | { kind: "mode"; mode: Mode }
     | { kind: "error"; message: string }
     | { kind: "items"; items: Record<string, ItemInfo> }
     | { kind: "screen"; screen: ScreenName | null }
+    | { kind: "account"; account: Account }
+    | { kind: "social"; social: Social | null }
     | StateMessage
     | UiMessage
 
@@ -283,6 +319,12 @@ export type Intents = {
     "sandbox.step": { request: { id: number; seconds: number }; response: SandboxFrame }
     "sandbox.set": { request: SandboxBlock & { id: number }; response: SandboxFrame }
     "sandbox.drop": { request: { id: number }; response: null }
+    /** Newton's cannonball on the world's planet (src/shell/wiki.cpp: orbit::Flight); points in planet radii, x east, y up */
+    "orbit.coast": {
+        request: { altitude: number; speed: number; angle: number; mass: number; drag_area: number; seconds: number }
+        response: { radius: number; scale_height: number; seconds: number; end: "ground" | "around" | "time"; bound: boolean
+            periapsis: number; apoapsis?: number; orbital_speed: number; points: [number, number][] }
+    }
     /** Step a mixture for `seconds` in its surroundings: what it's become, the states of what's in it, and each running reaction's rate (per second) */
     "matter.react": {
         request: MatterMixture & { surroundings: number; pressure: number; power: number; light: number; seconds: number; spark: boolean }
@@ -303,6 +345,32 @@ export type Intents = {
     "settings.get": { request: {}; response: Record<string, number | boolean> }
     "settings.set": { request: { key: string; value: number | boolean }; response: null }
     open: { request: { url: string }; response: null }
+    /** The ArcLabs account (src/shell/account.cpp); changes arrive as `account` messages. */
+    "account.get": { request: {}; response: Account }
+    /** Starts the device flow and opens the browser on the approval page. */
+    "account.signIn": { request: {}; response: null }
+    "account.cancel": { request: {}; response: null }
+    /** Forgets the key on this machine. */
+    "account.signOut": { request: {}; response: null }
+    /** Checks the saved key again after ArcLabs couldn't be reached. */
+    "account.retry": { request: {}; response: null }
+    /** Friends, presence and invites (src/shell/social.cpp); changes arrive as `social` messages. */
+    "social.get": { request: {}; response: Social | null }
+    /** Friends can join the world you're in (your own). */
+    "social.open": { request: { open: boolean }; response: null }
+    /** Ask a player to be friends, by exact ArcLabs username; accepts if they'd asked you. */
+    "social.request": { request: { username: string }; response: null }
+    "social.accept": { request: { id: string }; response: null }
+    /** Unfriend, decline, or take back a request. */
+    "social.remove": { request: { id: string }; response: null }
+    /** Invite a friend into the world you're in. */
+    "social.invite": { request: { id: string }; response: null }
+    "social.dismiss": { request: { id: string }; response: null }
+    /**
+     * Join a friend's world (menu only): asks STUN and ArcLabs, then the menu
+     * leaves for it (src/shell/menu.cpp → src/online/join.h). `name` is theirs, for messages.
+     */
+    "social.join": { request: { id: string; name: string }; response: null }
     /** Opens a screen the page decides on (src/shell/screens.cpp: SCREENS); one that needs a UI value stays shut without it. */
     "screen.open": { request: { name: ScreenName }; response: null }
     "screen.close": { request: {}; response: null }

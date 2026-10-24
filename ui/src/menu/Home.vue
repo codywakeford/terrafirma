@@ -1,31 +1,25 @@
 <script setup lang="ts">
-import PixelIcon from "../game/PixelIcon.vue"
-import { Button, IconTile } from "../kit"
+import { Button } from "../kit"
 import { useBridge } from "../bridge/use"
 import type { Screen } from "./screens"
 
 defineEmits<{ go: [screen: Screen] }>()
 const bridge = useBridge()
 
-// a 9×9 pictogram for the workshop row: an open book
-const TOOL_ICONS = {
-    wiki: {
-        rows: [".........", "BBBB.BBBB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BPLB.BLPB", "BPPB.BPPB", "BBBBBBBBB", "....B...."],
-        palette: { B: "#c9d4dc", P: "#f0ead8", L: "#8a8478" },
-    },
-} as const
-
 const REPO = "https://github.com/codywakeford/terrafirma"
+const TITLE = "Terra Firma"
 </script>
 
 <template>
     <div class="home">
-        <h1>
-            <span class="chev">»</span>
-            <span class="word">Terra</span>
-            <span class="word">Firma</span>
+        <h1 :aria-label="TITLE">
+            <!-- each letter drops into place, like a block being set -->
+            <span v-for="(letter, i) in TITLE" :key="i" class="letter" :class="{ gap: letter === ' ' }" :style="{ '--i': i }"
+                aria-hidden="true">{{ letter }}</span>
+            <!-- the same word again, only as a light passing over it -->
+            <span class="glint" aria-hidden="true">{{ TITLE }}</span>
         </h1>
-        <p class="tagline">solid ground. build on it.</p>
+        <p class="tagline">a whole planet. every block of it.</p>
 
         <nav>
             <Button variant="primary" size="lg" @click="$emit('go', 'worlds')">Play</Button>
@@ -40,15 +34,6 @@ const REPO = "https://github.com/codywakeford/terrafirma"
                 <Button size="lg" @click="bridge.send('quit', {})">Quit</Button>
             </div>
         </nav>
-
-        <!-- the workshop: places to see the engine's building blocks and mechanics -->
-        <nav class="tools" aria-label="Workshop">
-            <IconTile label="Wiki — what everything is made of, and how it behaves" side="left" @click="$emit('go', 'wiki')">
-                <PixelIcon :rows="TOOL_ICONS.wiki.rows" :palette="TOOL_ICONS.wiki.palette" style="--u: 3px" />
-            </IconTile>
-        </nav>
-
-        <footer>v0.1 · built on luanti</footer>
     </div>
 </template>
 
@@ -56,26 +41,48 @@ const REPO = "https://github.com/codywakeford/terrafirma"
 .home { display: flex; flex-direction: column; align-items: center; }
 
 h1 {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 0.18em;
+    position: relative;
+    display: flex;
     margin: 0;
-    font: 400 clamp(54px, 5.8vw, 104px) / 1 var(--font-display);
+    font: 400 clamp(56px, 7.2vw, 124px) / 1 var(--font-display);
     text-transform: uppercase;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
     color: #eef3f6;
-    text-shadow:
-        4px 4px 0 #0a3a52,
-        8px 8px 0 rgb(0 0 0 / 0.45);
-    animation: drop 500ms steps(6) both;
 }
 
-.chev { color: var(--accent); text-shadow: 4px 4px 0 #062636, 8px 8px 0 rgb(0 0 0 / 0.45); }
-.chev { grid-row: 1 / 3; }
+/* stepped extrusion: a block's depth, in the accent's darks, then its shadow */
+.letter {
+    display: inline-block;
+    text-shadow:
+        2px 2px 0 #1c6f96,
+        4px 4px 0 #13536f,
+        6px 6px 0 #0a3a52,
+        8px 8px 0 #062636,
+        14px 14px 0 rgb(0 0 0 / 0.4);
+    animation: set 420ms steps(5) both;
+    animation-delay: calc(var(--i) * 45ms);
+}
+
+.gap { width: 0.42em; } /* the space between the words: tighter than the font's */
+
+.glint {
+    word-spacing: -0.45em; /* matches .gap */
+    position: absolute;
+    inset: 0;
+    letter-spacing: inherit;
+    color: transparent;
+    background: linear-gradient(105deg, transparent 40%, rgb(255 255 255 / 0.85) 50%, transparent 60%) no-repeat;
+    background-size: 250% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    pointer-events: none;
+    animation: glint 7s steps(28) 1.2s infinite;
+}
 
 .tagline {
-    margin: 18px 0 52px;
-    font: 13px var(--font);
+    margin: 26px 0 52px;
+    font: 10px var(--font);
     letter-spacing: 0.32em;
     text-transform: uppercase;
     color: var(--ink-dim);
@@ -86,27 +93,19 @@ nav > :deep(.btn) { width: 100%; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pair :deep(.btn) { width: 100%; }
 
-.tools {
-    position: fixed;
-    right: 20px;
-    bottom: 40px;
-    display: flex;
-    gap: 10px;
+@keyframes set { from { opacity: 0; transform: translateY(-0.4em); } }
+/* across once, then a long rest */
+@keyframes glint {
+    0% { background-position: 120% 0; }
+    18%, 100% { background-position: -20% 0; }
 }
 
-footer {
-    position: fixed;
-    right: 20px;
-    bottom: 14px;
-    font: 11px var(--font-display);
-    color: var(--ink-faint);
-    text-transform: uppercase;
+@media (prefers-reduced-motion: reduce) {
+    .letter, .glint { animation: none; }
 }
-
-@keyframes drop { from { opacity: 0; transform: translateY(-24px); } }
 
 @media (max-width: 850px) {
-    h1 { font-size: clamp(48px, 7vw, 72px); }
+    h1 { font-size: clamp(40px, 9vw, 76px); }
     .tagline { letter-spacing: 0.18em; }
 }
 </style>

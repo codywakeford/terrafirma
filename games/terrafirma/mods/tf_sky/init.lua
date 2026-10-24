@@ -1,5 +1,6 @@
--- Each player's sky follows the real sun for where they stand and the day of
--- the year (core.terra.sun). The engine places the sun, moon and stars and
+-- Each player's sky follows the real sun for where they are and the day of
+-- the year (core.terra.sun), and the air above them: blue going to black as
+-- they climb out of it. The engine places the sun, moon and stars and
 -- lights the world from it; this only keeps it told. Worlds terra didn't
 -- generate (the Lab) have no real sun to follow and keep the stock sky; the
 -- Lab shows the solar sky through its own scenarios (lab.lua).
@@ -10,22 +11,52 @@ if not core.terra.enabled() then
 	return
 end
 
-local PERIOD = 1.0  -- seconds between checks
+local PERIOD = 0.5  -- seconds between checks
 local CHANGE = 0.02 -- degrees of latitude or declination worth sending
+local THIN = 0.01   -- a change in how thin the air is worth sending
 
-local sent = {} -- player name → the solar sky they have
+-- The stock sky's colours, which the air's thinning takes to black.
+local BLUE = {
+	day_sky = { 0x61, 0xb5, 0xf5 }, day_horizon = { 0x90, 0xd3, 0xf6 },
+	dawn_sky = { 0xb4, 0xba, 0xfa }, dawn_horizon = { 0xba, 0xc1, 0xf0 },
+	night_sky = { 0x00, 0x6b, 0xff }, night_horizon = { 0x40, 0x90, 0xff },
+}
+local SPACE = { 0, 0, 4 }
+local CLOUDS = 12000 -- m above the sea: above them, they're gone
 
+local sent = {} -- player name → the sky they have: { latitude, declination, thin }
+
+local function hex(c, k)
+	return string.format("#%02x%02x%02x", math.floor(c[1] * k + SPACE[1] * (1 - k)),
+		math.floor(c[2] * k + SPACE[2] * (1 - k)), math.floor(c[3] * k + SPACE[3] * (1 - k)))
+end
+
+-- The sky over where a player is (tf_flight.aloft: in space, where their
+-- orbit is over the planet): the real sun there, and the air's blue fading
+-- to black as it thins, the stars coming out by day.
 local function update(player)
 	local name = player:get_player_name()
-	local sun = core.terra.sun(player:get_pos())
+	local at = tf_flight.aloft(player)
+	local sun = core.terra.sun({ x = at.x, y = 0, z = at.z })
+	-- the air left above, against the sea's (its sight of the sky)
+	local thin = core.orbit.density(math.max(at.altitude, 0)) / core.orbit.density(0)
 	local last = sent[name]
 	if last and math.abs(last.latitude - sun.latitude) < CHANGE
-			and math.abs(last.declination - sun.declination) < CHANGE then
+			and math.abs(last.declination - sun.declination) < CHANGE and math.abs(last.thin - thin) < THIN then
 		return
 	end
-	local solar = { latitude = sun.latitude, declination = sun.declination }
-	player:set_sky({ solar = solar })
-	sent[name] = solar
+	local blue = math.sqrt(thin) -- the sky darkens early: a third of the air is already a deep blue
+	local colours = {}
+	for k, c in pairs(BLUE) do colours[k] = hex(c, blue) end
+	colours.fog_tint_type = "default"
+	player:set_sky({
+		type = "regular",
+		clouds = at.altitude < CLOUDS,
+		solar = { latitude = sun.latitude, declination = sun.declination },
+		sky_color = colours,
+	})
+	player:set_stars({ day_opacity = 1 - blue })
+	sent[name] = { latitude = sun.latitude, declination = sun.declination, thin = thin }
 end
 
 core.register_on_joinplayer(update)

@@ -161,6 +161,21 @@ int ModApiOrbit::l_directions(lua_State *L)
 	return 1;
 }
 
+// core.orbit.frame(state) → { east, up, north }: the ground's directions over it
+int ModApiOrbit::l_frame(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	orbit::Frame f = flight().frame(state(L, 1));
+	lua_createtable(L, 0, 3);
+	pushVec(L, f.east);
+	lua_setfield(L, -2, "east");
+	pushVec(L, f.up);
+	lua_setfield(L, -2, "up");
+	pushVec(L, f.north);
+	lua_setfield(L, -2, "north");
+	return 1;
+}
+
 static void pushWhere(lua_State *L, const orbit::Where &w)
 {
 	lua_createtable(L, 0, 4);
@@ -218,6 +233,7 @@ void ModApiOrbit::Initialize(lua_State *L, int top)
 		{ "near", l_near },
 		{ "elements", l_elements },
 		{ "directions", l_directions },
+		{ "frame", l_frame },
 		{ "path", l_path },
 		{ "where", l_where },
 		{ "at", l_at },

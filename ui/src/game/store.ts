@@ -1,5 +1,5 @@
 import { inject, reactive, type InjectionKey } from "vue"
-import type { BridgeHandle, ItemInfo, Mode, ScreenName, StateSections, UiValues } from "../bridge"
+import type { Account, BridgeHandle, Social, ItemInfo, Mode, ScreenName, StateSections, UiValues } from "../bridge"
 
 type Sections = { [S in keyof StateSections]: StateSections[S] | null }
 type Ui = { [K in keyof UiValues]: UiValues[K] | null }
@@ -16,11 +16,22 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
         mode: null as Mode | null,
         error: null as string | null,
         screen: null as ScreenName | null,
+        /** The ArcLabs account; lives across menu and game. */
+        account: null as Account | null,
+        /** Friends, presence, invites; null while signed out (and before the engine says). */
+        social: null as Social | null,
         items: {} as Record<string, ItemInfo>,
         state: empty(),
         /** What game Lua set for this page (player:set_ui), by key. */
         ui: noUi(),
     })
+
+    // Messages carry every change after this; the first answer fills the gap
+    // when nothing has changed since the engine started.
+    if (opts.bridge.connected) {
+        void opts.bridge.send("account.get", {}).then((account) => { store.account ??= account })
+        void opts.bridge.send("social.get", {}).then((social) => { store.social ??= social })
+    }
 
     opts.bridge.on((message) => {
         switch (message.kind) {
@@ -37,6 +48,12 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
                 break
             case "screen":
                 store.screen = message.screen
+                break
+            case "account":
+                store.account = message.account
+                break
+            case "social":
+                store.social = message.social
                 break
             case "items":
                 Object.assign(store.items, message.items)

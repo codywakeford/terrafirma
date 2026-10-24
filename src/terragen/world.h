@@ -7,6 +7,7 @@
 #include "fixed.h"
 #include "geology.h"
 #include "grid.h"
+#include "map.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -110,12 +111,14 @@ public:
 	fix u(int32_t x) const;
 	fix v(int32_t z) const;
 
-	// Block coordinates ↔ the planet the map wraps: radians north and east
-	// (the same map as u and v, at full precision). Blocks round to the nearest.
-	double latitudeAt(int32_t z) const;
-	double longitudeAt(int32_t x) const;
-	int32_t zAt(double latitude) const;
-	int32_t xAt(double longitude) const;
+	// The map's geometry on the planet (map.h).
+	const Map &map() const { return m_map; }
+
+	// Where space begins: north of this z, past the polar wall, the map is
+	// empty (a place for what's in orbit: tf_flight's bubbles), sealed from
+	// the planet by the wall, which rises to the build limit.
+	int32_t spaceFrom() const { return m_code.size / 2 + SPACE_WALL; }
+	static constexpr int32_t SPACE_WALL = 256; // blocks of polar ice between the planet and space
 
 	// Surface height in blocks for an elevation, with fine detail at (u, v).
 	int32_t surface(fix elevation, fix u, fix v) const;
@@ -150,6 +153,7 @@ private:
 	void volcanic(int32_t x, int32_t z, int32_t &raise, int32_t &lava, int32_t &floor) const;
 
 	WorldCode m_code;
+	Map m_map;
 	std::shared_ptr<const Grid> m_grid;
 };
 

@@ -96,6 +96,7 @@ const ToServerCommandHandler toServerCommandTable[TOSERVER_NUM_MSG_TYPES] =
 	{ "TOSERVER_SRP_BYTES_M",              TOSERVER_STATE_NOT_CONNECTED, &Server::handleCommand_SrpBytesM }, // 0x52
 	{ "TOSERVER_UPDATE_CLIENT_INFO",       TOSERVER_STATE_INGAME, &Server::handleCommand_UpdateClientInfo }, // 0x53
 	{ "TOSERVER_UI",                       TOSERVER_STATE_INGAME, &Server::handleCommand_Ui }, // 0x54 Terra Firma
+	{ "TOSERVER_TICKET",                   TOSERVER_STATE_NOT_CONNECTED, &Server::handleCommand_Ticket }, // 0x55 Terra Firma
 };
 
 const static ClientCommandFactory null_command_factory = { nullptr, 0, false };
@@ -216,4 +217,5 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     0, true }, // 0x64
 	{ "TOCLIENT_UI",                       0, true }, // 0x65 Terra Firma
 	{ "TOCLIENT_HORIZON",                  0, true }, // 0x66 Terra Firma
+	{ "TOCLIENT_ALOFT",                    0, true }, // 0x67 Terra Firma
 };

@@ -125,9 +125,8 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement }) {
          * spin: the view (lon spins the planet, tilt tips it toward you).
          * sun: declination (radians, the latitude under the noon sun), and colour.
          * The sun stays put in space as the planet spins, so day and night move across it.
-         * size: the planet's radius as a share of half the canvas's height (room around it for an orbit).
          */
-        draw(spin: { lon: number; tilt: number }, relief: number, sun: { declination: number; color: readonly [number, number, number] }, size = 0.92) {
+        draw(spin: { lon: number; tilt: number }, relief: number, sun: { declination: number; color: readonly [number, number, number] }) {
             const c = opts.canvas
             const dpr = window.devicePixelRatio || 1
             const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr)
@@ -157,7 +156,7 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement }) {
                 m[2]! * p[0]! + m[5]! * p[1]! + m[8]! * p[2]!)
             gl.uniform3f(uniforms.sunColor, sun.color[0] / 255, sun.color[1] / 255, sun.color[2] / 255)
             gl.uniform1f(uniforms.relief, relief)
-            gl.uniform1f(uniforms.scale, size / (1 + relief))
+            gl.uniform1f(uniforms.scale, 0.92 / (1 + relief))
             gl.uniform1f(uniforms.aspect, h / w)
             gl.uniform1i(uniforms.color, 0)
             gl.uniform1i(uniforms.height, 1)

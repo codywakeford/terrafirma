@@ -7,6 +7,7 @@
 #include "irrlichttypes.h"
 #include "content/subgames.h"
 #include "log.h" // errorstream
+#include "online/launch.h" // Terra Firma
 
 // Information provided from "main"
 // Start information for server or client
@@ -54,6 +55,9 @@ struct GameStartData : GameParams, GameClientData
 
 	// "world_path" must be kept in sync!
 	WorldSpec world_spec;
+
+	// Terra Firma: hosting for friends, or joining one (src/online)
+	online::Launch online;
 };
 
 /// Data provided to Lua for error reporting by the main menu

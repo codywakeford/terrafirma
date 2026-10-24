@@ -447,6 +447,10 @@ static void set_allowed_options(OptionList *allowed_options)
 #if USE_SHELL
 	allowed_options->insert(std::make_pair("shell-url", ValueSpec(VALUETYPE_STRING,
 			_("Load the UI from this URL instead of shell_url (e.g. a dev server)"))));
+	allowed_options->insert(std::make_pair("arclabs-url", ValueSpec(VALUETYPE_STRING,
+			_("Sign in to this ArcLabs API instead of arclabs_url (e.g. the local stack)"))));
+	allowed_options->insert(std::make_pair("profile", ValueSpec(VALUETYPE_STRING,
+			_("Run as another player: its own sign-in and browser cache, so two games can run side by side"))));
 #endif
 	allowed_options->insert(std::make_pair("console", ValueSpec(VALUETYPE_FLAG,
 			_("Start with the console open (Windows only)"))));

@@ -42,6 +42,8 @@ public:
 		std::string cache_dir; // Chromium profile and log
 		float scale;           // device pixels per CSS pixel
 		bool gpu;              // Chromium rasterises on the GPU
+		std::string arclabs;   // the ArcLabs API accounts and friends come from
+		std::string account_dir; // where sign-ins are saved: the user folder, or a profile's
 	};
 
 	explicit Shell(const Opts &opts);
@@ -52,6 +54,9 @@ public:
 	// True when the page took the event and the engine must not see it.
 	bool onEvent(const SEvent &event);
 	void setMode(Mode mode);
+	// How many times the page has announced itself. A change means a fresh
+	// page that holds nothing it was sent before (a reload).
+	unsigned pageLoads() const;
 
 	// Whoever owns a screen registers the intents it answers, and removes them
 	// when it hands over: an intent nobody answers fails loudly in the page.
@@ -61,6 +66,11 @@ public:
 	void off(const std::string &kind);
 	// A one-off message to the page; held until the page is ready.
 	void send(const Json::Value &message);
+
+	// Friends and presence; the menu says which world is being entered.
+	class Social &social();
+	// The ArcLabs account (who's signed in).
+	class Account &account();
 
 	// Where item icons are written; served to the page as terra://item/.
 	const std::string &itemDir() const;

@@ -26,8 +26,12 @@
 #include "porting.h"
 #if USE_SHELL
 #include "shell/lab.h"
+#include "shell/account.h"
 #include "shell/menu.h"
+#include "shell/shell.h"
+#include "shell/social.h"
 #include "shell/worlds.h"
+#include <random>
 #endif
 #include <IGUISpriteBank.h>
 #include <ICameraSceneNode.h>
@@ -171,15 +175,22 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 		return false;
 	}
 #if USE_SHELL
+	// A profile is another player on this machine: Chromium locks its cache
+	// to one process, and each player signs in on their own.
+	const std::string profile = cmd_args.exists("profile") ? cmd_args.get("profile") : "";
+	if (!profile.empty() && !string_allowed(profile, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"))
+		throw BaseException("--profile takes letters, digits, _ and -");
 	m_shell = std::make_unique<shell::Shell>(shell::Shell::Opts{
 		m_rendering_engine->get_video_driver(),
 		guienv,
 		m_rendering_engine->get_raw_device()->getCursorControl(),
 		cmd_args.exists("shell-url") ? cmd_args.get("shell-url") : g_settings->get("shell_url"),
 		porting::path_share + DIR_DELIM "ui" DIR_DELIM "dist",
-		porting::path_cache + DIR_DELIM "shell",
+		porting::path_cache + DIR_DELIM + (profile.empty() ? "shell" : "shell-" + profile),
 		RenderingEngine::getDisplayDensity(),
 		g_settings->getBool("shell_gpu"),
+		cmd_args.exists("arclabs-url") ? cmd_args.get("arclabs-url") : g_settings->get("arclabs_url"),
+		profile.empty() ? porting::path_user : porting::path_user + DIR_DELIM "profiles" DIR_DELIM + profile,
 	});
 	m_wiki = std::make_unique<shell::Wiki>(*m_shell); // answers in the menu and in game alike
 #endif
@@ -306,6 +317,57 @@ bool ClientLauncher::run(const GameParams &game_params, const Settings &cmd_args
 
 	return retval;
 }
+
+#if USE_SHELL
+// Terra Firma: a friend's world, or one of the player's own — hosted for
+// friends while signed in to ArcLabs, alone otherwise (and in the Lab).
+bool ClientLauncher::online(GameStartData &start_data, shell::Choice &choice, std::string &error_message)
+{
+	start_data.online = online::Launch();
+	const std::string username = m_shell->account().username();
+	std::optional<online::Api> api = m_shell->social().api();
+	if ((choice.join || (!choice.lab && api)) && !is_valid_player_name(username)) {
+		error_message = "Your ArcLabs username \"" + username + "\" can't be a player name here "
+			"(at most 20 letters, digits, - and _).";
+		return false;
+	}
+
+	if (choice.join && !api) {
+		error_message = "Signed out of ArcLabs before joining.";
+		return false;
+	}
+	if (choice.join) {
+		online::JoinPlan &plan = *choice.join;
+		start_data.mode = GameClientData::GM_JOIN;
+		start_data.world_path.clear();
+		start_data.address = plan.target.serializeString();
+		start_data.socket_port = plan.target.getPort();
+		start_data.name = username;
+		start_data.password = plan.ticket;
+		start_data.online = { online::Launch::Kind::Join, *api, plan.socket, plan.host_name };
+		return true;
+	}
+
+	start_data.world_spec = *choice.world;
+	start_data.world_path = choice.world->path;
+	start_data.address.clear();
+	if (choice.lab || !api) {
+		start_data.mode = GameClientData::GM_SINGLEPLAYER;
+		return true;
+	}
+	start_data.mode = GameClientData::GM_HOST_AND_JOIN;
+	start_data.name = username;
+	// The host's own client's ticket: random, and never leaves this process.
+	std::random_device random;
+	std::string secret;
+	for (int i = 0; i < 32; i++)
+		secret += "0123456789abcdef"[random() & 15];
+	start_data.password = secret;
+	start_data.socket_port = 0; // any free port: STUN tells friends which
+	start_data.online = { online::Launch::Kind::Host, *api, nullptr, "" };
+	return true;
+}
+#endif
 
 void ClientLauncher::init_args(GameStartData &start_data, const Settings &cmd_args)
 {
@@ -460,17 +522,15 @@ bool ClientLauncher::launch_game(GameErrorData &errordata, GameStartData &start_
 		shell::Worlds worlds(g_settings->get("game_id"));
 		shell::Lab lab(findSubgame(g_settings->get("game_id")).gamemods_path);
 		shell::Menu menu({ *m_shell, m_rendering_engine, worlds, lab });
-		std::optional<WorldSpec> world = menu.run(error_message);
+		std::optional<shell::Choice> choice = menu.run(error_message);
 		error_message.clear(); // shown by the page
 
-		if (!world) {
+		if (!choice) {
 			g_gamecallback->shutdown_requested = true;
 			return false;
 		}
-		start_data.mode = GameClientData::GM_SINGLEPLAYER;
-		start_data.address.clear();
-		start_data.world_spec = *world;
-		start_data.world_path = world->path;
+		if (!online(start_data, *choice, error_message))
+			return false;
 	}
 #else
 	if (!skip_main_menu) {

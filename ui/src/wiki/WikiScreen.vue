@@ -4,6 +4,7 @@ import { useBridge } from "../bridge/use"
 import { useStore } from "../game/store"
 import PixelIcon from "../game/PixelIcon.vue"
 import { Button, Panel } from "../kit"
+import FlightSection from "./FlightSection.vue"
 import LabSection from "./LabSection.vue"
 import MatterSection from "./MatterSection.vue"
 import { provideWiki, WikiNav, type Section } from "./nav"
@@ -41,6 +42,8 @@ const RAIL: { id: Section; label: string; rows: string[]; palette: Record<string
         rows: ["..G...G..", "..G...G..", ".G.....G.", ".GLLLLLG.", ".GLLLLLG.", "..GLLLG..", "...GGG...", "..F.F.F..", ".F.F.F.F."] },
     { id: "lab", label: "Lab", palette: { W: "#c9d4dc", G: "#c9d4dc", L: "#40b8ec" },
         rows: ["...WWW...", "....G....", "....G....", "...G.G...", "..G...G..", ".GLLLLLG.", ".GLLLLLG.", ".GLLLLLG.", "..GGGGG.."] },
+    { id: "flight", label: "Flight: Newton's cannon", palette: { P: "#3c6e46", O: "#ffb040", W: "#c9d4dc" },
+        rows: ["...OOO...", ".O.....O.", "O..PPP..O", "O.PPPPP.O", "O.PPPPP.W", "O.PPPPP.O", "O..PPP..O", ".O.....O.", "...OOO..."] },
 ]
 </script>
 
@@ -59,6 +62,7 @@ const RAIL: { id: Section; label: string; rows: string[]; palette: Record<string
                 <ReactionsSection v-else-if="wiki.state.section === 'reactions'" />
                 <ReactorSection v-else-if="wiki.state.section === 'reactor'" />
                 <LabSection v-else-if="wiki.state.section === 'lab'" />
+                <FlightSection v-else-if="wiki.state.section === 'flight'" />
             </div>
             <p v-else class="loading">reading the tables…</p>
         </div>

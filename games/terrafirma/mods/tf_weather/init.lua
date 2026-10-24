@@ -48,8 +48,16 @@ local function fall(player, kind, amount, wind)
 	})
 end
 
+local space = core.terra.world().space -- north of it, the map is space (tf_flight's bubbles): no weather
+
 local function update(player)
-	local w = core.terra.weather(player:get_pos())
+	local pos = player:get_pos()
+	if pos.z >= space then
+		player:set_clouds({ density = 0 })
+		player:set_ui("weather", nil)
+		return
+	end
+	local w = core.terra.weather(pos)
 	-- grey with rain, dark in a storm
 	local shade = math.floor(255 - math.min(150, w.precipitation * 40))
 	player:set_clouds({

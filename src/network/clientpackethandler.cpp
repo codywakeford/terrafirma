@@ -4,6 +4,7 @@
 
 #include "client/client.h"
 #include "far/horizon.h"
+#include "porting.h"
 
 #include "exceptions.h"
 #include "irr_v2d.h"
@@ -1940,4 +1941,25 @@ void Client::handleCommand_Ui(NetworkPacket *pkt)
 void Client::handleCommand_Horizon(NetworkPacket *pkt)
 {
 	m_horizon = far::read(*pkt);
+}
+
+void Client::handleCommand_Aloft(NetworkPacket *pkt)
+{
+	u8 present;
+	*pkt >> present;
+	if (!present) {
+		m_aloft.reset();
+		return;
+	}
+	far::Aloft a;
+	*pkt >> a.x >> a.z >> a.altitude >> a.east >> a.north >> a.climb;
+	m_aloft = a;
+	m_aloft_at = porting::getTimeMs();
+}
+
+std::optional<far::Aloft> Client::getAloft() const
+{
+	if (!m_aloft)
+		return std::nullopt;
+	return m_aloft->after((porting::getTimeMs() - m_aloft_at) / 1000.0f);
 }

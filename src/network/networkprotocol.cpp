@@ -89,11 +89,16 @@
 		TOCLIENT_SET_SKY: trailing solar { on, latitude, declination }
 	PROTOCOL VERSION 56 (Terra Firma)
 		TOCLIENT_HORIZON: the world code and biome blocks, for the far view
-		Only 56 is accepted on either side.
+	PROTOCOL VERSION 57 (Terra Firma)
+		TOCLIENT_ALOFT: where the player is over the planet, from space
+	PROTOCOL VERSION 58 (Terra Firma)
+		AUTH_MECHANISM_TICKET, TOSERVER_TICKET: friends join with an ArcLabs
+		ticket (src/online/gate.h), and must run the host's build
+		Only 58 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 56;
+const u16 LATEST_PROTOCOL_VERSION = 58;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

@@ -1307,6 +1307,21 @@ Connection::Connection(u32 max_packet_size, float timeout,
 }
 
 
+void Connection::setStrayHandler(StrayHandler handler)
+{
+	std::lock_guard<std::mutex> lock(m_stray_mutex);
+	m_stray = std::move(handler);
+}
+
+bool Connection::stray(const Address &sender, const u8 *data, size_t size)
+{
+	std::lock_guard<std::mutex> lock(m_stray_mutex);
+	if (!m_stray)
+		return false;
+	m_stray(sender, data, size);
+	return true;
+}
+
 Connection::~Connection()
 {
 	m_shutting_down = true;

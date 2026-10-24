@@ -20,6 +20,8 @@ set(VERSION_EXTRA "" CACHE STRING "Stuff to append to version string")
 
 # Change to false for releases
 set(DEVELOPMENT_BUILD TRUE)
+# Terra Firma: a release build's identity, its tag (scripts/release); empty in development
+set(TERRAFIRMA_VERSION "" CACHE STRING "Release tag, e.g. v0.2.0: the build id friends' games compare")
 
 set(VERSION_STRING "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 if(VERSION_EXTRA)

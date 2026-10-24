@@ -30,6 +30,7 @@ private:
 	static int l_near(lua_State *L);
 	static int l_elements(lua_State *L);
 	static int l_directions(lua_State *L);
+	static int l_frame(lua_State *L);
 	static int l_path(lua_State *L);
 	static int l_where(lua_State *L);
 	static int l_at(lua_State *L);

@@ -9,10 +9,16 @@
 namespace fluid {
 
 static const double DAY_SWING = 5; // K either side of the daily mean, clear sky over land
+static const double TROPOSPHERE = 11000; // m: how high the air cools with height
 
 double Layer::lapse() const
 {
 	return 0.65 * m_opts.planet.gravity / m_cp;
+}
+
+double Layer::aloft(double t, double rise) const
+{
+	return t - lapse() * std::min(rise, TROPOSPHERE);
 }
 
 bool Layer::frozen(double t, double p) const
@@ -70,7 +76,7 @@ Sample Layer::sample(double u, double v, double height, double hour) const
 	Sample s;
 	s.cloud = at(m_f.cloud);
 	double swing = DAY_SWING * (1 - 0.6 * s.cloud) * (g.water ? 0.4 : 1);
-	s.temperature = at(m_f.t) - lapse() * (height - ground)
+	s.temperature = aloft(at(m_f.t), height - ground)
 			+ swing * std::cos(2 * M_PI * (hour - 0.625)); // warmest at 15:00
 	s.pressure = (o.air.pressure + at(m_f.pressure)) * std::exp(-height / m_scale);
 	s.humidity = std::min(1.0, at(m_f.q) / saturation(s.temperature, s.pressure));

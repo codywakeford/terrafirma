@@ -1,4 +1,5 @@
 set(shell_SRCS
+	${CMAKE_CURRENT_SOURCE_DIR}/account.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/bridge.cpp
@@ -14,6 +15,7 @@ set(shell_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/screens.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/shell.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/social.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/state.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ui.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/director.cpp

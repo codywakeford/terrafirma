@@ -32,6 +32,8 @@ public:
 
 	// Once per frame: forwards what arrived since the last frame.
 	void update();
+	// The page has reloaded: every value set, again.
+	void replay();
 	// The page's `ui.send` intent: { name, payload }. Throws Refused.
 	void send(const Json::Value &intent);
 	bool has(const std::string &key) const { return m_values.count(key) != 0; }
@@ -39,6 +41,8 @@ public:
 	const Json::Value &get(const std::string &key) const;
 
 private:
+	void post(const std::string &key, const Json::Value &value);
+
 	Opts m_opts;
 	std::unordered_map<std::string, Json::Value> m_values;
 };

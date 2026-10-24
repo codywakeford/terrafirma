@@ -23,6 +23,14 @@ Column Columns::at(s16 x, s16 z, fix sun) const
 {
 	Column c{};
 	fix v = m_world.v(z);
+	if (z >= m_world.spaceFrom()) {
+		c.beyond = c.space = true;
+		c.biome = Biome::Snow;
+		c.height = c.water = -MAX_MAP_GENERATION_LIMIT - 1; // every block above it: air
+		c.top = CONTENT_AIR;
+		c.top_end = c.filler_end = c.ice_end = c.height;
+		return c;
+	}
 	if (v < 0 || v >= ONE) {
 		c.beyond = true;
 		c.biome = Biome::Snow;

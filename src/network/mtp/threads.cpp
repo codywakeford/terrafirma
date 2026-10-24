@@ -942,6 +942,9 @@ void ConnectionReceiveThread::receive(SharedBuffer<u8> &packetdata,
 
 		if ((received_size < BASE_HEADER_SIZE) ||
 				(readU32(&packetdata[0]) != m_connection->GetProtocolID())) {
+			// Terra Firma: not the game's, maybe someone else's (STUN answers)
+			if (m_connection->stray(sender, &packetdata[0], received_size))
+				return;
 			LOG(derr_con << m_connection->getDesc()
 				<< "Receive(): Invalid incoming packet, "
 				<< "size: " << received_size

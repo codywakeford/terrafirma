@@ -41,6 +41,8 @@ public:
 	explicit State(const Opts &opts) : m_opts(opts) {}
 
 	void update(const HudView &view);
+	// The page has reloaded: send everything again.
+	void forget();
 
 private:
 	Json::Value player(LocalPlayer &player) const;

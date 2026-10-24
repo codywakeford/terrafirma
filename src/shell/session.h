@@ -37,17 +37,13 @@ public:
 	~Session();
 
 	// Once per frame, before drawing.
-	void update(const HudView &view)
-	{
-		m_state.update(view);
-		m_ui.update();
-		m_director.update();
-	}
+	void update(const HudView &view);
 
 	Screens &screens() { return m_screens; }
 
 private:
 	Shell &m_shell;
+	unsigned m_page; // the page load this session last spoke to
 	Items m_items;
 	State m_state;
 	Ui m_ui;

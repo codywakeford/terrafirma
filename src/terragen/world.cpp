@@ -3,6 +3,7 @@
 
 #include "world.h"
 #include "climate.h"
+#include "planet.h"
 #include "noise.h"
 #include "sun.h"
 #include <algorithm>
@@ -15,7 +16,7 @@ const char *const BIOME_NAMES[(int)Biome::Count] = {
 	"forest", "jungle", "taiga", "tundra", "rock", "snow", "monsoon", "mediterranean",
 };
 
-World::World(const WorldCode &code) : m_code(code), m_grid(gridFor(code))
+World::World(const WorldCode &code) : m_code(code), m_map(code.size, home().radius), m_grid(gridFor(code))
 {
 }
 
@@ -177,7 +178,10 @@ Column World::column(fix u, fix v, fix sun) const
 	fix rain = (north + south) / 2;
 	fix summer = v < HALF ? north : south, winter = v < HALF ? south : north;
 	fix season = div(summer - winter, summer + winter);
-	fix wet = clamp(log2(rain) / 2, -ONE, ONE);
+	// as the grid reads it (grid.cpp): the seasons' fields are interpolated and
+	// can dip to nothing in the driest places; below 1/100 it's as dry as dry
+	// gets (−1) either way
+	fix wet = clamp(log2(maxx(rain, ratio(1, 100))) / 2, -ONE, ONE);
 
 	bool polar = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
 	Biome biome = polar ? (e < 0 ? Biome::SeaIce : Biome::Snow) : classify(e, heat, wet, season);
@@ -221,31 +225,6 @@ fix World::v(int32_t z) const
 {
 	// +z is north; north is v = 0
 	return (fix)(((int64_t)(m_code.size / 2 - z) * ONE) / m_code.size);
-}
-
-// v = (size/2 − z)/size and latitude = (½ − v)·π: latitude = π·z/size
-double World::latitudeAt(int32_t z) const
-{
-	return M_PI * z / m_code.size;
-}
-
-double World::longitudeAt(int32_t x) const
-{
-	int32_t half = m_code.size / 2;
-	int32_t i = ((x + half) % m_code.size + m_code.size) % m_code.size;
-	return 2 * M_PI * i / m_code.size;
-}
-
-int32_t World::zAt(double latitude) const
-{
-	return (int32_t)std::lround(latitude * m_code.size / M_PI);
-}
-
-int32_t World::xAt(double longitude) const
-{
-	int32_t half = m_code.size / 2;
-	int32_t i = (int32_t)std::lround(longitude / (2 * M_PI) * m_code.size);
-	return ((i % m_code.size) + m_code.size) % m_code.size - half;
 }
 
 int32_t World::surface(fix e, fix u, fix v) const

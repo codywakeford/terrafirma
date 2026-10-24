@@ -113,6 +113,16 @@ Elements Flight::elements(const State &s) const
 	return out;
 }
 
+Frame Flight::frame(const State &s) const
+{
+	Vec up = s.pos * (1 / s.pos.length());
+	Vec east{ up.z, 0, -up.x }; // the spin's axis (+y) × up
+	if (east.length() < 1e-9)
+		throw std::invalid_argument("flight: over a pole, east isn't one direction");
+	east = east * (1 / east.length());
+	return { east, up, up.cross(east) };
+}
+
 Directions Flight::directions(const State &s) const
 {
 	Vec v = inertial(s);

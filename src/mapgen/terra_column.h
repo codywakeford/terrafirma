@@ -36,6 +36,7 @@ struct Blocks
 struct Column
 {
 	bool beyond;    // past the polar edge: ice to the build limit
+	bool space;     // past the polar wall (World::spaceFrom): nothing at all
 	terragen::Biome biome;
 	terragen::Ground ground; // terragen's column (not beyond): for what grows here
 	s32 height;     // the top solid block, absolute y

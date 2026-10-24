@@ -24,12 +24,23 @@ void Ui::update()
 		else
 			m_values[key] = value;
 
-		Json::Value message;
-		message["kind"] = "ui";
-		message["key"] = key;
-		message["value"] = value;
-		m_opts.shell.send(message);
+		post(key, value);
 	}
+}
+
+void Ui::replay()
+{
+	for (const auto &[key, value] : m_values)
+		post(key, value);
+}
+
+void Ui::post(const std::string &key, const Json::Value &value)
+{
+	Json::Value message;
+	message["kind"] = "ui";
+	message["key"] = key;
+	message["value"] = value;
+	m_opts.shell.send(message);
 }
 
 const Json::Value &Ui::get(const std::string &key) const

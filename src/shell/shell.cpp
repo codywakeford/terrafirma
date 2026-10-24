@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "shell.h"
+#include "account.h"
+#include "social.h"
 #include "app.h"
 #include "bridge.h"
 #include "client.h"
@@ -13,14 +15,33 @@
 #include "scheme.h"
 #include "surface.h"
 #include "exceptions.h"
+#include "filesys.h"
 #include "log.h"
+#include "settings.h"
 #include <IVideoDriver.h>
 #include <json/json.h>
+#include <cctype>
 #include <vector>
 
 shell::Shell *g_shell = nullptr;
 
 namespace shell {
+
+// One saved sign-in per backend: a key from the local stack means nothing to
+// production, so the two never overwrite each other.
+static std::string accountPath(const std::string &dir, const std::string &api)
+{
+	if (!fs::CreateAllDirs(dir))
+		throw BaseException("shell: could not create " + dir);
+	if (api == Settings::getLayer(SL_DEFAULTS)->get("arclabs_url"))
+		return dir + DIR_DELIM "account.json";
+	std::string host = api.substr(api.find("://") == std::string::npos ? 0 : api.find("://") + 3);
+	for (char &c : host) {
+		if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-')
+			c = '_';
+	}
+	return dir + DIR_DELIM "account-" + host + ".json";
+}
 
 static const char *modeName(Mode mode)
 {
@@ -38,6 +59,10 @@ struct Shell::Impl
 	Ime ime;
 	Options options;
 	Bridge bridge;
+	// Made once the page can be spoken to (they send as soon as they exist).
+	// Social first: the account tells it who's signed in.
+	std::unique_ptr<Social> social;
+	std::unique_ptr<Account> account;
 	CefRefPtr<CefMessageRouterBrowserSide> router;
 	CefRefPtr<Client> client;
 	CefRefPtr<CefBrowser> browser;
@@ -45,6 +70,7 @@ struct Shell::Impl
 	// Page state, as far as the engine knows it. Reset on every navigation:
 	// a reloaded page has to announce itself again before it is spoken to.
 	bool ready = false;
+	unsigned loads = 0; // pageLoads()
 	bool keyboard = false;
 	Mode mode = Mode::Menu;
 	std::vector<Json::Value> pending;
@@ -79,6 +105,7 @@ struct Shell::Impl
 	void onReady()
 	{
 		ready = true;
+		loads++;
 		sendMode();
 		for (const auto &message : pending)
 			bridge.send(browser, message);
@@ -144,6 +171,69 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 			throw BaseException("shell: the system could not open " + url);
 		return Json::Value();
 	});
+	m->social = std::make_unique<Social>(opts.arclabs, [this](const Json::Value &message) { m->send(message); });
+	m->account = std::make_unique<Account>(opts.arclabs, accountPath(opts.account_dir, opts.arclabs),
+			[this](const Json::Value &message) {
+				m->send(message);
+				bool in = message["account"]["status"].asString() == "signedIn";
+				m->social->signedIn(in ? m->account->key() : "");
+			});
+	m->bridge.on("account.get", [this](const Json::Value &) {
+		return m->account->get();
+	});
+	m->bridge.on("account.signIn", [this](const Json::Value &) {
+		m->account->signIn();
+		return Json::Value();
+	});
+	m->bridge.on("account.cancel", [this](const Json::Value &) {
+		m->account->cancel();
+		return Json::Value();
+	});
+	m->bridge.on("account.signOut", [this](const Json::Value &) {
+		m->account->signOut();
+		return Json::Value();
+	});
+	m->bridge.on("account.retry", [this](const Json::Value &) {
+		m->account->retry();
+		return Json::Value();
+	});
+	m->bridge.on("social.get", [this](const Json::Value &) {
+		return m->social->get();
+	});
+	m->bridge.on("social.open", [this](const Json::Value &intent) {
+		if (!intent["open"].isBool())
+			throw Refused("social.open needs a boolean 'open'");
+		m->social->open(intent["open"].asBool());
+		return Json::Value();
+	});
+	// The player's own actions wait on the backend: off the main thread.
+	auto idOf = [](const Json::Value &intent) {
+		if (!intent["id"].isString())
+			throw Refused("needs a string 'id'");
+		return intent["id"].asString();
+	};
+	m->bridge.onAsync("social.request", [this](const Json::Value &intent) {
+		if (!intent["username"].isString())
+			throw Refused("social.request needs a string 'username'");
+		m->social->request(intent["username"].asString());
+		return Json::Value();
+	});
+	m->bridge.onAsync("social.accept", [this, idOf](const Json::Value &intent) {
+		m->social->accept(idOf(intent));
+		return Json::Value();
+	});
+	m->bridge.onAsync("social.remove", [this, idOf](const Json::Value &intent) {
+		m->social->remove(idOf(intent));
+		return Json::Value();
+	});
+	m->bridge.onAsync("social.invite", [this, idOf](const Json::Value &intent) {
+		m->social->invite(idOf(intent));
+		return Json::Value();
+	});
+	m->bridge.onAsync("social.dismiss", [this, idOf](const Json::Value &intent) {
+		m->social->dismiss(idOf(intent));
+		return Json::Value();
+	});
 	m->router = CefMessageRouterBrowserSide::Create(routerConfig());
 	m->router->AddHandler(&m->bridge, true);
 	m->client = new Client(m->pixels, m->viewport, m->router, [this] { m->onNavigate(); });
@@ -183,6 +273,8 @@ Shell::~Shell()
 void Shell::frame()
 {
 	CefDoMessageLoopWork();
+	m->account->step();
+	m->social->step();
 
 	auto size = m->opts.driver->getScreenSize();
 	if (size.Width != m->viewport.width || size.Height != m->viewport.height) {
@@ -202,8 +294,15 @@ bool Shell::onEvent(const SEvent &event)
 void Shell::setMode(Mode mode)
 {
 	m->mode = mode;
+	if (mode == Mode::Menu)
+		m->social->leave();
 	if (m->ready)
 		m->sendMode();
+}
+
+unsigned Shell::pageLoads() const
+{
+	return m->loads;
 }
 
 void Shell::on(const std::string &kind, Verb verb)
@@ -224,6 +323,16 @@ void Shell::off(const std::string &kind)
 void Shell::send(const Json::Value &message)
 {
 	m->send(message);
+}
+
+Social &Shell::social()
+{
+	return *m->social;
+}
+
+Account &Shell::account()
+{
+	return *m->account;
 }
 
 const std::string &Shell::itemDir() const

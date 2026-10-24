@@ -28,6 +28,7 @@ scripts/assets/   texture import: Good Vibes at a pinned revision, plus derived 
 src/matter/       OURS — elements and substances, and the state they're in at any temperature and pressure
 matter/           OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
 src/far/          OURS — the far view: terrain beyond the loaded blocks to the horizon, from the world code
+src/online/       OURS — playing with friends: STUN, endpoints, hole punching, UPnP, the ticket gate, join
 src/mapgen/mapgen_terra.*  OURS — the `terra` map generator: terrain/climate/biome from terragen
 ui/               OURS — the Vue app (Vite + TypeScript): menus, HUD, in-game screens, gallery
 games/terrafirma/ OURS — the game, in Lua: blocks, items, recipes, biomes, trees, survival systems
@@ -43,6 +44,7 @@ builtin/, games/devtest, irr/, lib/, android/   upstream; leave alone unless ask
 ```bash
 bun dev                 # rebuild engine, start Vite, launch the game against the dev server (hot reload in-game)
 bun dev --go            # same, straight into a world
+bun dev --profile two   # a second game beside the first, as another player (own sign-in and Chromium cache; shares the UI server)
 bun components          # the component gallery in a browser — every UI component, mock engine, no game
 bun run build           # engine + production UI (ui/dist, served in-game as terra://ui/)
 
@@ -55,6 +57,9 @@ bun check:lab           # every Lab scenario built headless; each `expect` check
 bun check:wiki          # every wiki demo (reactions + Lab) run in the engine sandbox; reactions must make their products
 bun check:matter        # a clay fire pit lit on a live server: the world's matter burns, flames, records reactions, saves
 bun check:far           # the far view against the world: generated chunks vs core.terra.surface, column by column
+arc gate release        # what a release needs, locally: build, tests, UI, a headless world (repo.config.ts)
+arc deploy release      # package.json "version" → tag v<version> → CI builds and attaches the Linux package (.github/workflows/release.yml)
+bun package:linux <version>  # the portable Linux folder + .tar.zst from the current build (scripts/release)
 # tuning by eye: render a code's grid (relief, lakes, rivers) to a PNG and look at it
 g++ -std=c++17 -O2 -Isrc src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 ```
@@ -80,7 +85,14 @@ runs it and shares screenshots. Say plainly what was and wasn't run.
   `mapgen.cpp/.h` register the `terra` generator (enum + name + factory);
   `game.cpp` creates and updates the far view (`far_view`); `server.cpp`
   sends `TOCLIENT_HORIZON` on join; `clientmap.h` lists the blocks it
-  draws (`forEachDrawn`).
+  draws (`forEachDrawn`). Online (sprint 24): `gameparams.h` carries
+  `online::Launch`; `clientlauncher` turns the menu's choice into hosting or
+  joining; `game.cpp` makes `online::Host` around the server socket, joins
+  from a STUN-mapped socket, pauses a hosted world only when alone;
+  `server.cpp`/`serverpackethandler.cpp` admit by `AUTH_MECHANISM_TICKET`
+  through `online::Gate`; `client.cpp` answers it and connects from a given
+  socket; `network/mtp` hands datagrams that aren't the game's (STUN answers)
+  to `IConnection::setStrayHandler`.
 - Upstream C++ keeps upstream style. Our C++ (`src/shell`, `src/terragen`)
   follows "Code standards" below within C++ idiom: one concern per class,
   pimpl to keep CEF out of engine headers, RAII.
@@ -112,9 +124,14 @@ over every frame. Each file owns one concern:
 | `items.*` | item label + icon (blocks rendered as cubes, read back, written as PNG) |
 | `screens.*` | page screens backed by an invisible `GUIModalMenu` (real pause/cursor/Esc semantics); table of screens |
 | `actions.*` | inventory move/craft/drop → the engine's own inventory actions |
+| `account.*` | the ArcLabs account: device-flow sign-in, the saved key, `account` messages |
+| `social.*` | friends, presence (heartbeat) and invites from ArcLabs, `social` messages |
 
 Settings: `shell_url` (default `terra://ui/index.html`), `shell_gpu` (Chromium
-GPU raster; set false if a driver misbehaves), `game_id` (default `terrafirma`).
+GPU raster; set false if a driver misbehaves), `game_id` (default `terrafirma`),
+`arclabs_url` (the ArcLabs API accounts sign in to; `--arclabs-url` overrides it,
+and `bun dev` passes the local stack, `http://localhost:3099`, unless
+`ARCLABS_URL` says otherwise). Each API keeps its own saved sign-in.
 
 ### The bridge contract
 
@@ -124,7 +141,7 @@ GPU raster; set false if a driver misbehaves), `game_id` (default `terrafirma`).
 - **Intents** (page → engine) are answered by verbs registered with
   `shell.on(kind, fn)` by whoever owns that screen, and removed with `off` when
   it hands over. An intent nobody answers fails loudly in the page.
-  Always on: `ready`, `capture`, `settings.get/set`, `open`.
+  Always on: `ready`, `capture`, `settings.get/set`, `open`, `account.*`, `social.*`.
   Menu: `worlds.*`, `play`, `lab.list`, `lab.enter`, `quit`, `worldgen.preview`. Session: `screen.open`,
   `screen.close`, `game.leave`, `game.quit`, `inventory.move/craft/drop`, `ui.send`.
 - A verb throws `Refused("…")` for an expected no (shown to the player);
@@ -132,7 +149,7 @@ GPU raster; set false if a driver misbehaves), `game_id` (default `terrafirma`).
 - **Slow verbs are async** (`shell.onAsync`): they run on the bridge's worker
   thread, one at a time, and answer on the main thread — the menu keeps
   drawing. They must be thread-safe (pure). `worldgen.preview` is one.
-- **Messages** (engine → page): `mode`, `error`, `items`, `state` (sections:
+- **Messages** (engine → page): `mode`, `error`, `items`, `account`, `social`, `state` (sections:
   `hud`, `player`, `hotbar`, `inventory`), `screen`, `ui`. Messages sent before the
   page is ready are queued; `mode` is resent after every reload.
 - **The UI channel: game Lua ↔ page.** `player:set_ui(key, value)` sends a
@@ -561,6 +578,28 @@ its story. Fixed point (`log2`/`exp2`/`pow` in `fixed.*`), calibrated so our
 own solar system comes out as itself (unit-tested). Served by
 `system.preview`; the create screen's System tab holds causes only
 (`ui/src/system/`). Direction: `planning/systems-and-bodies.md`.
+
+**Online (sprint 23, `planning/sprint-23-online.md`):** players are ArcLabs
+accounts. Terra Firma shares only identity with ArcLabs (the device flow,
+client `terrafirma`, a key scoped `terrafirma:play`); ArcLabs auth replaces
+Luanti's for online play, singleplayer needs no account. Built so far: sign-in
+(`src/shell/account.*`) and friends, presence and invites (`src/shell/social.*`,
+`ui/src/social`; backend `platform/terrafirma`), and joining
+(`planning/sprint-24-join.md`, `src/online`): a signed-in player's world is
+hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
+gets a single-use ticket from ArcLabs, and the host's server admits by ticket
+(protocol 58). No relay yet: pairs that can't be punched through are told so.
+
+**Built (sprint 21, `planning/sprint-21-flight.md`):** flight. One
+planet card (`terragen/planet.h`: a tenth of Earth's size, ten times its
+spin, Earth's pull and air) read by climate, weather and flight; the world's
+blocks are a map of it (`core.terra.globe/block`). `src/orbit` flies
+anything under gravity, air and thrust (`core.orbit`). Space is a place:
+above the 30 km boundary everything rides in bubbles, cells of the map past
+the polar wall (`World::spaceFrom`) each falling on an orbit, where you
+float, build stations and meet other bubbles (`tf_flight/space.lua`); the
+creative flight pack flies over the blocks and in space. The wiki's
+Flight section is Newton's cannon (`orbit.coast`). `bun check:flight`.
 
 **Built (sprint 19, `planning/sprint-19-families.md`):** material
 families. A block is a family plus a composition in its `param2`, coloured

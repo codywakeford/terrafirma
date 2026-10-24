@@ -4,6 +4,7 @@
 
 #include "chatmessage.h"
 #include "server.h"
+#include "online/gate.h"
 #include <json/json.h>
 #include <sstream>
 #include "serverenvironment.h"
@@ -209,13 +210,14 @@ void Server::handleCommand_Init(NetworkPacket* pkt)
 	/*
 		Compose auth methods for answer
 	*/
-	std::string encpwd; // encrypted Password field for the user
-	bool has_auth = m_script->getAuth(playername, &encpwd, nullptr);
 	u32 auth_mechs = 0;
-
 	client->chosen_mech = AUTH_MECHANISM_NONE;
 
-	if (has_auth) {
+	std::string encpwd; // encrypted Password field for the user
+	if (m_gate) {
+		// Terra Firma: hosted for friends, a ticket is the only way in
+		auth_mechs = AUTH_MECHANISM_TICKET;
+	} else if (m_script->getAuth(playername, &encpwd, nullptr)) {
 		std::vector<std::string> pwd_components = str_split(encpwd, '#');
 		if (pwd_components.size() == 4) {
 			if (pwd_components[1] == "1") { // 1 means srp
@@ -1384,6 +1386,24 @@ void Server::handleCommand_InventoryFields(NetworkPacket* pkt)
 			<< "') but server hasn't sent formspec to client";
 	}
 	actionstream << ", possible exploitation attempt" << std::endl;
+}
+
+void Server::handleCommand_Ticket(NetworkPacket *pkt)
+{
+	session_t peer_id = pkt->getPeerId();
+	RemoteClient *client = getClient(peer_id, CS_Invalid);
+	if (!m_gate || client->getState() != CS_HelloSent ||
+			!client->isMechAllowed(AUTH_MECHANISM_TICKET) ||
+			client->chosen_mech != AUTH_MECHANISM_NONE) {
+		actionstream << "Server: unexpected TOSERVER_TICKET from "
+			<< client->getAddress().serializeString() << std::endl;
+		DenyAccess(peer_id, SERVER_ACCESSDENIED_UNEXPECTED_DATA);
+		return;
+	}
+	std::string ticket, build;
+	*pkt >> ticket >> build;
+	client->chosen_mech = AUTH_MECHANISM_TICKET;
+	m_gate->begin(peer_id, client->getName(), ticket, build); // answered in AsyncRunStep
 }
 
 void Server::handleCommand_FirstSrp(NetworkPacket* pkt)

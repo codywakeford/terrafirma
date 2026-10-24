@@ -13,6 +13,7 @@
 #include "mapblock.h"
 #include "nodedef.h"
 #include "settings.h"
+#include "terragen/planet.h"
 #include <ICameraSceneNode.h>
 #include <SViewFrustum.h>
 #include <ISceneManager.h>
@@ -46,14 +47,19 @@ static float span(s32 level)
 	return (float)(TILE << level);
 }
 
-// What the shader needs while the far view draws (scene units).
+// What the shader needs while the far view draws (scene units unless said).
 struct DrawState
 {
 	v3f eye;
 	float radius = 1;
 	float cut = 0;
-	float haze = 1;     // distance past the cut over which the air's haze builds
+	float haze = 1;     // distance past the cut over which the air's haze builds, near the ground
 	float mask[4] = {}; // scene x, z of the mask's corner, its size, 1 if it applies
+	float share = 0;    // how far the map has become the planet (terragen::Map::share)
+	float sea = 0;      // the scene y of the sea
+	float place[4] = {}; // the eye: map x, z (blocks), altitude (m); the map's size (blocks)
+	float across[2] = { 1, 1 }; // m of planet per block east and north, where the eye is
+	float air = 1;      // m: the air's scale height
 };
 
 class Uniforms : public IShaderUniformSetterRC
@@ -70,6 +76,12 @@ public:
 		m_cut_pixel.set(&m_state->cut, services);
 		m_haze.set(&m_state->haze, services);
 		m_mask.set(m_state->mask, services);
+		m_share.set(&m_state->share, services);
+		m_across.set(m_state->across, services);
+		m_sea.set(&m_state->sea, services);
+		m_place_vertex.set(m_state->place, services);
+		m_place_pixel.set(m_state->place, services);
+		m_air.set(&m_state->air, services);
 	}
 
 private:
@@ -81,6 +93,12 @@ private:
 	CachedPixelShaderSetting<float> m_cut_pixel{"farCut"};
 	CachedPixelShaderSetting<float> m_haze{"farHaze"};
 	CachedPixelShaderSetting<float, 4> m_mask{"farMask"};
+	CachedPixelShaderSetting<float> m_share{"farShare"};
+	CachedVertexShaderSetting<float, 2> m_across{"farAcross"};
+	CachedVertexShaderSetting<float> m_sea{"farSea"};
+	CachedVertexShaderSetting<float, 4> m_place_vertex{"farPlace"};
+	CachedPixelShaderSetting<float, 4> m_place_pixel{"farPlace"};
+	CachedPixelShaderSetting<float> m_air{"farAir"};
 };
 
 // From lowest ground to the top of the highest water or tree, per map-block
@@ -235,10 +253,10 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 		const NodeDefManager *ndef, const Horizon &horizon) :
 	scene::ISceneNode(smgr->getRootSceneNode(), smgr, -1),
 	m_horizon(horizon),
+	m_globe(terragen::WorldCode::decode(horizon.code).size, terragen::home().radius),
 	m_state(std::make_shared<DrawState>())
 {
 	terragen::WorldCode code = terragen::WorldCode::decode(horizon.code);
-	m_radius = radius(code);
 	m_size = code.size;
 	m_colours = std::make_unique<Colours>(ndef, tsrc, blocksIn(m_horizon));
 	m_workers = std::make_unique<Workers>(m_horizon, *m_colours);
@@ -270,7 +288,7 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 	readSettings();
 	for (const char *name : SETTINGS)
 		g_settings->registerChangedCallback(name, &settingChanged, this);
-	infostream << "far view: " << horizon.code << ", horizon radius " << m_radius << " blocks, "
+	infostream << "far view: " << horizon.code << ", "
 			<< horizon.species.size() << " tree species" << std::endl;
 }
 
@@ -321,7 +339,9 @@ bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<s
 	float d = distance(key, eye);
 	if (d > m_range)
 		return true; // beyond the horizon's reach: nothing to draw
-	bool split = key.level > 0 && d - m_cut < span(key.level) * m_split;
+	// high up, a tile's size on screen goes by how far it is through the air
+	float seen = std::sqrt(d * d + m_lift * m_lift);
+	bool split = key.level > 0 && seen - m_cut < span(key.level) * m_split;
 
 	if (!split) {
 		Entry &e = m_tiles[key];
@@ -372,21 +392,38 @@ bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<s
 }
 
 void View::update(const Camera &camera, ClientMap &map, float near_range, bool range_all,
-		std::optional<float> fog_limit)
+		std::optional<float> fog_limit, const std::optional<Aloft> &aloft)
 {
 	m_frame++;
 	m_camera_offset = camera.getOffset();
+	v3f eye = (camera.getCameraNode()->getPosition() + intToFloat(m_camera_offset, BS)) / BS;
+	m_aloft = aloft.has_value();
+	if (aloft)
+		eye = v3f(aloft->x, aloft->altitude + m_horizon.water_level, aloft->z);
+	m_altitude = std::max(eye.Y - m_horizon.water_level, 0.0f);
+	m_share = (float)m_globe.share(m_altitude);
+	// a block's least span here, m: how far the land reaches in blocks
+	m_across = m_globe.across(m_altitude, m_globe.latitudeAt(eye.Z));
+	m_curve = (float)m_globe.curve(m_altitude);
+	float block = (float)std::max(std::min(m_across.east, m_across.north), 1.0);
+	m_lift = m_altitude / block;
+
 	// beyond half the world east–west lies the same land again
 	float range = std::min(m_max, (float)m_size / 2);
 	if (fog_limit)
 		range = std::min(range, *fog_limit);
-	m_cut = near_range;
+	// up the air, out to the planet's horizon
+	double R = m_curve, h = m_altitude;
+	float horizon = (float)std::sqrt(2 * R * h + h * h); // m
+	if (!fog_limit && m_share > 0)
+		range = std::min((float)m_size / 2, std::max(range, 1.1f * horizon / block));
+	m_cut = m_aloft ? 0 : near_range; // in space the near world is the bubble's cell, not the land
 	m_range = range;
-	m_showing = m_enabled && !range_all && range > near_range;
+	m_reach = std::max(range, horizon) * BS + m_altitude * BS;
+	m_showing = m_enabled && !range_all && range > m_cut;
 	if (!m_showing)
 		return;
 
-	v3f eye = (camera.getCameraNode()->getPosition() + intToFloat(m_camera_offset, BS)) / BS;
 	v2f flat(eye.X, eye.Z);
 
 	// the coarsest tiles that reach the range, split down toward the camera
@@ -467,9 +504,12 @@ void View::updateMask(ClientMap &map, v3f eye)
 		// surface: at its edge it draws by distance, and may have the seabed
 		// or a hill's foot without the top. Where it draws the top but not
 		// the floor (low over the sea), its water lies over our floor.
-		bool near = !ys.empty(), top = near;
+		// A column whose surface we don't know (only coarse tiles of ours
+		// cover it: high up, where the near world draws only air) isn't the
+		// near world's.
 		auto it = m_surfaces.find(columnKey(m_mask_centre.X - half + u, m_mask_centre.Z - half + v));
-		if (near && it != m_surfaces.end()) {
+		bool near = !ys.empty() && it != m_surfaces.end(), top = near;
+		if (near) {
 			std::sort(ys.begin(), ys.end());
 			s16 lo = getContainerPos(it->second.low, MAP_BLOCKSIZE), hi = getContainerPos(it->second.high, MAP_BLOCKSIZE);
 			top = std::binary_search(ys.begin(), ys.end(), hi);
@@ -532,27 +572,41 @@ void View::render()
 		return;
 
 	// the mask, from exactly the blocks the near world is about to draw
-	// (its draw list is updated after our update(), and not every frame)
-	updateMask(*m_map, m_eye);
+	// (its draw list is updated after our update(), and not every frame);
+	// in space the near world is the bubble's cell, not the land
+	if (!m_aloft)
+		updateMask(*m_map, m_eye);
 
 	v3f eye = camera->getAbsolutePosition();
-	v3f offset = intToFloat(m_camera_offset, BS);
+	// the scene position of map block (0, 0, 0): where the camera stands is
+	// m_eye, which aloft is somewhere else on the map
+	v3f origin = eye - m_eye * BS;
 	m_state->eye = eye;
-	m_state->radius = m_radius * BS;
+	m_state->radius = m_curve * BS;
 	m_state->cut = m_cut * BS;
-	m_state->haze = std::max(m_range - m_cut, 1.0f) * BS;
-	m_state->mask[0] = ((float)(m_mask_centre.X - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS - offset.X;
-	m_state->mask[1] = ((float)(m_mask_centre.Z - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS - offset.Z;
+	m_state->haze = std::max(std::min(m_max, (float)m_size / 2) - m_cut, 1.0f) * BS;
+	m_state->mask[0] = ((float)(m_mask_centre.X - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.X;
+	m_state->mask[1] = ((float)(m_mask_centre.Z - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.Z;
 	m_state->mask[2] = (float)(MAP_BLOCKSIZE * MASK) * BS;
-	m_state->mask[3] = 1;
+	m_state->mask[3] = m_aloft ? 0 : 1;
+	m_state->share = m_share;
+	m_state->sea = origin.Y + m_horizon.water_level * BS;
+	m_state->place[0] = m_eye.X;
+	m_state->place[1] = m_eye.Z;
+	m_state->place[2] = m_altitude;
+	m_state->place[3] = (float)m_size;
+	m_state->across[0] = (float)m_across.east;
+	m_state->across[1] = (float)m_across.north;
+	m_state->air = (float)terragen::home().scale_height;
 
-	// its own depth range: from a block away to past the horizon
-	float altitude = std::fabs((eye.Y + offset.Y) / BS - m_horizon.water_level);
-	float zfar = (m_range * 1.5f + altitude + POLAR_WALL) * BS;
+	// its own depth range: from a block away (or, high up, from well short of
+	// the land) to past the horizon
+	float znear = std::max(BS, 0.5f * (m_altitude - (float)terragen::Map::SPREAD) * BS);
+	float zfar = std::max((m_range * 1.5f + m_altitude + POLAR_WALL) * BS, 1.5f * m_reach);
 	core::matrix4 projection = driver->getTransform(video::ETS_PROJECTION);
 	core::matrix4 own;
 	own.buildProjectionMatrixPerspectiveFovLH(camera->getFOV(), camera->getAspectRatio(),
-			BS, zfar, false);
+			znear, zfar, false);
 	driver->setTransform(video::ETS_PROJECTION, own);
 	driver->setMaterial(m_material);
 	scene::SViewFrustum frustum(own * driver->getTransform(video::ETS_VIEW), false);
@@ -562,21 +616,22 @@ void View::render()
 		if (it == m_tiles.end())
 			continue;
 		// the near world draws all of it: nothing of ours would show
-		if (key.level <= 3 && covered(key))
+		if (!m_aloft && key.level <= 3 && covered(key))
 			continue;
 		float s = span(key.level);
-		v3f at(key.x * s * BS - offset.X, -offset.Y, key.z * s * BS - offset.Z);
-		// out of view (allowing for the curve, which only lowers it)
+		v3f at(key.x * s * BS + origin.X, origin.Y, key.z * s * BS + origin.Z);
+		core::matrix4 world;
+		world.setTranslation(at);
+		driver->setTransform(video::ETS_WORLD, world);
+		// out of view (allowing for the curve, which only lowers it); once
+		// it's becoming the globe, the boxes don't say where it is
 		aabb3f box(it->second.box.MinEdge + at, it->second.box.MaxEdge + at);
 		float dx = std::max(std::fabs(box.MinEdge.X - eye.X), std::fabs(box.MaxEdge.X - eye.X));
 		float dz = std::max(std::fabs(box.MinEdge.Z - eye.Z), std::fabs(box.MaxEdge.Z - eye.Z));
 		float past = std::max(std::sqrt(dx * dx + dz * dz) - m_state->cut, 0.0f);
 		box.MinEdge.Y -= past * (past + 2 * m_state->cut) / (2 * m_state->radius);
-		if (outside(frustum, box))
+		if (m_share == 0 && outside(frustum, box))
 			continue;
-		core::matrix4 world;
-		world.setTranslation(at);
-		driver->setTransform(video::ETS_WORLD, world);
 		for (const auto &part : it->second.parts)
 			driver->drawMeshBuffer(part.get());
 	}

@@ -1,6 +1,12 @@
 # Always run during 'make'
 
-if(DEVELOPMENT_BUILD)
+# Terra Firma: a release is its tag (-DTERRAFIRMA_VERSION=v0.2.0). Joining a
+# friend compares this (src/online/gate.h), so every release must differ.
+if(TERRAFIRMA_VERSION)
+	set(VERSION_GITHASH "${TERRAFIRMA_VERSION}")
+endif()
+
+if(DEVELOPMENT_BUILD AND NOT VERSION_GITHASH)
 	execute_process(COMMAND git rev-parse --short HEAD
 		WORKING_DIRECTORY "${GENERATE_VERSION_SOURCE_DIR}"
 		OUTPUT_VARIABLE VERSION_GITHASH OUTPUT_STRIP_TRAILING_WHITESPACE

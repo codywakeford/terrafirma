@@ -9,7 +9,7 @@
 
 ## Overview
 
-TerraFirma has been forked from Luanti, a free open-source voxel game engine with easy modding and game creation. The goal is to create a minecraft like game, but better.
+TerraFirma has been forked from (Luanti)[https://github.com/luanti-org/luanti], a free open-source voxel game engine with easy modding and game creation. The fork has 2 primary goals. Build a open source sandbox for open ended cognition experiments, with first class integration with the (axon)[https://github.com/artificial-cognition-laboratories/axon] platform, and to create an open alternative to minecraft with community first class while keeping the game free to all. 
 
 Table of Contents
 ------------------

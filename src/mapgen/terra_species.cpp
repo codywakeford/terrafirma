@@ -73,12 +73,6 @@ treegen::TreeDef treeDef(const Species &s)
 	return def;
 }
 
-std::vector<SpeciesDef> &registered()
-{
-	static std::vector<SpeciesDef> s_species;
-	return s_species;
-}
-
 std::vector<Species> resolve(const std::vector<SpeciesDef> &defs, const NodeDefManager *ndef)
 {
 	auto id = [&](const std::string &species, const std::string &name) {

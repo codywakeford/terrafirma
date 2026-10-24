@@ -79,8 +79,6 @@ const Species *choose(const std::vector<Species> &species, const Spot &spot, con
 // The tree a species grows, ready for treegen.
 treegen::TreeDef treeDef(const Species &s);
 
-// The server's registered species, in registration order (core.terra.register_species).
-std::vector<SpeciesDef> &registered();
 // Throws BaseException naming any block the game doesn't have.
 std::vector<Species> resolve(const std::vector<SpeciesDef> &defs, const NodeDefManager *ndef);
 

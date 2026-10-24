@@ -27,6 +27,8 @@ constexpr float PI = 3.14159265358979323846f;
 constexpr int LON = 128;
 constexpr int LAT = 64;
 constexpr float RADIUS = 2.2f;
+constexpr float EAST_SIDE = 0.8f;  // a block side's light, of its top's (as in game)
+constexpr float SOUTH_SIDE = 0.65f;
 
 struct ShadeVertex {
 	video::SColor base;
@@ -56,10 +58,14 @@ static video::SColor rgb(int r, int g, int b, int a = 255)
 	return video::SColor(a, r, g, b);
 }
 
-static void material(scene::SMeshBuffer *mesh, bool transparent = false, bool additive = false)
+// Bodies (and the cloud shell) are closed and wound outward: their far
+// halves are culled, so they can't show through whatever depth does. The
+// flat glows are seen from both sides.
+static void material(scene::SMeshBuffer *mesh, bool transparent = false, bool additive = false,
+		bool closed = false)
 {
 	auto &m = mesh->getMaterial();
-	m.BackfaceCulling = false;
+	m.BackfaceCulling = closed;
 	m.FogEnable = false;
 	m.MaterialType = additive ? video::EMT_ONETEXTURE_BLEND :
 			transparent ? video::EMT_TRANSPARENT_VERTEX_ALPHA : video::EMT_SOLID;
@@ -87,13 +93,37 @@ static void quad(scene::SMeshBuffer *mesh, const std::array<Vec, 4> &points,
 			first, (u16)(first + 2), (u16)(first + 3)});
 }
 
-static const std::array<video::SColor, (int)terragen::Biome::Count> BIOME = {
+// A cliff along the edge p–q from height `high` down to `low`, facing `out`
+// (toward the lower cell). Shaded as a block's side is: lit like the top it
+// belongs to, a fixed step darker (lit by its own facing, the sides turned
+// from the sun went near black).
+static void wall(scene::SMeshBuffer *mesh, const Vec &p, const Vec &q, float high, float low,
+		const Vec &out, video::SColor top, float side, std::vector<ShadeVertex> &shade)
+{
+	Vec normal = (p * low - p * high).crossProduct(q * low - p * high); // as quad() makes it
+	video::SColor color(255, (u32)(top.getRed() * side), (u32)(top.getGreen() * side), (u32)(top.getBlue() * side));
+	if (normal.dotProduct(out) >= 0)
+		quad(mesh, {p * high, p * low, q * low, q * high}, color);
+	else
+		quad(mesh, {q * high, q * low, p * low, p * high}, color);
+	Vec up = p + q;
+	up.normalize();
+	for (int i = 0; i < 4; ++i)
+		shade.push_back({color, up, false});
+}
+
+// One colour per biome, in terragen::Biome's order (the menu's worldgen
+// preview, ui/src/worldgen/fields.ts, uses the same). Sized by its contents and
+// checked: a std::array sized by Count zero-filled the two biomes added later,
+// and drew them black.
+static const video::SColor BIOME[] = {
 	rgb(18, 52, 96), rgb(30, 84, 140), rgb(200, 220, 235),
 	rgb(214, 200, 140), rgb(222, 190, 118), rgb(176, 170, 84),
 	rgb(104, 160, 72), rgb(52, 116, 56), rgb(28, 120, 60),
 	rgb(60, 100, 80), rgb(150, 160, 140), rgb(120, 116, 110),
-	rgb(236, 240, 244),
+	rgb(236, 240, 244), rgb(96, 140, 40), rgb(160, 150, 96),
 };
+static_assert(std::size(BIOME) == (size_t)terragen::Biome::Count, "a colour for every biome");
 
 static float relief(int16_t elevation)
 {
@@ -104,22 +134,72 @@ static float relief(int16_t elevation)
 	return RADIUS + std::ceil(e * 10.0f) * 0.016f;
 }
 
-static Body planet(const terragen::Preview &preview)
+// A body's surface as cells on a lon × lat grid, row by row from the north:
+// each a height (its distance from the centre) and a colour.
+struct Cells
+{
+	int lon, lat;
+	std::vector<float> height;
+	std::vector<video::SColor> colour;
+	std::vector<bool> wet; // takes the sun's glint
+};
+
+// The cells as blocks: a top for each, and a wall at every step between
+// neighbours, facing out from the higher one and coloured from it (without
+// them the body is hollow where it steps, and shows through).
+static Body blocks(const Cells &cells)
 {
 	Body body;
-	material(body.mesh.get());
-	material(body.east.get());
-	material(body.south.get());
+	material(body.mesh.get(), false, false, true);
+	material(body.east.get(), false, false, true);
+	material(body.south.get(), false, false, true);
+	const int LON = cells.lon, LAT = cells.lat;
+	for (int y = 0; y < LAT; ++y) {
+		for (int x = 0; x < LON; ++x) {
+			size_t k = (size_t)y * LON + x;
+			float r = cells.height[k];
+			float u0 = (float)x / LON, u1 = (float)(x + 1) / LON;
+			float v0 = (float)y / LAT, v1 = (float)(y + 1) / LAT;
+			Vec a = direction(u0, v0), b = direction(u1, v0);
+			Vec c = direction(u1, v1), d = direction(u0, v1);
+			quad(body.mesh.get(), {a * r, b * r, c * r, d * r}, cells.colour[k], &body.shade, cells.wet[k]);
+			Vec middle = (a + b + c + d) * 0.25f;
+			size_t ek = (size_t)y * LON + (x + 1) % LON;
+			float east = cells.height[ek];
+			Vec toward = direction(u1 + 0.5f / LON, (v0 + v1) * 0.5f) - middle; // the east cell
+			if (r > east + 0.001f)
+				wall(body.east.get(), b, c, r, east, toward, cells.colour[k], EAST_SIDE, body.east_shade);
+			else if (east > r + 0.001f)
+				wall(body.east.get(), b, c, east, r, -toward, cells.colour[ek], EAST_SIDE, body.east_shade);
+			if (y + 1 < LAT) {
+				size_t sk = (size_t)(y + 1) * LON + x;
+				float south = cells.height[sk];
+				Vec down = direction((u0 + u1) * 0.5f, v1 + 0.5f / LAT) - middle; // the south cell
+				if (r > south + 0.001f)
+					wall(body.south.get(), d, c, r, south, down, cells.colour[k], SOUTH_SIDE, body.south_shade);
+				else if (south > r + 0.001f)
+					wall(body.south.get(), d, c, south, r, -down, cells.colour[sk], SOUTH_SIDE, body.south_shade);
+			}
+		}
+	}
+	body.mesh->recalculateBoundingBox();
+	body.east->recalculateBoundingBox();
+	body.south->recalculateBoundingBox();
+	return body;
+}
+
+static Body planet(const terragen::Preview &preview)
+{
 	auto sample = [&](int x, int y) -> size_t {
 		return (size_t)std::clamp(y * preview.resolution / LAT, 0, preview.resolution - 1) * preview.resolution +
 				((x + LON) % LON) * preview.resolution / LON;
 	};
+	Cells cells{LON, LAT, std::vector<float>(LON * LAT), std::vector<video::SColor>(LON * LAT),
+			std::vector<bool>(LON * LAT)};
 	for (int y = 0; y < LAT; ++y) {
 		for (int x = 0; x < LON; ++x) {
 			size_t i = sample(x, y);
-			float r = relief(preview.elevation[i]);
-			uint8_t biome = preview.biome[i];
-			video::SColor color = BIOME.at(biome);
+			video::SColor color = BIOME[preview.biome[i]];
 			if (preview.lake[i]) color = rgb(58, 140, 205);
 			// Match the preview globe's readable relief without smoothing away the
 			// individual orbital terrain cells.
@@ -128,28 +208,15 @@ static Body planet(const terragen::Preview &preview)
 			float tint = std::clamp(1.0f + slope * 4.0f, 0.75f, 1.25f);
 			if (preview.elevation[i] < 0 && !preview.lake[i])
 				tint *= std::clamp(1.0f + preview.elevation[i] / 8500.0f, 0.65f, 1.0f);
-			color = rgb(std::min(255, (int)(color.getRed() * tint)),
+			size_t k = (size_t)y * LON + x;
+			cells.height[k] = relief(preview.elevation[i]);
+			cells.colour[k] = rgb(std::min(255, (int)(color.getRed() * tint)),
 					std::min(255, (int)(color.getGreen() * tint)),
 					std::min(255, (int)(color.getBlue() * tint)));
-			float u0 = (float)x / LON, u1 = (float)(x + 1) / LON;
-			float v0 = (float)y / LAT, v1 = (float)(y + 1) / LAT;
-			Vec a = direction(u0, v0), b = direction(u1, v0);
-			Vec c = direction(u1, v1), d = direction(u0, v1);
-			bool water = preview.elevation[i] <= 0 || preview.lake[i];
-			quad(body.mesh.get(), {a * r, b * r, c * r, d * r}, color, &body.shade, water);
-			// Exposed sides make terrain levels read as blocks at this distance.
-			float east = relief(preview.elevation[sample(x + 1, y)]);
-			float south = relief(preview.elevation[sample(x, std::min(y + 1, LAT - 1))]);
-			if (r > east + 0.001f)
-				quad(body.east.get(), {b * r, b * east, c * east, c * r}, color, &body.east_shade);
-			if (r > south + 0.001f)
-				quad(body.south.get(), {d * r, c * r, c * south, d * south}, color, &body.south_shade);
+			cells.wet[k] = preview.elevation[i] <= 0 || preview.lake[i];
 		}
 	}
-	body.mesh->recalculateBoundingBox();
-	body.east->recalculateBoundingBox();
-	body.south->recalculateBoundingBox();
-	return body;
+	return blocks(cells);
 }
 
 static uint32_t hash(uint32_t n)
@@ -161,29 +228,25 @@ static uint32_t hash(uint32_t n)
 
 static Body moon(uint32_t seed)
 {
-	Body body;
-	material(body.mesh.get());
 	constexpr int MLON = 24, MLAT = 12;
+	Cells cells{MLON, MLAT, std::vector<float>(MLON * MLAT), std::vector<video::SColor>(MLON * MLAT),
+			std::vector<bool>(MLON * MLAT)};
 	for (int y = 0; y < MLAT; ++y) {
 		for (int x = 0; x < MLON; ++x) {
 			uint32_t h = hash(seed ^ (uint32_t)(x * 2347 + y * 977));
-			float r = 0.24f + ((h >> 8) % 4) * 0.004f;
 			int tone = 110 + (int)(h % 38);
-			video::SColor color = rgb(tone, tone - 2, tone - 6);
-			float u0 = (float)x / MLON, u1 = (float)(x + 1) / MLON;
-			float v0 = (float)y / MLAT, v1 = (float)(y + 1) / MLAT;
-			quad(body.mesh.get(), {direction(u0, v0) * r, direction(u1, v0) * r,
-					direction(u1, v1) * r, direction(u0, v1) * r}, color, &body.shade);
+			size_t k = (size_t)y * MLON + x;
+			cells.height[k] = 0.24f + ((h >> 8) % 4) * 0.004f;
+			cells.colour[k] = rgb(tone, tone - 2, tone - 6);
 		}
 	}
-	body.mesh->recalculateBoundingBox();
-	return body;
+	return blocks(cells);
 }
 
 static Body clouds(const terragen::Preview &preview, uint32_t seed)
 {
 	Body body;
-	material(body.mesh.get(), true);
+	material(body.mesh.get(), true, false, true);
 	for (int y = 1; y < LAT - 1; ++y) {
 		for (int x = 0; x < LON; ++x) {
 			int px = x * preview.resolution / LON;
@@ -307,27 +370,35 @@ static video::SColor starColor(const terragen::Star *star)
 	return colors.at(star - terragen::STARS);
 }
 
-static void illuminate(Body &body, const Vec &sun, float spin,
-		const video::SColor &star, float roll = 0)
+// Day and night on a body turned by `rotation` (degrees, as mesh() turns it:
+// the same matrix, so the light stays where the sun is). Past the terminator
+// it's night: a dim blue; along it, the light warms, as a sunset does.
+static void illuminate(Body &body, const Vec &sun, const Vec &rotation, const video::SColor &star)
 {
-	float c = std::cos(spin), s = std::sin(spin);
-	float cr = std::cos(roll), sr = std::sin(roll);
+	constexpr float NIGHT[3] = {0.035f, 0.045f, 0.075f}; // starlight, bluish
+	constexpr float WARM[3] = {0.55f, 0.15f, -0.35f};     // the terminator's tint
+	core::matrix4 turn;
+	turn.setRotationDegrees(rotation);
 	Vec halfway = sun + Vec(0, 0, -1); halfway.normalize();
+	const float tone[3] = {star.getRed() / 245.0f, star.getGreen() / 245.0f, star.getBlue() / 245.0f};
 	auto light_part = [&](scene::SMeshBuffer *mesh, const std::vector<ShadeVertex> &shade) {
 		auto &vertices = mesh->Vertices->Data;
 		for (size_t i = 0; i < shade.size(); ++i) {
 			const ShadeVertex &v = shade[i];
-			Vec turned(c * v.normal.X + s * v.normal.Z, v.normal.Y,
-					-s * v.normal.X + c * v.normal.Z);
-			Vec n(cr * turned.X - sr * turned.Y, sr * turned.X + cr * turned.Y, turned.Z);
-			float day = std::max(0.0f, n.dotProduct(sun));
-			float light = 0.25f + day * 0.91f;
-			float glint = v.water ? std::pow(std::max(0.0f, n.dotProduct(halfway)), 32.0f) * 64 : 0;
-			vertices[i].Color = rgb(
-					(int)std::min(255.0f, v.base.getRed() * light * star.getRed() / 245.0f + glint),
-					(int)std::min(255.0f, v.base.getGreen() * light * star.getGreen() / 245.0f + glint),
-					(int)std::min(255.0f, v.base.getBlue() * light * star.getBlue() / 245.0f + glint),
-					v.base.getAlpha());
+			Vec n = turn.transformVect(v.normal); // no translation: a rotation
+			float day = n.dotProduct(sun);
+			float t = std::clamp((day + 0.06f) / 0.3f, 0.0f, 1.0f);
+			float lit = t * t * (3 - 2 * t); // soft across the terminator
+			float band = std::exp(-std::pow((day - 0.03f) / 0.12f, 2.0f));
+			float direct = lit * (0.22f + 0.85f * std::max(0.0f, day));
+			float glint = v.water ? std::pow(std::max(0.0f, n.dotProduct(halfway)), 32.0f) * 64 * lit : 0;
+			const u32 base[3] = {v.base.getRed(), v.base.getGreen(), v.base.getBlue()};
+			int out[3];
+			for (int ch = 0; ch < 3; ++ch) {
+				float light = NIGHT[ch] + direct * (1 + band * WARM[ch]) * tone[ch];
+				out[ch] = (int)std::clamp(base[ch] * light + glint, 0.0f, 255.0f);
+			}
+			vertices[i].Color = rgb(out[0], out[1], out[2], v.base.getAlpha());
 		}
 		if (!shade.empty()) mesh->setDirty(scene::EBT_VERTEX);
 	};
@@ -351,8 +422,14 @@ static void stirAtmosphere(scene::SMeshBuffer *mesh, const std::vector<u8> &base
 	for (size_t i = 0; i < vertices.size(); ++i) {
 		const Vec &p = vertices[i].Pos;
 		float angle = std::atan2(p.Y, p.X);
-		float haze = 0.94f + 0.06f * std::sin(seconds * 0.14f + angle * 3.0f);
-		vertices[i].Color.setAlpha((u32)(base[i] * haze));
+		// two ripples running opposite ways round the rim, and a brighter
+		// pulse circling it every ~40 s
+		float ripple = 0.07f * std::sin(seconds * 0.45f + angle * 3.0f) +
+				0.05f * std::sin(seconds * 0.8f - angle * 7.0f);
+		float behind = std::remainder(angle - seconds * 0.16f, 2 * PI); // the pulse, -π..π
+		float pulse = 0.35f * std::exp(-behind * behind * 6.0f);
+		float haze = 0.9f + ripple + pulse;
+		vertices[i].Color.setAlpha((u32)std::min(255.0f, base[i] * haze));
 	}
 	mesh->setDirty(scene::EBT_VERTEX);
 }
@@ -432,6 +509,14 @@ struct Orbit::Impl
 		driver->drawMeshBuffer(buffer);
 	}
 
+	// A body's tops and walls.
+	void body(const Body &b, const Vec &position, const Vec &rotation)
+	{
+		mesh(b.mesh.get(), position, rotation);
+		mesh(b.east.get(), position, rotation);
+		mesh(b.south.get(), position, rotation);
+	}
+
 	void draw(float seconds)
 	{
 		auto size = driver->getScreenSize();
@@ -464,9 +549,12 @@ struct Orbit::Impl
 		driver->setTransform(video::ETS_VIEW, view);
 		Vec center(-2.6f, -1.7f, 0);
 		float turn = seconds * 0.012f;
-		illuminate(world, sun, turn, star, roll);
-		illuminate(satellite, sun, seconds * 0.004f, star);
-		illuminate(cloud, sun, seconds * 0.8f * PI / 180, star, roll);
+		const Vec planet_turn(0, turn * 180 / PI, roll * 180 / PI);
+		const Vec cloud_turn(0, seconds * 0.8f, roll * 180 / PI);
+		const Vec moon_turn(0, seconds * 0.004f * 180 / PI, 0);
+		illuminate(world, sun, planet_turn, star);
+		illuminate(satellite, sun, moon_turn, star);
+		illuminate(cloud, sun, cloud_turn, star);
 		stirAtmosphere(air.get(), air_alpha, seconds);
 		stirAtmosphere(air_rim.get(), air_rim_alpha, seconds);
 		stirAtmosphere(air_outer.get(), air_outer_alpha, seconds);
@@ -479,17 +567,19 @@ struct Orbit::Impl
 		mesh(air_outer.get(), center + Vec(0, 0, -0.2f));
 		mesh(air.get(), center + Vec(0, 0, -0.2f));
 		mesh(air_rim.get(), center + Vec(0, 0, -0.2f));
-		mesh(world.mesh.get(), center, Vec(0, turn * 180 / PI, roll * 180 / PI));
-		mesh(world.east.get(), center, Vec(0, turn * 180 / PI, roll * 180 / PI));
-		mesh(world.south.get(), center, Vec(0, turn * 180 / PI, roll * 180 / PI));
-		mesh(cloud.mesh.get(), center, Vec(0, seconds * 0.8f, roll * 180 / PI));
-		// The projected orbit stays left of the menu. Its lower arc passes
-		// behind the planet with ordinary depth testing before reappearing.
+		// A tilted circle, seen nearly edge on: in front of the planet on one
+		// half, behind it on the other. Its radius (3.2) stays clear of the
+		// highest land (RADIUS + 0.22) and the moon's own size wherever it is.
+		// Drawn in order, far to near: depth alone isn't trusted here.
 		float orbit = 1.22f - seconds * 0.010f;
-		Vec moon_position = center + Vec(1.55f * std::cos(orbit),
-				3.5f * std::sin(orbit), -0.75f * std::sin(orbit));
-		mesh(satellite.mesh.get(), moon_position,
-				Vec(0, seconds * 0.004f * 180 / PI, 0));
+		float near = std::sin(orbit); // > 0: the moon is nearer than the planet
+		Vec moon_position = center + Vec(3.2f * std::cos(orbit), 1.9f * near, -2.57f * near);
+		if (near <= 0)
+			body(satellite, moon_position, moon_turn);
+		body(world, center, planet_turn);
+		mesh(cloud.mesh.get(), center, cloud_turn);
+		if (near > 0)
+			body(satellite, moon_position, moon_turn);
 	}
 };
 
