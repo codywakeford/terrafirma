@@ -47,7 +47,7 @@ jobs:
       - name: Cache CEF
         uses: actions/cache@v4
         with:
-          path: build/_deps
+          path: .output/build/_deps
           key: cef-linux64-${{ hashFiles('cmake/Modules/CEF.cmake') }}
 
       - uses: oven-sh/setup-bun@v2
@@ -55,14 +55,14 @@ jobs:
           bun-version: 1.4.0
 
       - name: Build the UI
-        working-directory: ui
+        working-directory: apps/game/ui
         run: |
           bun install --frozen-lockfile
           bun run build
 
       - name: Configure
         run: |
-          cmake -S . -B build \
+          cmake -S . -B .output/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 \
             -DRUN_IN_PLACE=TRUE \
@@ -71,15 +71,15 @@ jobs:
             -DTERRAFIRMA_VERSION="$VERSION"
 
       - name: Build the engine
-        run: cmake --build build -j"$(nproc)"
+        run: cmake --build .output/build -j"$(nproc)" && bash scripts/stage-runtime.sh
 
       - name: Unit tests
         run: |
-          ./bin/luanti --test-module TestOnline
-          ./bin/luanti --test-module TestTerragen
+          ./.output/bin/luanti --test-module TestOnline
+          ./.output/bin/luanti --test-module TestTerragen
 
       - name: Package
-        run: scripts/release/package-linux.sh "$VERSION" dist
+        run: scripts/release/package-linux.sh "$VERSION"
 
       # The package on its own: its libraries resolve, and a world boots.
       - name: Smoke test the package
@@ -87,7 +87,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
             libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libxkbcommon0
-          pkg="dist/terrafirma-$VERSION-linux-x86_64"
+          pkg=".output/releases/terrafirma-$VERSION-linux-x86_64"
           if LD_LIBRARY_PATH="$pkg/lib" ldd "$pkg/bin/luanti" | grep "not found"; then exit 1; fi
           "$pkg/terrafirma" --version | tee /dev/stderr | grep -F "$VERSION"
           set +e
@@ -100,7 +100,7 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst
+          files: .output/releases/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst
           generate_release_notes: true
 
       - name: Keep as an artifact
@@ -108,4 +108,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terrafirma-${{ env.VERSION }}-linux-x86_64
-          path: dist/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst
+          path: .output/releases/terrafirma-${{ env.VERSION }}-linux-x86_64.tar.zst

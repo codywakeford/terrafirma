@@ -21,6 +21,11 @@ Testing/*
 .settings/
 .buildpath
 .metadata
+
+# Output
+.output/
+node_modules/
+
 # GNU Global
 tags
 !tags/

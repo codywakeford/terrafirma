@@ -103,7 +103,7 @@ endif()
 
 if(TRUE)
 	if(BUILD_CLIENT)
-		add_subdirectory(irr EXCLUDE_FROM_ALL)
+		add_subdirectory(library/irr EXCLUDE_FROM_ALL)
 
 		if(NOT TARGET IrrlichtMt)
 			message(FATAL_ERROR "IrrlichtMt project is missing a CMake target?!")
@@ -111,7 +111,7 @@ if(TRUE)
 	else()
 		add_library(IrrlichtMt::IrrlichtMt INTERFACE IMPORTED)
 		set_target_properties(IrrlichtMt::IrrlichtMt PROPERTIES
-			INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/irr/include")
+			INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/library/irr/include")
 	endif()
 endif()
 
@@ -237,19 +237,19 @@ endif()
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/builtin" DESTINATION "${SHAREDIR}")
 if(RUN_IN_PLACE)
 	install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/mods/mods_here.txt" DESTINATION "${SHAREDIR}/mods")
-	install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/textures/texture_packs_here.txt" DESTINATION "${SHAREDIR}/textures")
+	install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/registry/textures/texture_packs_here.txt" DESTINATION "${SHAREDIR}/textures")
 endif()
 
 set(INSTALL_DEVTEST FALSE CACHE BOOL "Install Development Test")
 
 if(INSTALL_DEVTEST)
-	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/games/devtest" DESTINATION "${SHAREDIR}/games/"
+	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/registry/games/devtest" DESTINATION "${SHAREDIR}/games/"
 		PATTERN ".git*" EXCLUDE )
 endif()
 
 if(BUILD_CLIENT)
-	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/client/shaders" DESTINATION "${SHAREDIR}/client")
-	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/textures/base/pack" DESTINATION "${SHAREDIR}/textures/base")
+	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/registry/shaders" DESTINATION "${SHAREDIR}/client")
+	install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/registry/textures/base/pack" DESTINATION "${SHAREDIR}/textures/base")
 	if(RUN_IN_PLACE)
 		install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/clientmods" DESTINATION "${SHAREDIR}")
 		install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/client/serverlist" DESTINATION "${SHAREDIR}/client")
@@ -266,21 +266,21 @@ install(FILES "minetest.conf.example" DESTINATION "${EXAMPLE_CONF_DIR}")
 
 if(UNIX AND NOT APPLE)
 	install(FILES "doc/luanti.6" "doc/luantiserver.6" DESTINATION "${MANDIR}/man6")
-	install(FILES "misc/org.luanti.luanti.desktop" DESTINATION "${XDG_APPS_DIR}")
-	install(FILES "misc/org.luanti.luanti.metainfo.xml" DESTINATION "${METAINFODIR}")
-	install(FILES "misc/luanti.svg" DESTINATION "${ICONDIR}/hicolor/scalable/apps")
-	install(FILES "misc/luanti-xorg-icon-128.png"
+	install(FILES "assets/misc/org.luanti.luanti.desktop" DESTINATION "${XDG_APPS_DIR}")
+	install(FILES "assets/misc/org.luanti.luanti.metainfo.xml" DESTINATION "${METAINFODIR}")
+	install(FILES "assets/misc/luanti.svg" DESTINATION "${ICONDIR}/hicolor/scalable/apps")
+	install(FILES "assets/misc/luanti-xorg-icon-128.png"
 		DESTINATION "${ICONDIR}/hicolor/128x128/apps"
 		RENAME "luanti.png")
 endif()
 
 if(APPLE)
-	install(FILES "misc/luanti-icon.icns" DESTINATION "${SHAREDIR}")
+	install(FILES "assets/misc/luanti-icon.icns" DESTINATION "${SHAREDIR}")
 	install(FILES "${CMAKE_BINARY_DIR}/Info.plist" DESTINATION "${BUNDLE_PATH}/Contents")
 endif()
 
 if(CMAKE_GENERATOR STREQUAL "Xcode")
-	set(client_RESOURCES "${CMAKE_SOURCE_DIR}/misc/luanti-icon.icns")
+	set(client_RESOURCES "${CMAKE_SOURCE_DIR}/assets/misc/luanti-icon.icns")
 endif()
 
 # Library pack
@@ -288,19 +288,19 @@ find_package(GMP REQUIRED)
 find_package(Json 1.0.0 REQUIRED)
 find_package(Lua REQUIRED)
 if(NOT USE_LUAJIT)
-	add_subdirectory(lib/bitop)
+	add_subdirectory(library/bitop)
 endif()
-add_subdirectory(lib/lstrpack)
-add_subdirectory(lib/sha256)
+add_subdirectory(library/lstrpack)
+add_subdirectory(library/sha256)
 
 if(BUILD_UNITTESTS OR BUILD_BENCHMARKS)
-	add_subdirectory(lib/catch2)
+	add_subdirectory(library/catch2)
 endif()
 
-add_subdirectory(lib/tiniergltf)
+add_subdirectory(library/tiniergltf)
 
 # Builtin
-add_subdirectory(builtin)
+add_subdirectory(apps/game/src/builtin)
 
 list(TRANSFORM BUILTIN_SRCS
 	PREPEND "${BUILTIN_BASE_PATH}/"
@@ -308,7 +308,7 @@ list(TRANSFORM BUILTIN_SRCS
 
 # Subdirectories
 # Be sure to add all relevant definitions above this
-add_subdirectory(src)
+add_subdirectory(apps/game/src)
 
 # Package generation
 
@@ -338,14 +338,14 @@ if(WIN32)
 
 	if(NOT RUN_IN_PLACE)
 		set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${VERSION_STRING}-nsis")
-		install(FILES "misc/luanti-icon.ico" DESTINATION ".")
-		install(FILES "misc/sfx-launcher.nsi" DESTINATION ".")
+		install(FILES "assets/misc/luanti-icon.ico" DESTINATION ".")
+		install(FILES "assets/misc/sfx-launcher.nsi" DESTINATION ".")
 		# normalize to 0/1
 		set(DEVELOPMENT_BUILD01 0)
 		if(DEVELOPMENT_BUILD)
 			set(DEVELOPMENT_BUILD01 1)
 		endif()
-		configure_file("${CMAKE_CURRENT_SOURCE_DIR}/misc/meta.nsh.in"
+		configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/misc/meta.nsh.in"
 			"${CMAKE_CURRENT_BINARY_DIR}/misc/meta.nsh" @ONLY ESCAPE_QUOTES)
 		install(FILES "${CMAKE_CURRENT_BINARY_DIR}/misc/meta.nsh" DESTINATION ".")
 	endif()

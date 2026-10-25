@@ -21,23 +21,39 @@ change contradicts one, raise it rather than drift.
 ## Repo map
 
 ```
-src/              Luanti engine (upstream). Touch lightly; see "Engine policy".
-src/shell/        OURS — the web UI host: Chromium (CEF), bridge, menus, screens, state stream
-src/terragen/     OURS — the world model: a pure, fixed-point function of the world code (no engine deps)
+apps/game/src/    Luanti fork and our native game systems. Touch upstream lightly; see "Engine policy".
+apps/game/src/shell/  OURS — the web UI host: Chromium (CEF), bridge, menus, screens, state stream
+apps/game/src/terragen/ OURS — the world model: a pure, fixed-point function of the world code (no engine deps)
 scripts/assets/   texture import: Good Vibes at a pinned revision, plus derived rocks and ores
-src/matter/       OURS — elements and substances, and the state they're in at any temperature and pressure
-matter/           OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
-src/far/          OURS — the far view: terrain beyond the loaded blocks to the horizon, from the world code
-src/online/       OURS — playing with friends: STUN, endpoints, hole punching, UPnP, the ticket gate, join
-src/mapgen/mapgen_terra.*  OURS — the `terra` map generator: terrain/climate/biome from terragen
-ui/               OURS — the Vue app (Vite + TypeScript): menus, HUD, in-game screens, gallery
-games/terrafirma/ OURS — the game, in Lua: blocks, items, recipes, biomes, trees, survival systems
+apps/game/src/matter/ OURS — elements and substances, and the state they're in at any temperature and pressure
+assets/matter/    OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
+apps/game/src/far/  OURS — the far view: terrain beyond the loaded blocks to the horizon
+apps/game/src/online/ OURS — playing with friends: STUN, endpoints, hole punching, UPnP, ticket gate, join
+apps/game/src/mapgen/mapgen_terra.* OURS — the `terra` map generator
+apps/game/src/builtin/ upstream engine Lua bootstrap, staged as .output/builtin; not optional game mods
+apps/game/ui/    OURS — the Vue app (Vite + TypeScript): menus, HUD, in-game screens, gallery
+apps/game/game/  OURS — the game, in Lua: blocks, items, recipes, biomes, trees, survival systems
+registry/mods/clientmods/ upstream client mods, staged separately as .output/clientmods
+registry/shaders/ and registry/textures/  shipped rendering resources
+assets/           shipped static files: fonts, matter data, music, misc, translations
+library/          vendored dependencies and the first-party UI (pending further organization)
+.output/          ignored build, runtime staging, caches, accounts and local user data
 cmake/Modules/CEF.cmake   fetches the pinned CEF build
 scripts/dev.ts    the dev loop behind `bun dev`
 scripts/terragen-check.sh  generate a world headless and check it against standalone terragen
 planning/         sprint plans and their outcomes
-builtin/, games/devtest, irr/, lib/   upstream; leave alone unless asked (Android, Docker and Luanti CI are removed)
+registry/games/devtest/, library/irr/, library/lua/  upstream; leave alone unless asked
 ```
+
+`scripts/stage-runtime.sh` mirrors the app and shipped resources into `.output/`, which
+the run-in-place engine uses as its share directory. Saved worlds are user
+data; do not treat `registry/worlds/` as a content pack or delete it during
+cleanup. That directory still needs a deliberate migration.
+
+In the design notes below, shorter `src/`, `ui/`, and `games/terrafirma/`
+references describe paths inside the game product or its staged runtime;
+their source locations are now `apps/game/src/`, `apps/game/ui/`, and
+`apps/game/game/` respectively.
 
 ## Running and checking
 
@@ -46,12 +62,13 @@ bun dev                 # rebuild engine, start Vite, launch the game against th
 bun dev --go            # same, straight into a world
 bun dev --profile two   # a second game beside the first, as another player (own sign-in and Chromium cache; shares the UI server)
 bun components          # the component gallery in a browser — every UI component, mock engine, no game
-bun run build           # engine + production UI (ui/dist, served in-game as terra://ui/)
+bun run build           # engine + production UI (.output/ui/dist, served in-game as terra://ui/)
 
-cmake --build build -j8                  # engine only
-cd ui && bun run typecheck               # UI types (vue-tsc; TypeScript is pinned to 5.x — vue-tsc can't run on 7)
-./bin/luanti --server --gameid terrafirma --world <tmp dir> --port <n>   # headless boot: catches Lua errors
-./bin/luanti --test-module TestTerragen   # terragen unit tests (--run-unittests for the whole engine)
+cmake --build .output/build -j8          # engine only (after cmake -S . -B .output/build -DRUN_IN_PLACE=TRUE)
+bun run stage                            # refresh resources copied to the runtime tree
+cd apps/game/ui && bun run typecheck      # UI types
+./.output/bin/luanti --server --gameid terrafirma --world <tmp dir> --port <n>   # headless boot: catches Lua errors
+./.output/bin/luanti --test-module TestTerragen   # terragen unit tests (--run-unittests for the whole engine)
 bun check:terragen      # world generation end to end: probed world == standalone terragen, + unit tests
 bun check:lab           # every Lab scenario built headless; each `expect` checked
 bun check:wiki          # every wiki demo (reactions + Lab) run in the engine sandbox; reactions must make their products
@@ -61,7 +78,7 @@ arc gate release        # what a release needs, locally: build, tests, UI, a hea
 arc deploy release      # package.json "version" → tag v<version> → CI builds and attaches the Linux package (.github/workflows/release.yml)
 bun package:linux <version>  # the portable Linux folder + .tar.zst from the current build (scripts/release)
 # tuning by eye: render a code's grid (relief, lakes, rivers) to a PNG and look at it
-g++ -std=c++17 -O2 -Isrc src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
+g++ -std=c++17 -O2 -Iapps/game/src apps/game/src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 ```
 
 **How agents verify:** build the engine, typecheck and build the UI, boot the

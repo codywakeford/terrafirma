@@ -7,7 +7,7 @@ Copies are the pack's PNGs unchanged. Derived textures (rocks and ores the
 pack doesn't have) are made from the pack's own art, as listed in DERIVED:
 ore specks recoloured onto its stone, rocks retinted from its granite,
 andesite and stone. Run it again to regenerate; it caches downloads under
-build/assets-cache.
+.output/assets-cache.
 
     python3 scripts/assets/goodvibes.py
 """
@@ -19,8 +19,8 @@ from PIL import Image
 REV = "f1bb6fb20e36a47b8dacbdf23c4a10b994b6f224"
 BASE = f"https://raw.githubusercontent.com/Phyronnaz/VoxelAssets/{REV}/GoodVibes/"
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CACHE = ROOT / "build" / "assets-cache"
-OUT = ROOT / "games" / "terrafirma" / "mods" / "tf_world" / "textures"
+CACHE = ROOT / ".output" / "assets-cache"
+OUT = ROOT / "apps" / "game" / "game" / "mods" / "tf_world" / "textures"
 BLOCK = "minecraft/textures/block/"
 BOP = "biomesoplenty/blocks/"
 

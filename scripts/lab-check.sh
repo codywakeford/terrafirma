@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # The Lab, headless: for every scenario in the game's lab.json files, build
 # its own world, let tf_lab build it and wait out its `expect`, and report.
-# Scenarios without an expect are listed as visual. Needs bin/luanti.
+# Scenarios without an expect are listed as visual. Needs .output/bin/luanti.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-ids=$(python3 -I - "$root/games/terrafirma/mods" <<'PY'
+ids=$(python3 -I - "$root/apps/game/game/mods" <<'PY'
 import json, sys, pathlib
 for f in sorted(pathlib.Path(sys.argv[1]).glob("*/lab.json")):
     for s in json.load(open(f))["scenarios"]:
@@ -24,7 +24,7 @@ for id in $ids; do
 	printf 'mg_name = singlenode\ntf_lab = %s\ntf_lab_check = true\n[end_of_params]\n' "$id" > "$world/map_meta.txt"
 	port=$((30700 + RANDOM % 500))
 	# no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
-	timeout 60 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" > "$world/log.txt" 2>&1 || true
+	timeout 60 "$root/.output/bin/luanti" --server --config /dev/null --world "$world" --port "$port" > "$world/log.txt" 2>&1 || true
 	line="$(grep -oE "LAB $id .*" "$world/log.txt" || true)"
 	case "$line" in
 		*" ok") passed=$((passed + 1)) ;;

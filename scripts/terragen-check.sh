@@ -7,12 +7,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cmake --build "$root/build" -j > /dev/null # the engine must match the source the predictor is built from
+cmake --build "$root/.output/build" -j > /dev/null # the engine must match the source the predictor is built from
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 code="TF5.dGVycmE"
 
-g++ -std=c++17 -O1 -I"$root/src" "$root"/src/terragen/*.cpp "$root/scripts/terragen-check/predict.cpp" -o "$work/predict"
+g++ -std=c++17 -O1 -I"$root/apps/game/src" "$root"/apps/game/src/terragen/*.cpp "$root/scripts/terragen-check/predict.cpp" -o "$work/predict"
 world="$work/world"
 mkdir -p "$world/worldmods"
 "$work/predict" "$code" "$world/points.txt" > "$work/predicted.txt"
@@ -23,7 +23,7 @@ printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\nplanet_half = 1024\n[end_o
 
 port=$((30200 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
-timeout 180 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE '(MAP|PROBE|TERRA|WEATHER|ACT) .*' > "$work/log.txt" || true
+timeout 180 "$root/.output/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE '(MAP|PROBE|TERRA|WEATHER|ACT) .*' > "$work/log.txt" || true
 grep '^PROBE' "$work/log.txt" > "$work/probed.txt" || true
 # on a planet: predicted for the columns the probed nodes actually are
 "$work/predict" --columns "$code" "$work/log.txt" > "$work/predicted.txt"
@@ -124,4 +124,4 @@ for o in odd: print("  " + o)
 sys.exit(1 if bad or wrong or storm or odd else 0)
 PY
 
-"$root/bin/luanti" --test-module TestTerragen 2>&1 | grep -E "Results|failed tests"
+"$root/.output/bin/luanti" --test-module TestTerragen 2>&1 | grep -E "Results|failed tests"

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cmake --build "$root/build" -j > /dev/null
+cmake --build "$root/.output/build" -j > /dev/null
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 world="$work/world"
@@ -17,7 +17,7 @@ printf 'mg_name = flat\nseed = 1\nplanet_half = 64\nmg_flags = nocaves,nodungeon
 
 port=$((30700 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
-timeout 300 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 \
+timeout 300 "$root/.output/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 \
 	| tee "$work/server.txt" | grep -oE 'PLANET .*' | tee "$work/log.txt" || true
 
 line="$(grep -E '^PLANET pass' "$work/log.txt" || true)"

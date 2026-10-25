@@ -5,8 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "bun scripts/dev.ts",
-    "build": "cmake --build build -j && cd ui && bun run build",
-    "components": "cd ui && bun run gallery",
+    "build": "cmake -S . -B .output/build -DRUN_IN_PLACE=TRUE && cmake --build .output/build -j && bun run stage && cd apps/game/ui && bun run build",
+    "stage": "bash scripts/stage-runtime.sh",
+    "components": "cd apps/game/ui && bun run gallery",
     "check:terragen": "bash scripts/terragen-check.sh",
     "check:lab": "bash scripts/lab-check.sh",
     "check:wiki": "bash scripts/wiki-check.sh",

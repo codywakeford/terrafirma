@@ -15,7 +15,7 @@ import subprocess, sys, tempfile, os
 from PIL import Image
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-tex = os.path.join(root, "games/terrafirma/mods/tf_world/textures")
+tex = os.path.join(root, "apps/game/game/mods/tf_world/textures")
 
 def average(path):
     im = Image.open(path).convert("RGB")
@@ -41,8 +41,8 @@ base = average(os.path.join(tex, "tf_world_soil.png"))
 
 with tempfile.TemporaryDirectory() as work:
     exe = os.path.join(work, "soil_points")
-    subprocess.run(["g++", "-std=c++17", "-O1", "-I" + os.path.join(root, "src")] +
-                   [os.path.join(root, "src/terragen", f) for f in os.listdir(os.path.join(root, "src/terragen")) if f.endswith(".cpp")] +
+    subprocess.run(["g++", "-std=c++17", "-O1", "-I" + os.path.join(root, "apps/game/src")] +
+                   [os.path.join(root, "apps/game/src/terragen", f) for f in os.listdir(os.path.join(root, "apps/game/src/terragen")) if f.endswith(".cpp")] +
                    [os.path.join(root, "scripts/assets/soil_points.cpp"), "-o", exe], check=True)
     points = [list(map(float, line.split()[1:])) for line in subprocess.run([exe], capture_output=True, text=True, check=True).stdout.splitlines()]
 

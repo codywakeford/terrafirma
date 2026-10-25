@@ -5,7 +5,7 @@
 // It shares the first one's UI server, and signs in on its own.
 
 const root = `${import.meta.dir}/..`
-const ui = `${root}/ui`
+const ui = `${root}/apps/game/ui`
 const devUrl = "http://localhost:5173"
 // Accounts and friends come from the local ArcLabs stack (`arc status` in
 // ../arclabs lists it); ARCLABS_URL points elsewhere, e.g. production.
@@ -28,10 +28,10 @@ async function waitFor(url: string, timeoutMs: number) {
 
 async function launchGame(args: string[]) {
     const deadline = Date.now() + 120_000
-    const binary = `${root}/bin/luanti`
+    const binary = `${root}/.output/bin/luanti`
     while (true) {
         try {
-            return Bun.spawn(["./bin/luanti", "--shell-url", devUrl, "--arclabs-url", arclabsUrl, ...args], {
+            return Bun.spawn(["./.output/bin/luanti", "--shell-url", devUrl, "--arclabs-url", arclabsUrl, ...args], {
                 cwd: root,
                 stdio: ["inherit", "inherit", "inherit"],
             })
@@ -53,7 +53,9 @@ async function launchGame(args: string[]) {
     }
 }
 
-await run(["cmake", "--build", "build", "-j"], root)
+await run(["cmake", "-S", ".", "-B", ".output/build", "-DRUN_IN_PLACE=TRUE"], root)
+await run(["cmake", "--build", ".output/build", "-j"], root)
+await run(["bash", "scripts/stage-runtime.sh"], root)
 if (!(await Bun.file(`${ui}/node_modules/.bin/vite`).exists())) await run(["bun", "install"], ui)
 
 // Another game's dev loop may already serve the UI: share it rather than fail

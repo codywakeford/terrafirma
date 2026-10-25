@@ -16,28 +16,28 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cmake --build "$root/build" -j > /dev/null
+cmake --build "$root/.output/build" -j > /dev/null
 for module in TestSphere TestPlanet; do
-	"$root/bin/luanti" --run-unittests --test-module $module 2>&1 | grep -E "Module $module|FAIL" \
+	"$root/.output/bin/luanti" --run-unittests --test-module $module 2>&1 | grep -E "Module $module|FAIL" \
 		| tee /dev/stderr | grep -q "$module passed" || { echo "sphere check: $module FAILED"; exit 1; }
 done
 
 work="$(mktemp -d)"
 trap '[ -n "${KEEP:-}" ] && echo "kept $work" || rm -rf "$work"' EXIT
 # what every vertex shader gets: the axes (planet::Planet::glslAxes), then the lens
-g++ -std=c++17 -I"$root/src" "$root/scripts/sphere-check/axes.cpp" "$root/src/planet/planet.cpp" \
-	"$root/src/terragen/sphere.cpp" -o "$work/axes"
-{ printf '#version 330\nuniform mat4 mWorldViewProj;\n'; "$work/axes"; cat "$root/client/shaders/sphere/lens.glsl"; printf 'void main() {}\n'; } > "$work/lens.vert"
+g++ -std=c++17 -I"$root/apps/game/src" "$root/scripts/sphere-check/axes.cpp" "$root/apps/game/src/planet/planet.cpp" \
+	"$root/apps/game/src/terragen/sphere.cpp" -o "$work/axes"
+{ printf '#version 330\nuniform mat4 mWorldViewProj;\n'; "$work/axes"; cat "$root/registry/shaders/sphere/lens.glsl"; printf 'void main() {}\n'; } > "$work/lens.vert"
 glslangValidator "$work/lens.vert" > /dev/null || { echo "sphere check: lens.glsl doesn't compile"; exit 1; }
 echo "sphere check: lens.glsl compiles"
 
 tree="$work/tree"
 mkdir -p "$tree/bin"
-for f in "$root"/*; do
-	case "$(basename "$f")" in bin|cache|worlds|minetest.conf|debug.txt) ;; *) ln -s "$f" "$tree/" ;; esac
+for d in builtin client fonts games locale matter textures misc ui; do
+	ln -s "$root/.output/$d" "$tree/$d"
 done
-for f in "$root"/bin/*; do ln -s "$f" "$tree/bin/"; done # the browser's files beside the binary
-rm "$tree/bin/luanti" && cp "$root/bin/luanti" "$tree/bin/"
+for f in "$root"/.output/bin/*; do ln -s "$f" "$tree/bin/"; done # the browser's files beside the binary
+rm "$tree/bin/luanti" && cp "$root/.output/bin/luanti" "$tree/bin/"
 
 # shot <name> <planet_half or 0> <y> [setting=value...]: a fresh world each, so none starts where another left off
 shot() {

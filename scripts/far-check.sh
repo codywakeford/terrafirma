@@ -6,7 +6,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cmake --build "$root/build" -j > /dev/null
+cmake --build "$root/.output/build" -j > /dev/null
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 world="$work/world"
@@ -18,7 +18,7 @@ printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nplanet_half = 102
 
 port=$((30700 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
-timeout 300 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | grep -oE '(FAR|ERROR).*' | tee "$work/log.txt"
+timeout 300 "$root/.output/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | grep -oE '(FAR|ERROR).*' | tee "$work/log.txt"
 
 python3 -I - "$work/log.txt" <<'PY'
 import sys

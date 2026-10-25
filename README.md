@@ -24,47 +24,6 @@ Table of Contents
 8. [Version Scheme](#version-scheme)
 
 
-Default controls
-----------------
-All controls are re-bindable using settings.
-Some can be changed in the key config dialog in the settings tab.
-
-| Button                        | Action                                                         |
-|-------------------------------|----------------------------------------------------------------|
-| Move mouse                    | Look around                                                    |
-| W, A, S, D                    | Move                                                           |
-| Space                         | Jump/move up                                                   |
-| Shift                         | Sneak/move down                                                |
-| Q                             | Drop itemstack                                                 |
-| Shift + Q                     | Drop single item                                               |
-| Left mouse button             | Dig/punch/use                                                  |
-| Right mouse button            | Place/use                                                      |
-| Shift + right mouse button    | Build (without using)                                          |
-| I                             | Inventory menu                                                 |
-| Mouse wheel                   | Select item                                                    |
-| 0-9                           | Select item                                                    |
-| Z                             | Zoom (needs zoom privilege)                                    |
-| T                             | Chat                                                           |
-| /                             | Command                                                        |
-| Esc                           | Pause menu/abort/exit (pauses only singleplayer game)          |
-| +                             | Increase view range                                            |
-| -                             | Decrease view range                                            |
-| K                             | Enable/disable fly mode (needs fly privilege)                  |
-| J                             | Enable/disable fast mode (needs fast privilege)                |
-| H                             | Enable/disable noclip mode (needs noclip privilege)            |
-| E                             | Aux1 (Move fast in fast mode. Games may add special features)  |
-| C                             | Cycle through camera modes                                     |
-| V                             | Cycle through minimap modes                                    |
-| Shift + V                     | Change minimap orientation                                     |
-| F1                            | Hide/show HUD                                                  |
-| F2                            | Hide/show chat                                                 |
-| F3                            | Disable/enable fog                                             |
-| F4                            | Disable/enable camera update (Mapblocks are not updated anymore when disabled, disabled in release builds)  |
-| F5                            | Cycle through debug information screens                        |
-| F6                            | Cycle through profiler info screens                            |
-| F10                           | Show/hide console                                              |
-| F12                           | Take screenshot                                                |
-
 Paths
 -----
 Locations:

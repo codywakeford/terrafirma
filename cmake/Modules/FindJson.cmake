@@ -16,9 +16,9 @@ endif()
 
 if(NOT USE_SYSTEM_JSONCPP)
 	message(STATUS "Using bundled JsonCpp library.")
-	set(JSON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/jsoncpp)
+	set(JSON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/library/jsoncpp)
 	set(JSON_LIBRARY jsoncpp)
-	add_subdirectory(lib/jsoncpp)
+	add_subdirectory(library/jsoncpp)
 endif()
 
 include(FindPackageHandleStandardArgs)
