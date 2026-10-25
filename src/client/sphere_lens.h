@@ -11,17 +11,13 @@ class Client;
 /*
 	The sphere lens (client/shaders/sphere/lens.glsl): its uniforms, set from
 	the planet the server says the world is (Client::getPlanet; none on a
-	flat world, and the lens is off), and the GLSL every vertex shader gets
-	ahead of it.
+	flat world, and the lens is off).
 */
 class SphereLensFactory : public IShaderUniformSetterFactory
 {
 public:
 	explicit SphereLensFactory(Client *client) : m_client(client) {}
 	IShaderUniformSetter *create(const std::string &name) override;
-
-	// planetAxes(face, out, east, north), from terragen::Sphere::axes.
-	static std::string prelude();
 
 private:
 	Client *m_client;

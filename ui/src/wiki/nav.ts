@@ -2,7 +2,7 @@
 // link to each other (a reaction's reactants, a substance's reactions)
 // through go().
 
-import { inject, provide, reactive, shallowRef, type InjectionKey, type ShallowRef } from "vue"
+import { inject, provide, reactive, ref, shallowRef, type InjectionKey, type ShallowRef } from "vue"
 import type { MatterElement, MatterReaction, MatterRock, MatterSubstance } from "../bridge"
 
 export type Section = "matter" | "reactions" | "reactor" | "lab" | "flight"
@@ -26,6 +26,7 @@ export function WikiNav(opts: { place: "menu" | "game"; seen: () => Set<string> 
         chosen: { matter: "water", reactions: null, reactor: null, lab: null, flight: null } as Record<Section, string | null>,
     })
     const table: ShallowRef<Table | null> = shallowRef(null)
+    const search = ref("")
     return {
         place: opts.place,
         /** Whether a reaction has been seen (always, in the menu). */
@@ -35,7 +36,9 @@ export function WikiNav(opts: { place: "menu" | "game"; seen: () => Set<string> 
         },
         state: state,
         table: table,
+        search: search,
         go(section: Section, id?: string) {
+            if (state.section !== section) search.value = ""
             state.section = section
             if (id !== undefined) state.chosen[section] = id
         },

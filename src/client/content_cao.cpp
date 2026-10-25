@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "content_cao.h"
+#include "planet/planet.h" // Terra Firma
 #include <IBillboardSceneNode.h>
 #include <ICameraSceneNode.h>
 #include <IMeshManipulator.h>
@@ -813,6 +814,11 @@ void GenericCAO::addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr)
 	updateAttachments();
 	setNodeLight(m_last_light);
 	updateMeshCulling();
+	// Terra Firma: on a planet it's drawn curved (the sphere lens): where its
+	// box is in the flat map doesn't say whether it's in view
+	if (m_client->getPlanet())
+		if (scene::ISceneNode *node = getSceneNode())
+			node->setAutomaticCulling(scene::EAC_OFF);
 
 	if (m_animated_meshnode) {
 		u32 mat_count = m_animated_meshnode->getMaterialCount();
@@ -1113,6 +1119,7 @@ void GenericCAO::step(float dtime, ClientEnvironment *env)
 	} else {
 		rot_translator.translate(dtime);
 		v3f lastpos = pos_translator.val_current;
+		const v3f was = m_position; // Terra Firma: for carry()
 
 		if(m_prop.physical)
 		{
@@ -1137,6 +1144,10 @@ void GenericCAO::step(float dtime, ClientEnvironment *env)
 			m_velocity += dtime * m_acceleration;
 			pos_translator.update(m_position, pos_translator.aim_is_end,
 					pos_translator.anim_time);
+		}
+		if (carry(was)) {
+			pos_translator.init(m_position); // on another face: put there, not glided
+			lastpos = m_position;
 		}
 		pos_translator.translate(dtime);
 		updateNodePos();
@@ -1679,6 +1690,14 @@ void GenericCAO::processMessage(const std::string &data)
 		float update_interval = readF32(is);
 		bool do_interpolate_rotation = canRead(is) ? readU8(is) : true;
 
+		// Terra Firma: carried over a planet's edge, it's on another face, far
+		// off in the net: it's put there, not glided there
+		if (const planet::Planet *planet = m_client->getPlanet()) {
+			const v3f was = pos_translator.val_current / BS, now = m_position / BS;
+			if (planet->nearest(was.X, was.Z) != planet->nearest(now.X, now.Z))
+				do_interpolate = do_interpolate_rotation = false;
+		}
+
 		if(getParent() != NULL) // Just in case
 			return;
 
@@ -2013,3 +2032,26 @@ void GenericCAO::updateMeshCulling()
 
 // Prototype
 static GenericCAO proto_GenericCAO(nullptr, nullptr);
+
+bool GenericCAO::carry(const v3f &was)
+{
+	const planet::Planet *planet = m_client->getPlanet();
+	if (!planet)
+		return false;
+	const int face = planet->nearest(was.X / BS, was.Z / BS);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, m_position.X / BS, m_position.Z / BS);
+	if (!c)
+		return false;
+	m_position.X = c->x * BS;
+	m_position.Z = c->z * BS;
+	const auto turn = [&](v3f &v) {
+		const std::array<double, 2> t = planet::Planet::turned(v.X, v.Z, c->turn);
+		v.X = t[0];
+		v.Z = t[1];
+	};
+	turn(m_velocity);
+	turn(m_acceleration);
+	m_rotation.Y = wrapDegrees_0_360(m_rotation.Y + 90.0f * c->turn);
+	rot_translator.init(m_rotation);
+	return true;
+}

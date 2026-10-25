@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "far/aloft.h"
 #include "planet/planet.h"
 #include "far/terrain.h"
 #include "terragen/map.h"
@@ -62,12 +61,10 @@ class Uniforms;
 	don't cost the near world depth precision), then the depth buffer is
 	cleared. The planet's curve is applied as it's drawn, never stored.
 
-	Up the air it becomes the planet (terragen::Map): the shader lays the
-	map on a sphere that grows with height, a block spanning more of it,
-	until it's the planet at true size. In space the
-	camera is in a bubble's cell, somewhere else on the map; the server says
-	where the player is over the planet (Aloft) and the planet is drawn
-	from there, so crossing the boundary shows nothing.
+	The world is a planet (planet::Planet): the shader draws each tile
+	through the sphere lens (client/shaders/sphere/lens.glsl), as the near
+	world is drawn, so the two are one surface; up through the air the haze
+	gives way to the whole planet.
 */
 class View : public scene::ISceneNode
 {
@@ -78,9 +75,8 @@ public:
 
 	// Once a frame, before drawing. `near_range`: how far the map blocks are
 	// drawn, in blocks. `fog_limit`: a server's fog distance, in blocks.
-	// `aloft`: where the player is over the planet, if not where they stand.
 	void update(const Camera &camera, ClientMap &map, float near_range, bool range_all,
-			std::optional<float> fog_limit, const std::optional<Aloft> &aloft);
+			std::optional<float> fog_limit);
 
 	// Whether it draws this frame, and how far off what it draws can be
 	// (scene units): the fog follows it.
@@ -123,8 +119,7 @@ private:
 	bool covered(const Key &key) const;
 
 	Horizon m_horizon;
-	terragen::Map m_globe; // the blocks as a map of the planet
-	s32 m_size;
+	const std::optional<planet::Planet> m_planet; // the world's, if it's a planet
 	std::unique_ptr<Colours> m_colours;
 	std::unique_ptr<Workers> m_workers;
 	std::shared_ptr<DrawState> m_state;
@@ -145,14 +140,10 @@ private:
 	float m_cut = 0, m_range = 0; // blocks
 	float m_reach = 0;            // scene units
 	bool m_showing = false;
-	bool m_aloft = false;         // drawn from where the server says, not the camera
 	float m_altitude = 0;         // m above the sea
-	float m_share = 0;            // how far the map has become the planet
-	float m_curve = 1;            // m: the radius the land curves with
-	const std::optional<planet::Planet> m_planet; // the world's, if it's a planet
+	float m_share = 0;            // 0 in the air's haze .. 1 above the air
 	terragen::Sphere::Vec m_eye_point{};          // on a planet: the eye over the sea, m from the centre
-	terragen::Map::Across m_across{ 1, 1 }; // m of planet per block, where the eye is
-	float m_lift = 0;             // blocks: the height that counts toward a tile's distance
+	float m_lift = 0;             // m: the height that counts toward a tile's distance
 	v3s16 m_camera_offset;
 	v3s16 m_mask_centre; // map block the mask is centred on
 	std::vector<u8> m_near; // the mask's r on this side: the near world draws all of the column

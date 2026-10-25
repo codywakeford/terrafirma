@@ -4,16 +4,18 @@ uniform sampler2D texture0;
 uniform lowp vec4 fogColor;
 uniform float fogDistance;
 uniform float fogShadingParameter;
-uniform highp vec3 farEye;
 uniform float farCut;
 uniform float farHaze;       // the distance past the cut the haze builds over, near the ground
 uniform highp vec4 farMask;  // its corner (scene x, z), its size, 1 if it applies
-uniform float farShare;      // 0 the flat map .. 1 the globe
-uniform highp vec4 farPlace; // the eye: map x, z (blocks), altitude (m); the map's size
+uniform float farShare;      // 0 in the air's haze .. 1 above the air, seeing the planet
+uniform highp vec4 farPlace; // the eye: map x, z (blocks), altitude (m), unused
 uniform float farAir;        // m: the air's scale height
 
 VARYING_ lowp vec4 varColor;
 VARYING_ lowp float varLayer;
+VARYING_ lowp float varHidden; // on a planet: behind it (far_shader/opengl_vertex.glsl)
+VARYING_ lowp float varOff;    // on another face than the eye's
+VARYING_ highp float varSeen;  // how far off it's seen, scene units
 VARYING_ highp vec2 flatPos;
 VARYING_ highp vec3 eyeVec;
 VARYING_ highp float varAltitude;
@@ -36,9 +38,17 @@ float airmass(float eye, float altitude)
 
 void main(void)
 {
-	// where the near world draws, it's the near world
+	if (varHidden > 0.5)
+		discard; // behind the planet
+	// where the near world draws, it's the near world. On another face of a
+	// planet, far off in the net, the mask (laid out round the eye in the net)
+	// doesn't say: there the near world draws everything within its reach
+	// over the planet, as the client chooses its blocks
 	vec2 uv = (flatPos - farMask.xy) / farMask.z;
-	if (farMask.w > 0.5 && uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+	if (varOff > 0.5) {
+		if (varSeen < farCut)
+			discard;
+	} else if (farMask.w > 0.5 && uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
 		// The near world's faces replace ours where it draws them. What lies
 		// under a liquid never gives way: where the near world's own floor is
 		// there it draws over ours (the same blocks); where it isn't yet, its
@@ -61,7 +71,8 @@ void main(void)
 	// crosses, so kilometres read as kilometres and the air thins as you
 	// climb. Near the ground it builds over the far view's reach, as it
 	// always has; up the air, as through real air.
-	float past = max(length(flatPos - farEye.xz) - farCut, 0.0) / BS;
+	// over the curve: how far off it's seen, not how far in the net
+	float past = max(varSeen - farCut, 0.0) / BS;
 	float through = mix(past, dist / BS, farShare);
 	float thick = mix(2.2 * BS / farHaze, CLEAR, farShare);
 	float haze = exp(-thick * through * airmass(farPlace.z, max(varAltitude, 0.0)));

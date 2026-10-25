@@ -31,12 +31,13 @@ local function hex(c, k)
 		math.floor(c[2] * k + SPACE[2] * (1 - k)), math.floor(c[3] * k + SPACE[3] * (1 - k)))
 end
 
--- The sky over where a player is (tf_flight.aloft: in space, where their
--- orbit is over the planet): the real sun there, and the air's blue fading
--- to black as it thins, the stars coming out by day.
+-- The sky over where a player is: the real sun there, and the air's blue
+-- fading to black as it thins, the stars coming out by day.
+local SEA = tonumber(core.get_mapgen_setting("water_level")) or error("tf_sky: no water_level")
 local function update(player)
 	local name = player:get_player_name()
-	local at = tf_flight.aloft(player)
+	local pos = player:get_pos()
+	local at = { x = pos.x, z = pos.z, altitude = pos.y - SEA }
 	local sun = core.terra.sun({ x = at.x, y = 0, z = at.z })
 	-- the air left above, against the sea's (its sight of the sky)
 	local thin = core.orbit.density(math.max(at.altitude, 0)) / core.orbit.density(0)

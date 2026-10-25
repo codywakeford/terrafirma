@@ -2,8 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { BridgeError, type CommunityCatalog, type CommunityMod, type CommunityTexture, type CommunityWorld } from "../bridge"
 import { useBridge } from "../bridge/use"
-import PixelIcon from "../game/PixelIcon.vue"
-import { Button, Field, Notice, Panel, Tabs } from "../kit"
+import { Button, ListEmpty, ListItem, Notice, Tabs, WorkbenchPanel } from "../kit"
 import { Copier } from "./create/copy"
 import CommunityMap from "./CommunityMap.vue"
 import { decodeWorldCode } from "../worldgen/config"
@@ -103,44 +102,30 @@ onMounted(() => refresh().catch(report))
 </script>
 
 <template>
-    <Panel title="Community" class="community">
+    <WorkbenchPanel v-model:group="group" v-model:query="query" class="community"
+        title="Community" :section="groupLabel" :groups="RAIL" rail-label="Content types"
+        :search-label="source === 'library' ? `Search ${groupLabel.toLowerCase()}` : undefined"
+        :search-placeholder="`Search ${groupLabel.toLowerCase()}…`">
+        <template #headerActions><Tabs v-model="source" :tabs="TABS" /></template>
         <template #actions><Button size="sm" @click="emit('go', 'home')">Back</Button></template>
-        <div class="frame">
-            <nav class="rail" aria-label="Content types">
-                <button v-for="item in RAIL" :key="item.id" :class="{ on: group === item.id }" :title="item.label"
-                    :aria-label="item.label" :aria-current="group === item.id ? 'page' : undefined" @click="group = item.id">
-                    <PixelIcon :rows="item.rows" :palette="item.palette" style="--u: 3px" />
-                    <span>{{ item.label }}</span>
-                </button>
-            </nav>
-
-            <section class="browser" :aria-label="`${groupLabel} list`">
-                <div class="browser-head">
-                    <span class="eyebrow">Community / {{ groupLabel }}</span>
-                    <h2>{{ groupLabel }}</h2>
-                    <Tabs v-model="source" :tabs="TABS" />
-                    <Field v-if="source === 'library'" v-model="query" label="Search your library" :placeholder="`Find ${groupLabel.toLowerCase()}`" />
-                </div>
-                <div v-if="source === 'discover'" class="empty-list">
-                    <strong>Discovery is on its way.</strong>
-                    <p>Browse and install community {{ groupLabel.toLowerCase() }} here when the catalog is connected.</p>
-                </div>
-                <p v-else-if="!catalog && !problem" class="empty-list">Reading local content…</p>
-                <div v-else-if="entries.length" class="entries">
-                    <button v-for="entry in entries" :key="entry.id" class="entry" :class="{ on: chosen === entry.id }" @click="chosen = entry.id">
-                        <span class="entry-icon">{{ entry.name.slice(0, 1).toUpperCase() }}</span>
-                        <span class="entry-text"><strong>{{ entry.name }}</strong><small>{{ entry.note }}</small></span>
-                        <span v-if="entry.status" class="entry-status">{{ entry.status }}</span>
-                    </button>
-                </div>
-                <div v-else class="empty-list">
-                    <strong>{{ query ? "No matches" : `No local ${groupLabel.toLowerCase()} yet` }}</strong>
-                    <p v-if="!query && group === 'seeds'">Create a world to keep its code here.</p>
-                    <p v-else-if="!query">Installed content will appear here.</p>
-                </div>
-            </section>
-
-            <main class="detail">
+        <template #list>
+            <ListEmpty v-if="source === 'discover'" title="Discovery is on its way.">
+                <p>Browse and install community {{ groupLabel.toLowerCase() }} here when the catalog is connected.</p>
+            </ListEmpty>
+            <ListEmpty v-else-if="!catalog && !problem">Reading local content…</ListEmpty>
+            <template v-else-if="entries.length">
+                <ListItem v-for="entry in entries" :key="entry.id" :on="chosen === entry.id" @click="chosen = entry.id">
+                    {{ entry.name }}<template #sub>{{ entry.note }}</template>
+                    <template v-if="entry.status" #trail>{{ entry.status }}</template>
+                </ListItem>
+            </template>
+            <ListEmpty v-else :title="query ? 'No matches' : `No local ${groupLabel.toLowerCase()} yet`">
+                <p v-if="!query && group === 'seeds'">Create a world to keep its code here.</p>
+                <p v-else-if="!query">Installed content will appear here.</p>
+            </ListEmpty>
+        </template>
+        <template #content>
+            <div class="detail">
                 <Notice v-if="problem" tone="danger">{{ problem }}</Notice>
                 <template v-if="source === 'discover'">
                     <div class="detail-empty"><span class="big-chevron">»</span><h2>Discover {{ groupLabel }}</h2>
@@ -205,38 +190,16 @@ onMounted(() => refresh().catch(report))
                     <p>Select something from your library to inspect it here.</p>
                     <Button v-if="group === 'worlds' || group === 'seeds'" size="sm" @click="emit('go', 'create')">Create a world »</Button>
                 </div>
-            </main>
-        </div>
-    </Panel>
+            </div>
+        </template>
+    </WorkbenchPanel>
 </template>
 
 <style scoped>
-.community { width: min(1340px, 97vw); height: min(840px, 94vh); }
-.community :deep(.body) { overflow: hidden; padding: 0; }
-.frame { display: grid; grid-template-columns: 76px 320px minmax(0, 1fr); height: 100%; min-height: 0; }
-.rail { display: flex; flex-direction: column; gap: 6px; padding: 16px 8px; border-right: var(--b) solid var(--edge); background: var(--stone-1); }
-.rail button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 2px; border: var(--b) solid transparent; background: none; color: var(--ink-faint); font: 9px var(--font-display); text-transform: uppercase; }
-.rail button:hover { color: var(--ink); background: var(--stone-2); }
-.rail button.on { border-color: var(--edge); background: var(--accent-lo); color: var(--ink); box-shadow: var(--sunk); }
-.browser { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: var(--b) solid var(--edge); background: var(--stone-1); }
-.browser-head { flex: none; display: grid; gap: 12px; padding: 20px 16px; border-bottom: 1px solid var(--stone-4); }
+.community :deep(header .tabs button) { height: 32px; padding: 0 12px; font-size: 10px; }
 .eyebrow { color: var(--accent-hi); font: 10px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
 h2 { margin: 0; font: 22px var(--font-display); text-transform: uppercase; line-height: 1.25; overflow-wrap: anywhere; }
-.browser-head :deep(.tabs) { width: 100%; }
-.browser-head :deep(.tabs button) { min-width: 0; padding: 0 8px; }
-.entries { min-height: 0; overflow-y: auto; }
-.entry { display: flex; gap: 10px; align-items: center; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--stone-3); background: transparent; text-align: left; }
-.entry:hover { background: var(--stone-2); }
-.entry.on { background: var(--stone-3); box-shadow: inset 4px 0 0 var(--accent), var(--raised); }
-.entry-icon { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border: var(--b) solid var(--edge); background: var(--stone-3); box-shadow: var(--raised); font: 13px var(--font-display); color: var(--accent-hi); }
-.entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.entry-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.entry-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 10px; }
-.entry-status { flex: none; color: var(--accent-hi); font: 9px var(--font-display); text-transform: uppercase; }
-.empty-list { padding: 24px 16px; color: var(--ink-dim); font-size: 12px; line-height: 1.5; }
-.empty-list strong { color: var(--ink); font: 12px var(--font-display); text-transform: uppercase; }
-.empty-list p { margin: 8px 0 0; }
-.detail { min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; padding: 28px 34px; background: var(--stone-2); }
+.detail { min-width: 0; min-height: 100%; display: flex; flex-direction: column; gap: 22px; }
 .detail-title { display: grid; gap: 7px; padding-bottom: 18px; border-bottom: 1px solid var(--stone-4); }
 .byline, .dim { color: var(--ink-faint); font-size: 11px; }
 .description { max-width: 60ch; margin: 0; color: var(--ink-dim); font-size: 13px; line-height: 1.6; }
@@ -254,8 +217,4 @@ h3 { margin: 0; font: 12px var(--font-display); text-transform: uppercase; }
 .detail-empty { display: grid; justify-items: start; align-content: center; gap: 12px; min-height: 100%; max-width: 440px; }
 .detail-empty p { color: var(--ink-dim); line-height: 1.6; }
 .big-chevron { color: var(--accent); font: 40px var(--font-display); }
-@media (max-width: 850px) {
-    .frame { grid-template-columns: 64px minmax(180px, 35%) minmax(0, 1fr); }
-    .detail { padding: 20px; }
-}
 </style>

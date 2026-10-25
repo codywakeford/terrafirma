@@ -5,7 +5,7 @@
 
 export type WorldConfig = {
     seed: string
-    size: number        // blocks per side; the world wraps both ways
+    size: number        // blocks per side; wraps east–west, with polar north/south edges
     continents: number  // 1..8, roughly how many landmasses
     land: number        // 0..1, share of the surface above sea level
     coast: number       // 0..1, smooth shores ↔ fjords and islets
@@ -41,7 +41,7 @@ export function star(id: StarId) {
 export const SIZES = [2048, 4096, 8192, 16384] as const
 
 export const DEFAULTS: Omit<WorldConfig, "seed"> = {
-    size: 8192,
+    size: 16384, // a planet 2048 blocks from a face's middle to its edge (planet_half = size / 8)
     continents: 4,
     land: 0.4,
     coast: 0.5,

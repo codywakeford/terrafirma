@@ -1,5 +1,15 @@
 # Asset credits
 
+## Music
+
+The local development menu plays **“If Gaia Was One Of Us Part Four” by Denovaire**. The source is [Denovaire on Uppbeat](https://uppbeat.io/contributors/denovaire). The other music files currently in `assets/music/` are **“The Farwatch Plains” by Ian Aisling** ([artist](https://uppbeat.io/contributors/ian-aisling)) and **“Perspectives” by Kevin MacLeod** ([track](https://uppbeat.io/music/tracks/kevin-macleod/perspectives)).
+
+These files do not have a redistributable licence documented in this repository. They are excluded from production UI builds until permission to include the audio in open-source game downloads is recorded here. Attribution alone does not grant that permission.
+
+## Interface fonts
+
+**Silkscreen** by Jason Kottke and **JetBrains Mono** by JetBrains are bundled through `@fontsource`, both under the SIL Open Font License. They are used for display lettering and interface text, respectively.
+
 ## Terra Firma default block textures
 
 Good Vibes by Acaitart, licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).

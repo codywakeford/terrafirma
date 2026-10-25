@@ -38,6 +38,7 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_sphere.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_planet.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_planet_map.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_far.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_objdef.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_profiler.cpp
@@ -67,4 +68,5 @@ set(unittest_client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_gameui.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_keycode.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_mesh_compare.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_planet_mesh.cpp
 	PARENT_SCOPE)

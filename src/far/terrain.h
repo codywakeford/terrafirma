@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "planet/planet.h"
+#include <optional>
+
 #include "mapgen/terra_column.h"
 #include "mapgen/terra_species.h"
 #include "terragen/world.h"
@@ -90,7 +93,9 @@ struct Tile
 class Generator
 {
 public:
-	explicit Generator(const Horizon &horizon);
+	// `planet`: the world's, if it's one: columns are the world model's at
+	// their latitude and longitude (terra::Columns)
+	Generator(const Horizon &horizon, const std::optional<planet::Planet> &planet);
 	~Generator();
 
 	const Horizon &horizon() const { return m_horizon; }
@@ -112,7 +117,10 @@ private:
 	const terra::Species *speciesAt(const terra::Column &c, s32 x, s32 z) const;
 
 	Horizon m_horizon;
+	terragen::Cover coverAt(s32 x, s32 z, const terragen::Ground &ground) const;
+
 	std::unique_ptr<terragen::World> m_world;
+	std::optional<planet::Planet> m_planet;
 	std::unique_ptr<terra::Columns> m_columns;
 	std::vector<Crown> m_crowns; // per species
 };

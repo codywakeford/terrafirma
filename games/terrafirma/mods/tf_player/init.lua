@@ -11,6 +11,43 @@ local SPRINT = 1.6 -- × walking speed
 local CREATIVE = { fly = true, fast = true, noclip = true }
 local creative = core.settings:get_bool("creative_mode", false)
 local damage = core.settings:get_bool("enable_damage", true)
+local modes = {} -- connected player name → build mode
+local original_is_creative_enabled = core.is_creative_enabled
+
+function core.is_creative_enabled(name)
+	if modes[name] ~= nil then return modes[name] end
+	return original_is_creative_enabled(name)
+end
+
+local function set_mode(player, enabled, switched)
+	local name = player:get_player_name()
+	modes[name] = enabled
+	local meta = player:get_meta()
+	meta:set_string("tf_build_mode", enabled and "creative" or "survival")
+	player:set_ui("creative", enabled)
+	local privs = core.get_player_privs(name)
+	for priv in pairs(CREATIVE) do
+		if enabled and not privs[priv] then
+			privs[priv] = true
+			meta:set_string("tf_granted_" .. priv, "1")
+		elseif not enabled and (switched or meta:get_string("tf_granted_" .. priv) == "1") then
+			privs[priv] = nil
+			meta:set_string("tf_granted_" .. priv, "")
+		end
+	end
+	core.set_player_privs(name, privs)
+	local before = meta:get_string("tf_survival_armor")
+	if enabled then
+		if before == "" then meta:set_string("tf_survival_armor", core.serialize(player:get_armor_groups())) end
+		local groups = player:get_armor_groups()
+		groups.immortal = 1
+		player:set_armor_groups(groups)
+	elseif before ~= "" then
+		if damage then player:set_armor_groups(core.deserialize(before)) end
+		meta:set_string("tf_survival_armor", "")
+	end
+	player:hud_set_flags({ healthbar = damage and not enabled, breathbar = damage and not enabled })
+end
 
 -- Match the player inventory's nine-column layout. Existing worlds may have
 -- items in the old 3×3 craft list, so move them before resizing it.
@@ -35,28 +72,15 @@ core.register_on_joinplayer(function(player)
 	if not damage then
 		player:hud_set_flags({ healthbar = false, breathbar = false })
 	end
-	if creative then
-		player:set_ui("creative", true)
-	end
-end)
-
-core.register_on_joinplayer(function(player)
-	if not creative then
-		return
-	end
-	local name = player:get_player_name()
-	local privs = core.get_player_privs(name)
-	for priv in pairs(CREATIVE) do
-		privs[priv] = true
-	end
-	core.set_player_privs(name, privs)
+	local saved = player:get_meta():get_string("tf_build_mode")
+	set_mode(player, saved == "creative" or (saved == "" and creative))
 end)
 
 -- The catalogue is only a view. A server event checks the world's mode and
 -- the registered definition before replacing the chosen hotbar slot.
 core.register_on_ui_event(function(player, name, payload)
 	if name ~= "creative.take" and name ~= "creative.clear" then return end
-	if not creative or type(payload) ~= "table" then return end
+	if not modes[player:get_player_name()] or type(payload) ~= "table" then return end
 	local slot = payload.slot
 	local inv = player:get_inventory()
 	if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 0 or slot >= inv:get_size("main") then return end
@@ -104,7 +128,10 @@ end)
 core.register_on_leaveplayer(function(player)
 	sprinting[player:get_player_name()] = nil
 	forward[player:get_player_name()] = nil
+	modes[player:get_player_name()] = nil
 end)
+
+dofile(core.get_modpath("tf_player") .. "/widgets.lua")(modes, set_mode, damage)
 
 -- The wiki (key G): offered where the world's rules allow it (tf_wiki in
 -- world.mt, chosen on the create screen's Rules). Worlds made before the

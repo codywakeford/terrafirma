@@ -45,7 +45,7 @@ watch(text, (value) => {
 
 function surpriseMe() {
     Object.assign(props.draft.config, surprise(), { seed: randomSeed() })
-    note.value = { tone: "ok", text: "New land with random settings — see World · Earth · Surface." }
+    note.value = { tone: "ok", text: "New land with random settings — see Body · Land & water." }
 }
 </script>
 

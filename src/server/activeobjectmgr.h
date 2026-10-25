@@ -35,11 +35,14 @@ public:
 	void getObjectsInArea(const aabb3f &box,
 			std::vector<ServerActiveObject *> &result,
 			std::function<bool(ServerActiveObject *obj)> include_obj_cb);
+	// `distance`: how far apart two positions are (Terra Firma: on a planet,
+	// over the planet: Map::distance); straight across the map if not given.
 	void getAddedActiveObjectsAroundPos(
 			v3f player_pos, const std::string &player_name,
 			f32 radius, f32 player_radius,
 			const std::set<u16> &current_objects,
-			std::vector<u16> &added_objects);
+			std::vector<u16> &added_objects,
+			const std::function<f32(v3f, v3f)> &distance = [](v3f a, v3f b) { return a.getDistanceFrom(b); });
 
 private:
 	k_d_tree::DynamicKdTrees<3, f32, u16> m_spatial_index;

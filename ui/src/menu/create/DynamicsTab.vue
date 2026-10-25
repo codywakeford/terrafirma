@@ -3,7 +3,7 @@ import { Notice, Section, Segmented, Slider, Toggle } from "../../kit"
 import type { WorldDraftHandle } from "./draft"
 
 /** How the world plays: each survival system and how hard it bites. */
-defineProps<{ draft: WorldDraftHandle }>()
+defineProps<{ draft: WorldDraftHandle; page?: "survival" | "danger" | "time" | "knowledge" }>()
 
 const opts = <T extends string>(...values: T[]) => values.map((v) => ({ value: v, label: v }))
 </script>
@@ -18,7 +18,7 @@ const opts = <T extends string>(...values: T[]) => values.map((v) => ({ value: v
     </Notice>
 
     <div class="rules" :class="{ off: draft.mode === 'creative' }">
-        <Section title="The body">
+        <Section v-if="!page || page === 'survival'" title="The body">
             <div class="row"><span>Hunger</span><Segmented v-model="draft.rules.hunger" :options="opts('off', 'slow', 'normal', 'fast')" /></div>
             <div class="row"><span>Healing</span><Segmented v-model="draft.rules.regen" :options="opts('off', 'slow', 'normal', 'fast')" /></div>
             <div class="row"><span>Illness</span><Segmented v-model="draft.rules.illness" :options="opts('off', 'rare', 'realistic')" /></div>
@@ -27,17 +27,17 @@ const opts = <T extends string>(...values: T[]) => values.map((v) => ({ value: v
             <Toggle v-model="draft.rules.stamina" label="Stamina — sprinting and swimming tire you" />
         </Section>
 
-        <Section title="Danger">
+        <Section v-if="!page || page === 'danger'" title="Danger">
             <div class="row"><span>Difficulty</span><Segmented v-model="draft.rules.difficulty" :options="opts('peaceful', 'easy', 'normal', 'hard')" /></div>
             <Toggle v-model="draft.rules.keepInventory" label="Keep inventory on death" />
         </Section>
 
-        <Section title="Time & weather">
+        <Section v-if="!page || page === 'time'" title="Time & weather">
             <Slider v-model="draft.rules.dayLength" label="Day length" :min="10" :max="120" :step="5" :format="(v) => `${v} min`" />
             <div class="row"><span>Weather</span><Segmented v-model="draft.rules.weather" :options="opts('off', 'mild', 'wild')" /></div>
             <Toggle v-model="draft.rules.seasons" label="Seasons — winters get cold, crops have a time" />
         </Section>
-        <Section title="Knowledge">
+        <Section v-if="!page || page === 'knowledge'" title="Knowledge">
             <Toggle v-model="draft.rules.wiki" label="Wiki (G) — see what everything is made of, and how it behaves" />
         </Section>
     </div>
@@ -46,5 +46,6 @@ const opts = <T extends string>(...values: T[]) => values.map((v) => ({ value: v
 <style scoped>
 .rules { display: flex; flex-direction: column; gap: 22px; }
 .off { opacity: 0.35; pointer-events: none; }
-.row { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 12px; font-size: 13px; color: var(--ink-dim); }
+.row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; font-size: 12px; color: var(--ink-dim); }
+.row :deep(.segmented button) { font-size: 10px; padding: 0 3px; }
 </style>

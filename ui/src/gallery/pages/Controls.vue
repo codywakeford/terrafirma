@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import PixelIcon from "../../game/PixelIcon.vue"
-import { Button, Choice, Field, IconTile, Notice, Section, Segmented, Slider, Tabs, Toggle } from "../../kit"
+import { Button, Choice, Field, IconChoice, IconRail, IconTile, Notice, SearchBox, Section, Segmented, Slider, Tabs, Toggle } from "../../kit"
 import BodyIcon from "../../worldgen/BodyIcon.vue"
 import { OVERLAY_ICONS } from "../../worldgen/overlayIcons"
 import Specimen from "../Specimen.vue"
@@ -14,7 +14,9 @@ const size = ref(8192)
 const tabRow = ref<"a" | "b" | "c">("a")
 const tabCol = ref<"video" | "controls" | "audio">("video")
 const choice = ref<"survival" | "creative" | null>("survival")
+const iconChoice = ref<"continents" | "islands" | null>("continents")
 const tile = ref("elevation")
+const rail = ref("one")
 </script>
 
 <template>
@@ -47,6 +49,19 @@ const tile = ref("elevation")
             </div>
         </Specimen>
 
+        <Specimen name="SearchBox" note="compact search for panel headers">
+            <SearchBox v-model="empty" label="Search settings" />
+        </Specimen>
+
+        <Specimen name="IconRail" note="group navigation" wide>
+            <div style="height: 210px; width: 78px">
+                <IconRail v-model="rail" label="Example groups" :items="[
+                    { id: 'one', label: 'Mods', rows: ['.AAA.', 'AAAAA', '.AAA.', '..A..', '.....'], palette: { A: '#40b8ec' } },
+                    { id: 'two', label: 'Worlds', rows: ['..A..', '.AAA.', 'AAAAA', '.AAA.', '..A..'], palette: { A: '#c9d4dc' } },
+                ]" />
+            </div>
+        </Specimen>
+
         <Specimen name="Segmented" :note="`value: ${size}`">
             <div class="col"><Segmented v-model="size" :options="[2048, 4096, 8192, 16384].map((s) => ({ value: s, label: `${s / 1024}k` }))" /></div>
         </Specimen>
@@ -64,6 +79,13 @@ const tile = ref("elevation")
                 <Choice v-model="choice" :options="[{ id: 'survival', label: 'Survival', note: 'gather, build and stay alive' }, { id: 'creative', label: 'Creative', note: 'every block, no danger' }]" />
                 <Choice :model-value="null" disabled :options="[{ id: 'a', label: 'Disabled', note: 'not available here' }, { id: 'b', label: 'Options', note: 'greyed out' }]" />
             </div>
+        </Specimen>
+
+        <Specimen name="IconChoice" :note="`value: ${iconChoice ?? 'custom'}`">
+            <IconChoice v-model="iconChoice" label="Planet shape" :columns="2" layout="stacked" :options="[
+                { id: 'continents', label: 'Continents', rows: ['BBBBB', 'BLLBB', 'BLLLB', 'BBLBB', 'BBBBB'], palette: { B: '#17416a', L: '#6caa73' } },
+                { id: 'islands', label: 'Islands', rows: ['BBBBB', 'BLBBB', 'BBBLB', 'BLBBB', 'BBBBB'], palette: { B: '#17416a', L: '#6caa73' } },
+            ]" />
         </Specimen>
 
         <Specimen name="IconTile" note="hover for the label · on · disabled">

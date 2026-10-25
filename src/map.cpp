@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "map.h"
+#include "planet/planet.h" // Terra Firma
 #include "mapsector.h"
 #include "mapblock.h"
 #include "voxel.h"
@@ -25,6 +26,56 @@ Map::Map(IGameDef *gamedef):
 	m_gamedef(gamedef),
 	m_nodedef(gamedef->ndef())
 {
+}
+
+Map::Next Map::next(v3s16 p, v3s16 dir) const
+{
+	if (std::abs(dir.X) + std::abs(dir.Y) + std::abs(dir.Z) != 1)
+		throw BaseException("Map::next: one step along the grid");
+	if (!m_planet || dir.Y != 0)
+		return { p + dir, 0 };
+	if (!m_planet->face(p.X, p.Z))
+		return { p + dir, 0 }; // in a gap: there's only seam here
+	const planet::Planet::Step s = m_planet->step(p.X, p.Z, dir.X, dir.Z);
+	return { v3s16(s.x, p.Y, s.z), s.turn };
+}
+
+// A node from a face whose grid is `turn` quarter turns (east toward north)
+// from this one's, turned into this one's: rotateAlongYAxis turns +Z toward
+// +X, the other way round. (TestPlanetMap holds a stair to it.)
+static Rotation planetRotation(int turn)
+{
+	static const Rotation ROTATIONS[4] = { ROTATE_0, ROTATE_90, ROTATE_180, ROTATE_270 };
+	return ROTATIONS[((turn % 4) + 4) % 4];
+}
+
+Map::Next Map::see(v3s16 from, v3s16 p) const
+{
+	if (!m_planet)
+		return { p, 0 };
+	const std::optional<int> face = m_planet->face(from.X, from.Z);
+	if (!face)
+		return { p, 0 };
+	const std::optional<planet::Planet::Step> h = m_planet->halo(*face, p.X, p.Z);
+	if (!h)
+		return { p, 0 }; // round a corner: the seam
+	return { v3s16(h->x, p.Y, h->z), h->turn };
+}
+
+f32 Map::distance(v3f a, v3f b) const
+{
+	if (!m_planet)
+		return a.getDistanceFrom(b);
+	return (f32)m_planet->distance(a.X / BS, a.Y / BS, a.Z / BS, b.X / BS, b.Y / BS, b.Z / BS) * BS;
+}
+
+MapNode Map::getNodeSeen(v3s16 from, v3s16 p, bool *is_valid_position)
+{
+	const Next s = see(from, p);
+	MapNode n = getNode(s.pos, is_valid_position);
+	if (s.turn != 0)
+		n.rotateAlongYAxis(m_nodedef, planetRotation(s.turn));
+	return n;
 }
 
 Map::~Map()

@@ -167,6 +167,19 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 		m->options.apply(intent["values"]);
 		return Json::Value();
 	});
+	m->bridge.on("settings.bindings.get", [this](const Json::Value &) {
+		return m->options.bindings();
+	});
+	m->bridge.on("settings.bindings.set", [this](const Json::Value &intent) {
+		if (!intent["key"].isString() || !intent["scancode"].isInt() || !intent["replace"].isBool())
+			throw Refused("settings.bindings.set needs key, scancode, and replace");
+		m->options.bind(intent["key"].asString(), intent["scancode"].asInt(), intent["replace"].asBool());
+		return Json::Value();
+	});
+	m->bridge.on("settings.bindings.reset", [this](const Json::Value &) {
+		m->options.resetBindings();
+		return Json::Value();
+	});
 	m->bridge.on("open", [](const Json::Value &intent) {
 		std::string url = intent["url"].isString() ? intent["url"].asString() : "";
 		if (url.rfind("https://", 0) != 0)

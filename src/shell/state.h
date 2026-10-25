@@ -46,6 +46,7 @@ public:
 
 private:
 	Json::Value player(LocalPlayer &player) const;
+	Json::Value mapPose(LocalPlayer &player) const;
 	Json::Value hud(LocalPlayer &player, const HudView &view) const;
 	Json::Value hotbar(LocalPlayer &player) const;
 	Json::Value inventory(LocalPlayer &player);

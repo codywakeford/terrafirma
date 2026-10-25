@@ -10,8 +10,8 @@ type Ui = { [K in keyof UiValues]: UiValues[K] | null }
  * invent a value.
  */
 export function GameStore(opts: { bridge: BridgeHandle }) {
-    const empty = (): Sections => ({ hud: null, player: null, hotbar: null, inventory: null })
-    const noUi = (): Ui => ({ lab: null, wiki: null, discovered: null, probe: null, weather: null, creative: null, flight: null })
+    const empty = (): Sections => ({ hud: null, player: null, mapPose: null, hotbar: null, inventory: null })
+    const noUi = (): Ui => ({ lab: null, wiki: null, discovered: null, probe: null, weather: null, creative: null, flight: null, map: null, map_position: null, world_controls: null })
     const store = reactive({
         mode: null as Mode | null,
         error: null as string | null,
@@ -62,12 +62,16 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
                 switch (message.section) {
                     case "hud": store.state.hud = message.value; break
                     case "player": store.state.player = message.value; break
+                    case "mapPose": store.state.mapPose = message.value; break
                     case "hotbar": store.state.hotbar = message.value; break
                     case "inventory": store.state.inventory = message.value; break
                 }
                 break
             case "ui":
                 switch (message.key) {
+					case "map": store.ui.map = message.value; break
+					case "map_position": store.ui.map_position = message.value; break
+					case "world_controls": store.ui.world_controls = message.value; break
 					case "creative": store.ui.creative = message.value; break
                     case "lab": store.ui.lab = message.value; break
                     case "weather": store.ui.weather = message.value; break

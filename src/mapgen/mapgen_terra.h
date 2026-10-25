@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "planet/planet.h"
+#include <optional>
+
 #include "mapgen.h"
 #include "terragen/world.h"
 #include "mapgen/terra_column.h"
@@ -54,6 +57,7 @@ private:
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
 
 	terragen::World m_world;
+	std::optional<planet::Planet> m_planet; // the world's, if it's one (planet_half)
 	terra::Columns m_columns; // what goes in each column (shared with the far view)
 	Biome *m_biomes[(int)terragen::Biome::Count];
 

@@ -120,6 +120,16 @@ public:
 	void setPitch(f32 pitch) { m_pitch = pitch; }
 	f32 getPitch() const { return m_pitch; }
 
+	// Terra Firma: quarter turns the ground has made under the player since
+	// last asked (carried over a planet's edge), east toward north; the
+	// camera turns with it. Asking clears it.
+	int takePlanetTurn()
+	{
+		const int t = m_planet_turn;
+		m_planet_turn = 0;
+		return t;
+	}
+
 	inline void setPosition(const v3f &position)
 	{
 		m_position = position;
@@ -160,6 +170,11 @@ public:
 	inline PlayerSettings &getPlayerSettings() { return m_player_settings; }
 
 private:
+	// Terra Firma: on a planet, a position that has left the player's face
+	// is put on the face it's moved onto, the speed turned with the grid.
+	void carry(v3f &position);
+	int m_planet_turn = 0;
+
 	void accelerate(const v3f &target_speed, const f32 max_increase_H,
 		const f32 max_increase_V, const bool use_pitch);
 	bool updateSneakNode(Map *map, const v3f &position, const v3f &sneak_max);

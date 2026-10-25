@@ -29,29 +29,29 @@ header {
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 14px 18px;
+    padding: 8px 14px;
     border-bottom: var(--b) solid var(--edge);
-    background: var(--stone-2);
+    background: var(--stone-3);
     box-shadow: var(--raised);
 }
 
 h2 {
     margin: 0;
-    font: 400 18px var(--font-display);
+    font: 400 16px var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
 .chev { color: var(--accent); }
 .actions { margin-left: auto; display: flex; gap: 8px; }
-.body { padding: 18px; overflow: hidden auto; min-height: 0; min-width: 0; flex: 1; }
+.body { padding: 18px; overflow: hidden auto; min-height: 0; min-width: 0; flex: 1; background: var(--stone-1); }
 
 footer {
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 10px;
-    padding: 14px 18px;
+    padding: 10px 14px;
     border-top: var(--b) solid var(--edge);
     background: var(--stone-1);
     box-shadow: var(--raised);

@@ -736,14 +736,7 @@ enum ToClientCommand : u16
 		on join. s32 half: blocks from a face's centre to its edge.
 	*/
 
-	TOCLIENT_ALOFT = 0x67,
-	/*
-		Terra Firma: where the player is over the planet when that isn't
-		where they stand (in space, a bubble's cell is somewhere else on the
-		map), for the far view (src/far/aloft.h).
-		u8 1, then f32 x, z (map blocks, fractional), altitude (m above the
-		sea), and their rates per second; or u8 0: where they stand again.
-	*/
+	// 0x67: Terra Firma's TOCLIENT_ALOFT (space bubbles), gone in protocol 60
 
 	TOCLIENT_NUM_MSG_TYPES = 0x69,
 };

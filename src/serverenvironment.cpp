@@ -87,7 +87,8 @@ void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 	s16 active_object_range,
 	std::set<v3s16> &blocks_removed,
 	std::set<v3s16> &blocks_added,
-	std::set<v3s16> &extra_blocks_added)
+	std::set<v3s16> &extra_blocks_added,
+	const planet::Planet *planet)
 {
 	/*
 		Create the new list
@@ -96,7 +97,8 @@ void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 	std::set<v3s16> extralist;
 	for (const PlayerSAO *playersao : active_players) {
 		v3s16 pos = getNodeBlockPos(floatToInt(playersao->getBasePosition(), BS));
-		fillRadiusBlock(pos, active_block_range, newlist);
+		std::set<v3s16> near, seen; // Terra Firma: wrapped onto the planet below
+		fillRadiusBlock(pos, active_block_range, near);
 
 		s16 player_ao_range = std::min(active_object_range, playersao->getWantedRange());
 		// only do this if this would add blocks
@@ -111,8 +113,25 @@ void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 				playersao->getEyePosition(),
 				camera_dir,
 				playersao->getFov(),
-				extralist);
+				seen);
 		}
+		// Terra Firma: on a planet, round the player's face's grid carried
+		// over its edges onto the faces the planet has there (Planet::wrap)
+		const v3f at = playersao->getBasePosition() / BS;
+		const int face = planet ? planet->nearest(at.X, at.Z) : 0;
+		const auto onto = [&](const std::set<v3s16> &from, std::set<v3s16> &to) {
+			for (v3s16 b : from) {
+				if (planet) {
+					const double middle = MAP_BLOCKSIZE / 2 - 0.5;
+					const auto w = planet->wrap(face, b.X * MAP_BLOCKSIZE + middle, b.Z * MAP_BLOCKSIZE + middle);
+					b.X = getContainerPos(w[0], MAP_BLOCKSIZE);
+					b.Z = getContainerPos(w[1], MAP_BLOCKSIZE);
+				}
+				to.insert(b);
+			}
+		};
+		onto(near, newlist);
+		onto(seen, extralist);
 	}
 
 	m_abm_list = newlist;
@@ -911,7 +930,7 @@ void ServerEnvironment::step(float dtime)
 		std::set<v3s16> blocks_added;
 		std::set<v3s16> extra_blocks_added;
 		m_active_blocks.update(players, active_block_range, active_object_range,
-			blocks_removed, blocks_added, extra_blocks_added);
+			blocks_removed, blocks_added, extra_blocks_added, m_server->planet());
 
 		/*
 			Handle removed blocks
@@ -1241,7 +1260,8 @@ void ServerEnvironment::getAddedActiveObjects(PlayerSAO *playersao, s16 radius,
 	m_ao_manager.getAddedActiveObjectsAroundPos(
 		playersao->getBasePosition(), playersao->getPlayer()->getName(),
 		radius_f, player_radius_f,
-		current_objects, added_objects);
+		current_objects, added_objects,
+		[this](v3f a, v3f b) { return m_map->distance(a, b); });
 }
 
 /*
@@ -1288,7 +1308,7 @@ void ServerEnvironment::getRemovedActiveObjects(PlayerSAO *playersao, s16 radius
 			continue;
 		}
 
-		f32 distance_f = object->getBasePosition().getDistanceFrom(playersao->getBasePosition());
+		f32 distance_f = m_map->distance(object->getBasePosition(), playersao->getBasePosition());
 		bool in_range = object->getType() == ACTIVEOBJECT_TYPE_PLAYER
 			? distance_f <= player_radius_f || player_radius_f == 0
 			: distance_f <= radius_f;

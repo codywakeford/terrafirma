@@ -1,5 +1,6 @@
 import type { PreviewWire } from "../worldgen/fields"
 import type { WeatherWire } from "../worldgen/weather"
+import type { StarId } from "../worldgen/config"
 
 // The contract between the engine (src/shell/) and the UI.
 // Change both sides together: intents are answered by verbs registered with
@@ -8,12 +9,16 @@ import type { WeatherWire } from "../worldgen/weather"
 export type Mode = "menu" | "game"
 
 /** In-game screens the engine can open (src/shell/screens.cpp: SCREENS). */
-export type ScreenName = "pause" | "inventory" | "lab" | "wiki"
+export type ScreenName = "pause" | "inventory" | "lab" | "wiki" | "map"
 
 /** A slot in the local player's inventory. */
 export type SlotRef = { list: string; index: number }
 
-export type World = { name: string; path: string }
+export type World = {
+    name: string; path: string; code: string | null
+    mode: "survival" | "creative" | null; damage: boolean | null
+    pinned: boolean; lastOpened: number | null; rules: Record<string, string>
+}
 
 /** Local content: reported by src/shell/community.cpp, not a remote catalog. */
 export type CommunityMod = {
@@ -23,7 +28,14 @@ export type CommunityMod = {
 export type CommunityTexture = {
     id: string; name: string; description: string; author: string; active: boolean
 }
-export type CommunityWorld = World & { code: string | null }
+export type CommunityWorld = { name: string; path: string; code: string | null }
+export type PublicServer = {
+    id: string; name: string; description: string; host: string
+    region: string; players: number; capacity: number; pingMs: number | null
+    version: string; tags: string[]; mods: string[]; featured: boolean
+    favorite: boolean; compatible: boolean
+}
+export type ServerDirectory = { status: "ready" | "unavailable"; servers: PublicServer[] }
 export type CommunityCatalog = {
     mods: CommunityMod[]; textures: CommunityTexture[]; worlds: CommunityWorld[]
 }
@@ -38,6 +50,7 @@ export type Stack = { item: string; count: number; wear: number }
 export type StateSections = {
     hud: { visible: boolean; crosshair: boolean; hotbar: boolean; health: boolean; breath: boolean }
     player: { hp: number; hpMax: number; breath: number; breathMax: number }
+    mapPose: { u: number; v: number; heading: number }
     hotbar: { size: number; selected: number }
     inventory: Record<string, { width: number; stacks: (Stack | null)[] }>
 }
@@ -197,6 +210,12 @@ export type LabScenario = {
 export type UiValues = {
 	/** tf_player: the server permits this player to use the creative catalogue. */
 	creative: boolean
+    /** tf_player: the planet and this player's saved exploration mask. */
+    map: { code: string; size: number; star: StarId; tilt: number; mode: "creative" | "survival"; explored: string; grid: number }
+    /** tf_player: the player's place on the world model and the current date. */
+    map_position: { x: number; z: number; date: number }
+    /** tf_player: server-approved world controls and their current state. */
+    world_controls: { mode: "creative" | "survival"; damage: boolean; time: number; paused: boolean }
     /**
      * tf_lab/panel.lua, in a scenario's world: which scenario, its control
      * values, whether the camera is orbiting it (`browsing`), and time.
@@ -255,6 +274,9 @@ export type UiEvents = {
 	/** Replace one hotbar slot from the catalogue; tf_player validates on the server. */
 	"creative.take": { item: string; slot: number; count: number }
 	"creative.clear": { slot: number }
+    "world.mode": { mode: "creative" | "survival" }
+    "world.time": { time: "dawn" | "noon" | "dusk" | "midnight" }
+    "world.clock": { paused: boolean }
     /** A control changed (a button press carries no value). */
     "lab.control": { id: string; value: LabValue | null }
     /** Build the scenario again with its current values. */
@@ -318,6 +340,10 @@ export type Intents = {
     ready: { request: {}; response: null }
     capture: { request: { keyboard: boolean }; response: null }
     "worlds.list": { request: {}; response: World[] }
+    "worlds.pin": { request: { path: string; pinned: boolean }; response: null }
+    "servers.list": { request: {}; response: ServerDirectory }
+    "servers.join": { request: { id: string }; response: null }
+    "servers.favorite.set": { request: { id: string; favorite: boolean }; response: null }
     "community.list": { request: {}; response: CommunityCatalog }
     /** User-installed mods are selected per world; built-ins are required by this build. */
     "community.mod.set": { request: { id: string; world: string; enabled: boolean }; response: null }
@@ -363,6 +389,9 @@ export type Intents = {
     "settings.get": { request: {}; response: Record<string, number | boolean> }
     "settings.set": { request: { key: string; value: number | boolean }; response: null }
     "settings.apply": { request: { values: Record<string, number | boolean> }; response: null }
+    "settings.bindings.get": { request: {}; response: Record<string, string> }
+    "settings.bindings.set": { request: { key: string; scancode: number; replace: boolean }; response: null }
+    "settings.bindings.reset": { request: {}; response: null }
     open: { request: { url: string }; response: null }
     /** The ArcLabs account (src/shell/account.cpp); changes arrive as `account` messages. */
     "account.get": { request: {}; response: Account }

@@ -126,7 +126,7 @@ void main(void)
 
 	vNormal = (mWorld * vec4(skinNormal, 0.0)).xyz;
 	worldPosition = (mWorld * skinPos).xyz;
-	eyeVec = -(mWorldView * skinPos).xyz;
+	eyeVec = sphereEyeVec(skinPos, mWorld, -(mWorldView * skinPos).xyz);
 
 #if (MATERIAL_TYPE == TILE_MATERIAL_PLAIN) || (MATERIAL_TYPE == TILE_MATERIAL_PLAIN_ALPHA)
 	vIDiff = 1.0;

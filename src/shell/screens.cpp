@@ -29,6 +29,7 @@ struct ScreenKind
 static const ScreenKind SCREENS[] = {
 	{ "pause", true, nullptr, nullptr },
 	{ "inventory", false, "keymap_inventory", nullptr },
+	{ "map", true, "keymap_minimap", "map" },
 	{ "lab", false, "keymap_lab", "lab" },
 	{ "wiki", false, "keymap_wiki", "wiki" }, // offered by tf_player where the world's rules allow it
 };

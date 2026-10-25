@@ -222,6 +222,11 @@ bool ClientMap::useLoopsCuller() const
 	if (m_loops_occlusion_culler)
 		return true;
 
+	// Terra Firma: on a planet the faces near the camera can be far apart in
+	// the map; the BFS walks the map, the loops visit every block loaded.
+	if (m_client->getPlanet())
+		return true;
+
 	/*
 		The BFS culler becomes slow/unusable on high view ranges, so we automatically
 		switch back to loops for those cases.
@@ -420,7 +425,9 @@ void ClientMap::updateDrawList()
 	// No occlusion culling when free_move is on and camera is inside ground
 	// No occlusion culling for chunk sizes of 4 and above
 	//   because the current occlusion culling test is highly inefficient at these sizes
-	bool occlusion_culling_enabled = mesh_grid.cell_size < 4;
+	// Terra Firma: nor on a planet, where the world is drawn curved and the
+	//   flat map's rays don't say what's hidden
+	bool occlusion_culling_enabled = mesh_grid.cell_size < 4 && !m_client->getPlanet();
 	if (m_control.allow_noclip) {
 		MapNode n = getNode(cam_pos_nodes);
 		if (n.getContent() == CONTENT_IGNORE || NDT_solidness[m_nodedef->get(n).drawtype] == 2)
@@ -448,6 +455,8 @@ void ClientMap::updateDrawList()
 	// Set of mesh holding blocks, will be transferred to m_drawlist
 	std::set<v3s16> shortlist;
 
+	const planet::Planet *planet = m_client->getPlanet(); // Terra Firma
+
 	// Perform occlusion culling to determine visible blocks
 	if (useLoopsCuller()) {
 		// Number of blocks currently loaded by the client
@@ -461,7 +470,7 @@ void ClientMap::updateDrawList()
 			v2s16 sp = sector->getPos();
 
 			blocks_loaded += sector->size();
-			if (!m_control.range_all) {
+			if (!m_control.range_all && !planet) {
 				if (sp.X < p_blocks_min.X || sp.X > p_blocks_max.X ||
 						sp.Y < p_blocks_min.Z || sp.Y > p_blocks_max.Z)
 					continue;
@@ -489,10 +498,11 @@ void ClientMap::updateDrawList()
 					mesh_sphere_radius = 0.0f;
 				}
 
-				// First, perform a simple distance check.
-				if (!m_control.range_all &&
-					mesh_sphere_center.getDistanceFrom(m_camera_position) >
-						m_control.wanted_range * BS + mesh_sphere_radius)
+				// First, perform a simple distance check (on a planet, over the planet).
+				const f32 distance = planet ? (f32)planet->distance(m_camera_position.X / BS, m_camera_position.Y / BS,
+						m_camera_position.Z / BS, mesh_sphere_center.X / BS, mesh_sphere_center.Y / BS,
+						mesh_sphere_center.Z / BS) * BS : mesh_sphere_center.getDistanceFrom(m_camera_position);
+				if (!m_control.range_all && distance > m_control.wanted_range * BS + mesh_sphere_radius)
 					continue; // Out of range, skip.
 
 				// Keep the block alive as long as it is in range.

@@ -217,7 +217,9 @@ bool wouldCollideWithCeiling(
 	return false;
 }
 
-static bool add_area_node_boxes(const v3s16 min, const v3s16 max, IGameDef *gamedef,
+// `from`: where the mover is. Terra Firma: on a planet, past the edge of
+// its face the nodes are the neighbour face's, seen from here (Map::see).
+static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IGameDef *gamedef,
 		Environment *env, std::vector<NearbyCollisionInfo> &cinfo)
 {
 	const auto *nodedef = gamedef->getNodeDefManager();
@@ -240,6 +242,28 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, IGameDef *game
 	for (p.Z = min.Z; p.Z >= min.Z && p.Z <= max.Z; p.Z++)
 	for (p.Y = min.Y; p.Y >= min.Y && p.Y <= max.Y; p.Y++)
 	for (p.X = min.X; p.X >= min.X && p.X <= max.X; p.X++) {
+		if (map->getPlanet() && map->see(from, p).pos != p) {
+			// past the mover's face: the neighbour face's node, turned to this grid
+			bool valid;
+			const MapNode n = map->getNodeSeen(from, p, &valid);
+			const ContentFeatures &f = nodedef->get(n);
+			if (!valid || n.getContent() == CONTENT_IGNORE) {
+				cinfo.emplace_back(true, 0, p, getNodeBox(p, BS)); // not loaded: solid, as below
+				continue;
+			}
+			any_position_valid = true;
+			if (!f.walkable)
+				continue;
+			nodeboxes.clear();
+			n.getCollisionBoxes(nodedef, &nodeboxes, 0);
+			const v3f posf = intToFloat(p, BS);
+			for (auto box : nodeboxes) {
+				box.MinEdge += posf;
+				box.MaxEdge += posf;
+				cinfo.emplace_back(false, abs(itemgroup_get(f.groups, "bouncy")), p, box);
+			}
+			continue;
+		}
 		v3s16 bp, relp;
 		getNodeBlockPosWithOffset(p, bp, relp);
 		if (bp != last_bp) {
@@ -478,7 +502,7 @@ CollisionMoveResult collisionMoveSimple(Environment *env, IGameDef *gamedef,
 		v3s16 min = floatToInt(minpos_f + box_0.MinEdge, BS) - v3s16(1, 1, 1);
 		v3s16 max = floatToInt(maxpos_f + box_0.MaxEdge, BS) + v3s16(1, 1, 1);
 
-		bool any_position_valid = add_area_node_boxes(min, max, gamedef, env, cinfo);
+		bool any_position_valid = add_area_node_boxes(min, max, floatToInt(*pos_f, BS), gamedef, env, cinfo);
 
 		// Do not move if world has not loaded yet, since custom node boxes
 		// are not available for collision detection.
@@ -678,7 +702,7 @@ bool collision_check_intersection(Environment *env, IGameDef *gamedef,
 		v3s16 min = floatToInt(pos_f + box_0.MinEdge, BS) - v3s16(1, 1, 1);
 		v3s16 max = floatToInt(pos_f + box_0.MaxEdge, BS) + v3s16(1, 1, 1);
 
-		bool any_position_valid = add_area_node_boxes(min, max, gamedef, env, cinfo);
+		bool any_position_valid = add_area_node_boxes(min, max, floatToInt(pos_f, BS), gamedef, env, cinfo);
 
 		if (!any_position_valid) {
 			return true;

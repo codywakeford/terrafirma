@@ -4,9 +4,10 @@
 import { inject, type InjectionKey } from "vue"
 import { BridgeError } from "../bridge"
 import { FailureCode } from "../bridge/types"
-import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CommunityCatalog, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
+import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CommunityCatalog, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, PublicServer, ServerDirectory, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
 import { DEFAULTS, decodeWorldCode, encodeWorldCode } from "../worldgen/config"
 import { mockPreview, mockWeather } from "./mockWorld"
+import { bindingScancode } from "../settings/bindings"
 
 type Handlers = { [K in IntentKind]: (request: Intents[K]["request"]) => Intents[K]["response"] }
 
@@ -28,13 +29,25 @@ function cannedSandbox(time: number): SandboxFrame {
 export function MockBridge() {
     const listeners = new Set<(message: EngineMessage) => void>()
     let worlds: World[] = [
-        { name: "Pine Ridge", path: "/worlds/pine_ridge" },
-        { name: "Saltwater", path: "/worlds/saltwater" },
+        { name: "Pine Ridge", path: "/worlds/pine_ridge", code: encodeWorldCode({ ...DEFAULTS, seed: "pine ridge" }),
+            mode: "survival", damage: true, pinned: true, lastOpened: 1792500000,
+            rules: { tf_difficulty: "normal", tf_seasons: "true", tf_weather: "wild", tf_hunger: "normal" } },
+        { name: "Saltwater", path: "/worlds/saltwater", code: encodeWorldCode({ ...DEFAULTS, seed: "saltwater" }),
+            mode: "creative", damage: false, pinned: false, lastOpened: 1791000000,
+            rules: { tf_difficulty: "peaceful", tf_seasons: "false", tf_weather: "mild" } },
     ]
-    const worldCodes = new Map([
-        ["/worlds/pine_ridge", encodeWorldCode({ ...DEFAULTS, seed: "pine ridge" })],
-        ["/worlds/saltwater", encodeWorldCode({ ...DEFAULTS, seed: "saltwater" })],
-    ])
+    const worldCodes = new Map(worlds.map((world) => [world.path, world.code!]))
+    const publicServers: PublicServer[] = [
+        { id: "amber-crossing", name: "Amber Crossing", description: "A shared survival world shaped by seasons, trade routes, and towns.", host: "ArcLabs",
+            region: "Europe", players: 34, capacity: 80, pingMs: 42, version: "0.1", tags: ["Survival", "Towns", "Hardy"],
+            mods: ["tf_world", "tf_weather"], featured: true, favorite: true, compatible: true },
+        { id: "iron-valley", name: "Iron Valley", description: "A cooperative iron-age settlement with a working rail network.", host: "Wren",
+            region: "North America", players: 11, capacity: 32, pingMs: 106, version: "0.1", tags: ["Co-op", "Industry"],
+            mods: ["tf_world", "lanterns"], featured: true, favorite: false, compatible: true },
+        { id: "old-stone", name: "Old Stone", description: "A long-running world on an older build.", host: "Juno",
+            region: "Europe", players: 7, capacity: 24, pingMs: 53, version: "0.0", tags: ["Survival", "Exploration"],
+            mods: ["tf_world"], featured: false, favorite: false, compatible: false },
+    ]
     const community: CommunityCatalog = {
         mods: [
             { id: "games/terrafirma/mods/tf_world", name: "tf_world", title: "World", description: "Base terrain, water, biomes, and trees.", author: "ArcLabs", source: "builtIn", depends: ["tf_lab"], enabledWorlds: [], configurable: false },
@@ -60,6 +73,38 @@ export function MockBridge() {
         view_bobbing_amount: 1, enable_bloom: false, enable_fog: true,
         enable_3d_clouds: true, invert_mouse: false, doubletap_jump: true,
         toggle_sneak_key: false, mute_sound: false, hurt_flash_enabled: true,
+        widget_map: true, widget_map_corner: 0, widget_map_scale: 2,
+        widget_world_controls: true, widget_world_controls_corner: 1,
+    }
+    const defaultBindings: Record<string, string> = {
+        keymap_forward: "SYSTEM_SCANCODE_26|GAMEPAD_AXIS_MINUS_1",
+        keymap_backward: "SYSTEM_SCANCODE_22|GAMEPAD_AXIS_PLUS_1",
+        keymap_left: "SYSTEM_SCANCODE_4|GAMEPAD_AXIS_MINUS_0",
+        keymap_right: "SYSTEM_SCANCODE_7|GAMEPAD_AXIS_PLUS_0",
+        keymap_jump: "SYSTEM_SCANCODE_44|GAMEPAD_BUTTON_0",
+        keymap_sneak: "SYSTEM_SCANCODE_225|GAMEPAD_BUTTON_1",
+        keymap_aux1: "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2",
+        keymap_freemove: "SYSTEM_SCANCODE_14|GAMEPAD_BUTTON_13",
+        keymap_dig: "MOUSE_BUTTON_1|GAMEPAD_AXIS_PLUS_5",
+        keymap_place: "MOUSE_BUTTON_3|GAMEPAD_AXIS_PLUS_4",
+        keymap_inventory: "SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3",
+        keymap_drop: "SYSTEM_SCANCODE_20|GAMEPAD_BUTTON_12",
+        keymap_zoom: "SYSTEM_SCANCODE_29|GAMEPAD_BUTTON_11",
+        keymap_chat: "SYSTEM_SCANCODE_23",
+        keymap_lab: "SYSTEM_SCANCODE_15",
+        keymap_wiki: "SYSTEM_SCANCODE_10",
+        keymap_minimap: "SYSTEM_SCANCODE_25|GAMEPAD_BUTTON_4",
+        keymap_toggle_hud: "SYSTEM_SCANCODE_58",
+        keymap_camera_mode: "SYSTEM_SCANCODE_62",
+        keymap_fullscreen: "SYSTEM_SCANCODE_68",
+        keymap_screenshot: "SYSTEM_SCANCODE_69|GAMEPAD_BUTTON_14",
+        keymap_mute: "SYSTEM_SCANCODE_16",
+    }
+    let bindings = { ...defaultBindings }
+    function withKey(value: string, scancode: number | null) {
+        return [scancode === null ? "" : `SYSTEM_SCANCODE_${scancode}`,
+            ...value.split("|").filter((part) => part && !part.startsWith("SYSTEM_SCANCODE_"))]
+            .filter(Boolean).join("|")
     }
 
     // The device flow, played out: the "browser" approves a few seconds after
@@ -226,8 +271,11 @@ export function MockBridge() {
         ready: () => null,
         capture: () => null,
         "worlds.list": () => worlds,
-        "worlds.create": ({ name, code }) => {
-            const world = { name: name, path: `/worlds/${name.toLowerCase().replace(/\W+/g, "_")}` }
+        "worlds.create": ({ name, code, settings }) => {
+            const world: World = { name: name, path: `/worlds/${name.toLowerCase().replace(/\W+/g, "_")}`,
+                code, mode: settings.creative_mode ? "creative" : "survival", damage: Boolean(settings.enable_damage),
+                pinned: false, lastOpened: null,
+                rules: Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith("tf_")).map(([key, value]) => [key, String(value)])) }
             worlds = [...worlds, world]
             worldCodes.set(world.path, code)
             return world
@@ -235,6 +283,24 @@ export function MockBridge() {
         "worlds.delete": ({ path }) => {
             worlds = worlds.filter((w) => w.path !== path)
             worldCodes.delete(path)
+            return null
+        },
+        "worlds.pin": ({ path, pinned }) => {
+            const world = worlds.find((item) => item.path === path)
+            if (!world) throw refuse("worlds.pin", "that world no longer exists")
+            world.pinned = pinned
+            return null
+        },
+        "servers.list": (): ServerDirectory => ({ status: "ready", servers: publicServers.map((server) => ({ ...server, tags: [...server.tags], mods: [...server.mods] })) }),
+        "servers.favorite.set": ({ id, favorite }) => {
+            const server = publicServers.find((item) => item.id === id)
+            if (!server) throw refuse("servers.favorite.set", "that server no longer exists")
+            server.favorite = favorite
+            return null
+        },
+        "servers.join": ({ id }) => {
+            const server = publicServers.find((item) => item.id === id)
+            if (!server?.compatible) throw refuse("servers.join", "that server is not compatible with this build")
             return null
         },
         "community.list": () => communityView(),
@@ -266,6 +332,20 @@ export function MockBridge() {
             return null
         },
         "ui.send": (event) => {
+            if (event.name === "world.mode") {
+                emitAll({ kind: "ui", key: "world_controls", value: { mode: event.payload.mode, damage: true, time: 0.5, paused: false } })
+                emitAll({ kind: "ui", key: "creative", value: event.payload.mode === "creative" })
+                return null
+            }
+            if (event.name === "world.time") {
+                const times = { dawn: 0.23, noon: 0.5, dusk: 0.77, midnight: 0 }
+                emitAll({ kind: "ui", key: "world_controls", value: { mode: "survival", damage: true, time: times[event.payload.time], paused: false } })
+                return null
+            }
+            if (event.name === "world.clock") {
+                emitAll({ kind: "ui", key: "world_controls", value: { mode: "survival", damage: true, time: 0.5, paused: event.payload.paused } })
+                return null
+            }
             if (event.name === "creative.take") {
                 lists.main!.stacks[event.payload.slot] = { item: event.payload.item, count: event.payload.count, wear: 0 }
                 publish()
@@ -297,6 +377,17 @@ export function MockBridge() {
             Object.assign(settings, values)
             return null
         },
+        "settings.bindings.get": () => ({ ...bindings }),
+        "settings.bindings.set": ({ key, scancode, replace }) => {
+            if (!(key in bindings)) throw refuse("settings.bindings.set", "unknown binding")
+            const conflicts = Object.entries(bindings).filter(([name, value]) =>
+                name !== key && bindingScancode(value) === scancode)
+            if (conflicts.length && !replace) throw refuse("settings.bindings.set", `key already assigned to ${conflicts[0]![0]}`)
+            for (const [name, value] of conflicts) bindings[name] = withKey(value, null)
+            bindings[key] = withKey(bindings[key]!, scancode)
+            return null
+        },
+        "settings.bindings.reset": () => { bindings = { ...defaultBindings }; return null },
         open: () => null,
         "account.get": () => account,
         "account.signIn": () => {
@@ -449,10 +540,11 @@ export function cannedSocial(opts: { inWorld?: boolean } = {}): Social {
                 { id: id(2), username: "bram", name: null, presence: { state: "hosting", world: "Pine Ridge", open: false } },
                 { id: id(3), username: "juno", name: "Juno", presence: { state: "menu", world: null, open: false } },
                 { id: id(4), username: "oskar", name: null, presence: null },
+                { id: id(7), username: "wren", name: "Wren", presence: { state: "hosting", world: "Copper Coast", open: true } },
             ],
             incoming: [{ id: id(5), username: "pip", name: "Pip" }],
             outgoing: [{ id: id(6), username: "tamsin", name: null }],
-            invites: [{ id: "10000000-0000-4000-8000-000000000001", from: { id: id(1), username: "ash", name: "Ash" }, world: "Saltwater", expiresAt: "2026-10-24T12:00:00Z" }],
+            invites: [{ id: "10000000-0000-4000-8000-000000000001", from: { id: id(1), username: "ash", name: "Ash" }, world: "Saltwater", expiresAt: new Date(Date.now() + 3600_000).toISOString() }],
         },
     }
 }

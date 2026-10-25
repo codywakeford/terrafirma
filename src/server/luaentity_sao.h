@@ -74,6 +74,10 @@ protected:
 	}
 
 private:
+	// Terra Firma: on a planet, moved off its face from `was`: put on the face
+	// it's moved onto, its velocity, acceleration and yaw turned with the grid.
+	void carry(const v3f &was);
+
 	std::string getPropertyPacket();
 	void sendPosition(bool do_interpolate, bool is_movement_end);
 	std::string generateSetTextureModCommand() const;

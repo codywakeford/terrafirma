@@ -1,26 +1,31 @@
 -- A player's body: how the engine moves them, decided in one place from
--- where they are. On the planet they walk under gravity; riding a craft the
--- craft moves them; in space (a bubble's cell) they float: the same keys walk
--- them about, Space and Shift up and down, nothing pulls them down.
+-- where they are. On the planet they walk under its gravity, which weakens
+-- as they climb (R² / (R + h)²: high enough, they hardly fall); riding a
+-- craft the craft moves them.
 
-local PUFF = 4 -- m/s² floating: Space up, Shift down (the walk keys move you across)
+local RETUNE = 0.01 -- the share gravity changes by before the body is told again
 
 local MODES = {
-	ground = { speed = 1, jump = 1, gravity = 1 },
+	ground = { speed = 1, jump = 1 },
 	riding = { speed = 0, jump = 0, gravity = 0 },
-	floating = { speed = 1, jump = 0, gravity = 0 },
 }
 
--- opts: { space = z north of which the map is space }
+-- opts: { sea = y of the sea }
 return function(opts)
-	local worn = {} -- player name → the mode they're in
+	local planet = core.orbit.planet()
+	local worn = {} -- player name → { mode, gravity } they have
 
 	local function mode(player)
 		local parent = player:get_attach()
 		if parent and parent:get_luaentity() and parent:get_luaentity().name == "tf_flight:craft" then
 			return "riding"
 		end
-		return player:get_pos().z >= opts.space and "floating" or "ground"
+		return "ground"
+	end
+
+	-- The share of the ground's gravity at a height (m above the sea).
+	local function pull(altitude)
+		return (planet.radius / (planet.radius + math.max(altitude, 0))) ^ 2
 	end
 
 	-- Bring a player's body in line with where they are (only on a change:
@@ -28,21 +33,18 @@ return function(opts)
 	local function settle(player)
 		local name = player:get_player_name()
 		local m = mode(player)
-		if worn[name] == m then return end
-		worn[name] = m
-		player:set_physics_override(MODES[m])
+		local g = m == "ground" and pull(player:get_pos().y - opts.sea) or 0
+		local was = worn[name]
+		if was and was.mode == m and math.abs(was.gravity - g) <= RETUNE * math.max(g, RETUNE) then return end
+		worn[name] = { mode = m, gravity = g }
+		local o = table.copy(MODES[m])
+		o.gravity = g
+		player:set_physics_override(o)
 	end
 
 	return {
 		settle = settle,
-		-- Each step: settled, and floating, Space and Shift move them up and down.
-		step = function(player, dtime)
-			settle(player)
-			if worn[player:get_player_name()] ~= "floating" then return end
-			local c = player:get_player_control()
-			local up = (c.jump and 1 or 0) - (c.sneak and 1 or 0)
-			if up ~= 0 then player:add_velocity({ x = 0, y = up * PUFF * dtime, z = 0 }) end
-		end,
+		step = function(player) settle(player) end,
 		forget = function(player) worn[player:get_player_name()] = nil end,
 		mode = mode,
 	}

@@ -13,10 +13,12 @@ world="$work/world"
 mkdir -p "$world/worldmods"
 cp -r "$root/scripts/far-check/probe" "$world/worldmods/far_probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\n[end_of_params]\n' > "$world/map_meta.txt"
+# a planet (every terra world is), the world laid on it block for block (8 × 1024 = 8192 round)
+printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nplanet_half = 1024\n[end_of_params]\n' > "$world/map_meta.txt"
 
 port=$((30700 + RANDOM % 500))
-timeout 300 "$root/bin/luanti" --server --world "$world" --port "$port" 2>&1 | grep -oE '(FAR|ERROR).*' | tee "$work/log.txt"
+# no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
+timeout 300 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | grep -oE '(FAR|ERROR).*' | tee "$work/log.txt"
 
 python3 -I - "$work/log.txt" <<'PY'
 import sys

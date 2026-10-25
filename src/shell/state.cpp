@@ -10,6 +10,8 @@
 #include "convert_json.h"
 #include "hud_element.h"
 #include "inventory.h"
+#include "planet/planet.h"
+#include <cmath>
 
 namespace shell {
 
@@ -23,6 +25,8 @@ void State::update(const HudView &view)
 
 	send("hud", hud(*player, view));
 	send("player", this->player(*player));
+	if (m_opts.client->getPlanet())
+		send("mapPose", mapPose(*player));
 	send("hotbar", hotbar(*player));
 	Json::Value inv = inventory(*player);
 	sendNewItems(); // before the inventory that references them
@@ -44,6 +48,28 @@ Json::Value State::player(LocalPlayer &player) const
 	out["hpMax"] = props.hp_max;
 	out["breath"] = player.getBreath();
 	out["breathMax"] = props.breath_max;
+	return out;
+}
+
+Json::Value State::mapPose(LocalPlayer &player) const
+{
+	const planet::Planet &planet = *m_opts.client->getPlanet();
+	const terragen::Sphere &sphere = planet.sphere();
+	const v3f pos = player.getPosition() / BS;
+	const double yaw = player.getYaw() * M_PI / 180.0;
+	const auto place = planet.place(planet.nearest(pos.X, pos.Z), pos.X, pos.Z);
+	const auto ahead = planet.place(planet.nearest(pos.X + std::sin(yaw), pos.Z + std::cos(yaw)),
+			pos.X + std::sin(yaw), pos.Z + std::cos(yaw));
+	const double lon = sphere.longitude(place);
+	const double lat = sphere.latitude(place);
+	const double next_lon = sphere.longitude(ahead);
+	const double next_lat = sphere.latitude(ahead);
+	const double east = std::remainder(next_lon - lon, 2 * M_PI) * std::cos(lat);
+	const double north = next_lat - lat;
+	Json::Value out;
+	out["u"] = lon / (2 * M_PI) + 0.5;
+	out["v"] = 0.5 - lat / M_PI;
+	out["heading"] = std::atan2(east, north) * 180.0 / M_PI;
 	return out;
 }
 

@@ -4,12 +4,12 @@
 // curves away as on the planet, and over an edge it carries on onto the
 // next face, wherever that face is in the net.
 //
-// On the eye's face it's terragen::Sphere::Lens, the same sums, held to the
-// same answers by the unit tests. Off it, a point is placed on the planet
+// On the eye's face it's terragen::Sphere::Lens's sums. Off it, a point is placed on the planet
 // from its own face and seen from the eye: a difference of two directions,
-// good to a millimetre or so on a 13 km planet. planetAxes (each face's
-// axes) is written into every shader from terragen::Sphere
-// (src/client/sphere_lens.cpp), so the two can't drift apart.
+// good to a millimetre or so on a 13 km planet. It's planet::Lens line for
+// line (src/planet/planet.h), which the unit tests hold to the planet.
+// planetAxes (each face's axes) is written into every shader ahead of this
+// (planet::Planet::glslAxes), so the axes can't drift apart.
 //
 // Every vertex shader has this; one that places geometry calls sphereClip
 // in place of mWorldViewProj. Off (sphereEye.w = 0) on a flat world.
@@ -83,4 +83,40 @@ highp vec4 sphereClip(highp vec4 model, highp mat4 world)
 	if (sphereEye.w == 0.0)
 		return mWorldViewProj * model;
 	return sphereViewProj * vec4(sphereLens((world * model).xyz), 1.0);
+}
+
+// From a vertex to the eye, for the fog: on a planet, from where it's drawn.
+// (Only its length is used, so world space serves for view space.)
+highp vec3 sphereEyeVec(highp vec4 model, highp mat4 world, highp vec3 plain)
+{
+	if (sphereEye.w == 0.0)
+		return plain;
+	return sphereCamera - sphereLens((world * model).xyz);
+}
+
+// Whether a scene point is behind the planet as the eye sees it: the straight
+// line from the eye to it passes through the ground. (A sphere a little under
+// the sea, so a shore's shallows aren't hidden behind its own water.) What
+// the near world doesn't reach has nothing else to hide it: the far view,
+// clouds.
+const highp float SPHERE_UNDER = 100.0; // m below the sea
+
+bool sphereHidden(highp vec3 scene)
+{
+	if (sphereEye.w == 0.0)
+		return false;
+	highp vec3 p = (sphereLens(scene) - sphereCamera) / SPHERE_BS; // m, the eye's frame: up is straight up
+	highp float far = length(p);
+	if (far < 1.0)
+		return false;
+	highp float d = sphereEye.w + sphereEye.z; // the eye to the centre, straight down
+	highp float t = -d * p.y / far; // along the line, where it's nearest the centre
+	highp float r = sphereEye.w - SPHERE_UNDER;
+	return t > 0.0 && t < far && d * d - t * t < r * r;
+}
+
+// Whether a scene point is on a face other than the eye's (in the net, far off).
+bool sphereOffFace(highp vec3 scene)
+{
+	return sphereEye.w != 0.0 && planetFace(planetOffset.xz + scene.xz / SPHERE_BS) != planetNet.w;
 }

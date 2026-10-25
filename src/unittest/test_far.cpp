@@ -5,6 +5,7 @@
 
 #include "far/horizon.h"
 #include "far/terrain.h"
+#include "planet/planet.h"
 #include "network/networkpacket.h"
 #include "network/networkprotocol.h"
 #include "util/pointer.h"
@@ -23,6 +24,7 @@ public:
 	void testCoarseCellsSampleCentres();
 	void testPolarWall();
 	void testWholeMap();
+	void testOnThePlanet();
 };
 
 static TestFar g_test_instance;
@@ -34,6 +36,7 @@ void TestFar::runTests(IGameDef *gamedef)
 	TEST(testCoarseCellsSampleCentres);
 	TEST(testPolarWall);
 	TEST(testWholeMap);
+	TEST(testOnThePlanet);
 }
 
 // A horizon with made-up block ids: the far view only compares them.
@@ -88,7 +91,7 @@ void TestFar::testPacketRoundTrip()
 void TestFar::testTileMatchesColumns()
 {
 	Horizon h = horizon();
-	Generator gen(h);
+	Generator gen(h, std::nullopt);
 	Tile t = gen.build({ 0, 10, -5 });
 	for (s32 j = -1; j <= TILE; j++)
 		for (s32 i = -1; i <= TILE; i++) {
@@ -105,7 +108,7 @@ void TestFar::testTileMatchesColumns()
 void TestFar::testCoarseCellsSampleCentres()
 {
 	Horizon h = horizon();
-	Generator gen(h);
+	Generator gen(h, std::nullopt);
 	Tile t = gen.build({ 3, 1, 2 }); // cells 8 blocks wide
 	const s32 cell = 8, x0 = 1 * TILE * cell, z0 = 2 * TILE * cell;
 	for (s32 j = 0; j < TILE; j += 7)
@@ -116,7 +119,7 @@ void TestFar::testCoarseCellsSampleCentres()
 void TestFar::testPolarWall()
 {
 	Horizon h = horizon();
-	Generator gen(h);
+	Generator gen(h, std::nullopt);
 	Cell c = gen.column(0, gen.world().code().size / 2 + 10); // just past the pole
 	UASSERTEQ(s32, c.ground, 1 + POLAR_WALL);
 	UASSERT(c.top.getContent() == h.blocks.ice);
@@ -130,9 +133,47 @@ void TestFar::testPolarWall()
 void TestFar::testWholeMap()
 {
 	Horizon h = horizon();
-	Generator gen(h);
+	Generator gen(h, std::nullopt);
 	const s32 level = 6, span = TILE << level, size = gen.world().code().size;
 	for (s32 z = -size / span - 1; z <= size / span + 1; z++)
 		for (s32 x = -size / span / 2; x < size / span / 2; x += 3)
 			gen.build({ level, x, z });
+}
+
+// On a planet the map's columns are the world model's at their latitude and
+// longitude: the poles are its poles, the faces' middles its meridians, and
+// blocks either side of a face's edge are neighbours in the world model too
+// (no cliff along a join). Planet 1024 is the default world's size round.
+void TestFar::testOnThePlanet()
+{
+	const Horizon h = horizon();
+	const planet::Planet p(1024);
+	const terragen::World world(terragen::WorldCode::decode(h.code));
+	const terra::Columns columns(world, h.blocks, h.water_level, &p);
+	const int32_t size = world.code().size, half = size / 2;
+	UASSERTEQ(int32_t, size, 8 * p.half());
+	const auto middle = [&](int f) {
+		const planet::Planet::Square s = p.square(f);
+		return columns.onWorld(s.x + p.half(), s.z + p.half());
+	};
+	// (a face's middle is between nodes: the node there is half a node off it, a block of the world's)
+	const auto near = [](int32_t a, int32_t b) { return std::abs(a - b) <= 1; };
+	UASSERT(near(middle(4)[1], half) && near(middle(5)[1], 1 - half)); // the poles
+	UASSERT(near(middle(0)[0], 0) && near(middle(0)[1], 0));           // longitude 0 on the equator
+	UASSERT(near(middle(1)[0], size / 4) && near(middle(1)[1], 0));    // 90° east
+	static const int DIRS[4][2] = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } };
+	for (int f = 0; f < 6; f++)
+	for (int d = 0; d < 4; d++) {
+		const planet::Planet::Square s = p.square(f);
+		for (int32_t i = 7; i < p.width(); i += 131) {
+			const int32_t x = DIRS[d][0] > 0 ? s.x + p.width() - 1 : DIRS[d][0] < 0 ? s.x : s.x + i;
+			const int32_t z = DIRS[d][1] > 0 ? s.z + p.width() - 1 : DIRS[d][1] < 0 ? s.z : s.z + i;
+			const planet::Planet::Step out = p.step(x, z, DIRS[d][0], DIRS[d][1]);
+			const auto a = columns.onWorld(x, z), b = columns.onWorld(out.x, out.z);
+			if (std::abs(a[1]) > half * 8 / 9)
+				continue; // near a pole longitude turns quickly; the polar caps take that
+			const int32_t dx = std::abs(a[0] - b[0]), wrapped = std::min(dx, size - dx);
+			UASSERT(wrapped <= 2 && std::abs(a[1] - b[1]) <= 2);
+		}
+	}
 }

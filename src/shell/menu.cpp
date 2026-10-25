@@ -8,11 +8,13 @@
 #include "bridge.h"
 #include "shell.h"
 #include "worlds.h"
-#include "terragen/preview.h"
+#include "preview.h"
 #include "weather/weather.h"
 #include "filesys.h"
 #include "util/base64.h"
 #include <optional>
+#include <exception>
+#include <string>
 #include "exceptions.h"
 #include "client/renderingengine.h"
 #include "porting.h"
@@ -26,8 +28,9 @@
 namespace shell {
 
 static const char *const VERBS[] = {
-	"worlds.list", "worlds.create", "worlds.delete", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
+	"worlds.list", "worlds.create", "worlds.delete", "worlds.pin", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
 	"social.join", "community.list", "community.mod.set", "community.texture.set",
+	"servers.list", "servers.join", "servers.favorite.set",
 };
 
 static Json::Value worldJson(const WorldSpec &world)
@@ -35,60 +38,40 @@ static Json::Value worldJson(const WorldSpec &world)
 	Json::Value out;
 	out["name"] = world.name;
 	out["path"] = world.path;
+	Settings settings;
+	out["code"] = Json::Value();
+	out["mode"] = Json::Value();
+	out["damage"] = Json::Value();
+	out["pinned"] = false;
+	out["lastOpened"] = Json::Value();
+	out["rules"] = Json::Value(Json::objectValue);
+	if (settings.readConfigFile((world.path + DIR_DELIM "world.mt").c_str())) {
+		if (settings.exists("creative_mode"))
+			out["mode"] = settings.getBool("creative_mode") ? "creative" : "survival";
+		if (settings.exists("enable_damage"))
+			out["damage"] = settings.getBool("enable_damage");
+		if (settings.exists("tf_pinned"))
+			out["pinned"] = settings.getBool("tf_pinned");
+		if (settings.exists("tf_last_opened")) {
+			try { out["lastOpened"] = Json::Int64(std::stoll(settings.get("tf_last_opened"))); }
+			catch (const std::exception &) {}
+		}
+		for (const char *key : { "tf_difficulty", "tf_hunger", "tf_weather", "tf_seasons",
+				"tf_temperature", "tf_keep_inventory" }) {
+			if (settings.exists(key))
+				out["rules"][key] = settings.get(key);
+		}
+	}
+	Settings meta("[end_of_params]");
+	if (meta.readConfigFile((world.path + DIR_DELIM "map_meta.txt").c_str()) &&
+			meta.exists("mgterra_code"))
+		out["code"] = meta.get("mgterra_code");
 	return out;
 }
 
 static std::string bytes(const void *data, size_t size)
 {
 	return base64_encode(std::string_view(static_cast<const char *>(data), size));
-}
-
-/*
-	The create screen's preview, from terragen itself: the map you see is the
-	world you get. Fields go as base64 of their raw little-endian arrays (see
-	terragen/preview.h for the scales), with the biome names alongside.
-*/
-static Json::Value previewJson(const Json::Value &intent)
-{
-	if (!intent["code"].isString())
-		throw Refused("worldgen.preview needs a world code");
-	int resolution = intent["resolution"].isInt() ? intent["resolution"].asInt() : 0;
-	if (resolution < 16 || resolution > 512)
-		throw Refused("preview resolution must be 16..512");
-
-	terragen::WorldCode code = readWorldCode(intent["code"].asString());
-	std::optional<terragen::fix> date;
-	if (intent["date"].isNumeric()) {
-		double d = intent["date"].asDouble();
-		if (d < 0 || d >= 1)
-			throw Refused("preview date must be in [0, 1)");
-		date = (terragen::fix)(d * terragen::ONE);
-	}
-
-	terragen::World world(code);
-	terragen::Preview p = terragen::preview(world, date, resolution);
-
-	Json::Value out;
-	out["resolution"] = p.resolution;
-	out["elevation"] = bytes(p.elevation.data(), p.elevation.size() * sizeof(int16_t));
-	out["heat"] = bytes(p.heat.data(), p.heat.size());
-	out["wet"] = bytes(p.wet.data(), p.wet.size());
-	out["season"] = bytes(p.season.data(), p.season.size());
-	out["fertility"] = bytes(p.fertility.data(), p.fertility.size());
-	out["current"] = bytes(p.current.data(), p.current.size());
-	out["biome"] = bytes(p.biome.data(), p.biome.size());
-	out["lake"] = bytes(p.lake.data(), p.lake.size());
-	out["grid"] = p.grid;
-	out["rivers"] = bytes(p.rivers.data(), p.rivers.size());
-	out["province"] = bytes(p.province.data(), p.province.size());
-	out["plate"] = bytes(p.plate.data(), p.plate.size());
-	out["boundary"] = bytes(p.boundary.data(), p.boundary.size());
-	out["volcanoes"] = bytes(p.volcanoes.data(), p.volcanoes.size());
-	Json::Value names(Json::arrayValue);
-	for (const char *name : terragen::BIOME_NAMES)
-		names.append(name);
-	out["biomes"] = names;
-	return out;
 }
 
 /*
@@ -175,6 +158,24 @@ Menu::Menu(const Opts &opts) :
 	m_shell.on("worlds.delete", [this](const Json::Value &intent) {
 		m_worlds.remove(stringField(intent, "path"));
 		return Json::Value();
+	});
+	m_shell.on("worlds.pin", [this](const Json::Value &intent) {
+		if (!intent["pinned"].isBool())
+			throw Refused("worlds.pin needs pinned");
+		m_worlds.pin(stringField(intent, "path"), intent["pinned"].asBool());
+		return Json::Value();
+	});
+	m_shell.on("servers.list", [](const Json::Value &) {
+		Json::Value out(Json::objectValue);
+		out["status"] = "unavailable";
+		out["servers"] = Json::Value(Json::arrayValue);
+		return out;
+	});
+	m_shell.on("servers.join", [](const Json::Value &) -> Json::Value {
+		throw Refused("Public server discovery is not connected yet.");
+	});
+	m_shell.on("servers.favorite.set", [](const Json::Value &) -> Json::Value {
+		throw Refused("Public server discovery is not connected yet.");
 	});
 	m_shell.on("play", [this](const Json::Value &intent) {
 		WorldSpec world = m_worlds.find(stringField(intent, "path"));

@@ -4,9 +4,12 @@ uniform float fogShadingParameter;
 VARYING_ highp vec3 eyeVec;
 
 VARYING_ lowp vec4 varColor;
+VARYING_ lowp float varHidden; // on a planet: behind it
 
 void main(void)
 {
+	if (varHidden > 0.5)
+		discard;
 	vec4 col = varColor;
 
 	float clarity = clamp(fogShadingParameter

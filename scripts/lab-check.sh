@@ -23,7 +23,8 @@ for id in $ids; do
 	printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\ncreative_mode = true\n' > "$world/world.mt"
 	printf 'mg_name = singlenode\ntf_lab = %s\ntf_lab_check = true\n[end_of_params]\n' "$id" > "$world/map_meta.txt"
 	port=$((30700 + RANDOM % 500))
-	timeout 60 "$root/bin/luanti" --server --world "$world" --port "$port" > "$world/log.txt" 2>&1 || true
+	# no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
+	timeout 60 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" > "$world/log.txt" 2>&1 || true
 	line="$(grep -oE "LAB $id .*" "$world/log.txt" || true)"
 	case "$line" in
 		*" ok") passed=$((passed + 1)) ;;

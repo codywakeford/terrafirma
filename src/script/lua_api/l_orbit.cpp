@@ -4,14 +4,15 @@
 #include "lua_api/l_orbit.h"
 #include "lua_api/l_internal.h"
 #include "orbit/flight.h"
+#include "server.h"
 #include <cmath>
 
 using orbit::Vec;
 
-static const orbit::Flight &flight()
+// the world's planet (Server::flight)
+static const orbit::Flight &flight(lua_State *L)
 {
-	static const orbit::Flight f(terragen::home());
-	return f;
+	return ModApiBase::getServer(L)->flight();
 }
 
 // a number field of the table at `index`; raises if missing or not finite
@@ -86,7 +87,7 @@ static void pushState(lua_State *L, const orbit::State &s)
 int ModApiOrbit::l_planet(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const terragen::Planet &p = flight().planet();
+	const terragen::Planet &p = flight(L).planet();
 	lua_createtable(L, 0, 6);
 	setNumber(L, "radius", p.radius);
 	setNumber(L, "gravity", p.gravity);
@@ -100,7 +101,7 @@ int ModApiOrbit::l_planet(lua_State *L)
 int ModApiOrbit::l_density(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	lua_pushnumber(L, flight().density(luaL_checknumber(L, 1)));
+	lua_pushnumber(L, flight(L).density(luaL_checknumber(L, 1)));
 	return 1;
 }
 
@@ -112,7 +113,7 @@ static int stepWith(lua_State *L, bool near)
 	double dt = luaL_checknumber(L, 4);
 	if (!(dt >= 0) || dt > 60)
 		luaL_error(L, "core.orbit: a step is 0..60 s");
-	pushState(L, near ? flight().near(s, c, thrust, dt) : flight().step(s, c, thrust, dt));
+	pushState(L, near ? flight(L).near(s, c, thrust, dt) : flight(L).step(s, c, thrust, dt));
 	return 1;
 }
 
@@ -131,7 +132,7 @@ int ModApiOrbit::l_near(lua_State *L)
 int ModApiOrbit::l_elements(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	orbit::Elements e = flight().elements(state(L, 1));
+	orbit::Elements e = flight(L).elements(state(L, 1));
 	lua_createtable(L, 0, 8);
 	setNumber(L, "altitude", e.altitude);
 	setNumber(L, "speed", e.speed);
@@ -150,7 +151,7 @@ int ModApiOrbit::l_elements(lua_State *L)
 int ModApiOrbit::l_directions(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	orbit::Directions d = flight().directions(state(L, 1));
+	orbit::Directions d = flight(L).directions(state(L, 1));
 	lua_createtable(L, 0, 3);
 	pushVec(L, d.prograde);
 	lua_setfield(L, -2, "prograde");
@@ -165,7 +166,7 @@ int ModApiOrbit::l_directions(lua_State *L)
 int ModApiOrbit::l_frame(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	orbit::Frame f = flight().frame(state(L, 1));
+	orbit::Frame f = flight(L).frame(state(L, 1));
 	lua_createtable(L, 0, 3);
 	pushVec(L, f.east);
 	lua_setfield(L, -2, "east");
@@ -193,10 +194,10 @@ int ModApiOrbit::l_path(lua_State *L)
 	int points = (int)luaL_checkinteger(L, 2);
 	if (points < 2 || points > 1024)
 		luaL_error(L, "core.orbit: a path has 2..1024 points");
-	std::vector<Vec> path = flight().path(s, points);
+	std::vector<Vec> path = flight(L).path(s, points);
 	lua_createtable(L, (int)path.size(), 0);
 	for (size_t i = 0; i < path.size(); i++) {
-		orbit::Where w = flight().where({ path[i], {} });
+		orbit::Where w = flight(L).where({ path[i], {} });
 		lua_createtable(L, 0, 3);
 		setNumber(L, "latitude", w.latitude);
 		setNumber(L, "longitude", w.longitude);
@@ -209,7 +210,7 @@ int ModApiOrbit::l_path(lua_State *L)
 int ModApiOrbit::l_where(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	pushWhere(L, flight().where(state(L, 1)));
+	pushWhere(L, flight(L).where(state(L, 1)));
 	return 1;
 }
 
@@ -218,7 +219,7 @@ int ModApiOrbit::l_at(lua_State *L)
 	NO_MAP_LOCK_REQUIRED;
 	luaL_checktype(L, 1, LUA_TTABLE);
 	orbit::Where w{ number(L, 1, "latitude"), number(L, 1, "longitude"), number(L, 1, "altitude"), vecField(L, 1, "velocity") };
-	pushState(L, flight().at(w));
+	pushState(L, flight(L).at(w));
 	return 1;
 }
 

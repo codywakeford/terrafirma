@@ -16,7 +16,6 @@
 #include "util/numeric.h"
 #include "util/string.h" // StringMap
 #include "far/terrain.h" // Terra Firma: far::Horizon
-#include "far/aloft.h" // Terra Firma: far::Aloft
 #include "planet/planet.h" // Terra Firma
 
 #include <map>
@@ -198,7 +197,6 @@ public:
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Horizon(NetworkPacket *pkt);
-	void handleCommand_Aloft(NetworkPacket *pkt);
 	void handleCommand_Planet(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
@@ -258,7 +256,6 @@ public:
 	const planet::Planet *getPlanet() const { return m_planet ? &*m_planet : nullptr; }
 	// Where the server says the player is over the planet, carried forward
 	// to now; none while that's where they stand.
-	std::optional<far::Aloft> getAloft() const;
 
 	ClientEnvironment& getEnv() { return m_env; }
 	ITextureSource *tsrc() { return getTextureSource(); }
@@ -326,6 +323,9 @@ public:
 	// Including blocks at appropriate edges
 	void addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server=false, bool urgent=false);
 	void addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server=false, bool urgent=false);
+	// Terra Firma: the meshes across a planet face's edge from a node on it,
+	// which show it in their border (QueuedMeshUpdate::halo)
+	void addUpdateMeshTaskAcross(v3s16 nodepos, bool urgent);
 
 	bool hasClientEvents() const { return !m_client_event_queue.empty(); }
 	// Get event from queue. If queue is empty, it triggers an assertion failure.
@@ -486,8 +486,6 @@ private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
 	std::optional<planet::Planet> m_planet;
-	std::optional<far::Aloft> m_aloft;
-	u64 m_aloft_at = 0; // ms, when it came
 
 	struct PendingMediaDownload {
 		// Tokens to ack to the server. multiple because server can send duplicate

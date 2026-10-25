@@ -5,6 +5,7 @@
 #include <array>
 
 #include "voxelalgorithms.h"
+#include "planet/planet.h" // Terra Firma
 #include "nodedef.h"
 #include "mapblock.h"
 #include "map.h"
@@ -230,6 +231,31 @@ bool step_rel_block_pos(direction dir, relative_v3 &rel_pos,
 }
 
 /*
+ * Terra Firma: step_rel_block_pos, over a planet face's edge if the step
+ * crosses one: the neighbour is the next face's node (Map::next), and `dir`
+ * becomes the way the step goes in that face's grid (so light doesn't turn
+ * back on its source there). Returns whether the block changed.
+ */
+static bool step_on_planet(Map *map, direction &dir, relative_v3 &rel_pos,
+	mapblock_v3 &block_pos)
+{
+	const v3s16 from = block_pos * MAP_BLOCKSIZE + rel_pos;
+	const bool crossed = step_rel_block_pos(dir, rel_pos, block_pos);
+	if (!crossed || !map->getPlanet() || dir == 1 || dir == 4)
+		return crossed;
+	const Map::Next next = map->next(from, neighbor_dirs[dir]);
+	if (next.pos == from + neighbor_dirs[dir])
+		return crossed;
+	block_pos = getNodeBlockPos(next.pos);
+	rel_pos = next.pos - block_pos * MAP_BLOCKSIZE;
+	const auto way = planet::Planet::turned(neighbor_dirs[dir].X, neighbor_dirs[dir].Z, next.turn);
+	for (direction d = 0; d < 6; d++)
+		if (neighbor_dirs[d] == v3s16(way[0], 0, way[1]))
+			dir = d;
+	return true;
+}
+
+/*
  * Removes all light that is potentially emitted by the specified
  * light sources. These nodes will have zero light.
  * Returns all nodes whose light became zero but should be re-lighted.
@@ -274,7 +300,8 @@ void unspread_light(Map *map, const NodeDefManager *nodemgr, LightBank bank,
 			neighbor_rel_pos = current.rel_position;
 			neighbor_block_pos = current.block_position;
 			MapBlock *neighbor_block;
-			if (step_rel_block_pos(i, neighbor_rel_pos, neighbor_block_pos)) {
+			direction way = i; // Terra Firma: turned over a planet's edge
+			if (step_on_planet(map, way, neighbor_rel_pos, neighbor_block_pos)) {
 				neighbor_block = map->getBlockNoCreateNoEx(neighbor_block_pos);
 				if (neighbor_block == NULL) {
 					current.block->setLightingComplete(bank, i, false);
@@ -297,7 +324,7 @@ void unspread_light(Map *map, const NodeDefManager *nodemgr, LightBank bank,
 					neighbor.setLight(bank, 0, neighbor_f);
 					neighbor_block->setNodeNoCheck(neighbor_rel_pos, neighbor);
 					from_nodes.push(neighbor_light, neighbor_rel_pos,
-						neighbor_block_pos, neighbor_block, i);
+						neighbor_block_pos, neighbor_block, way);
 					// The current node was modified earlier, so its block
 					// is in modified_blocks.
 					if (current.block != neighbor_block) {
@@ -361,7 +388,8 @@ void spread_light(Map *map, const NodeDefManager *nodemgr, LightBank bank,
 			neighbor_rel_pos = current.rel_position;
 			neighbor_block_pos = current.block_position;
 			MapBlock *neighbor_block;
-			if (step_rel_block_pos(i, neighbor_rel_pos, neighbor_block_pos)) {
+			direction way = i; // Terra Firma: turned over a planet's edge
+			if (step_on_planet(map, way, neighbor_rel_pos, neighbor_block_pos)) {
 				neighbor_block = map->getBlockNoCreateNoEx(neighbor_block_pos);
 				if (neighbor_block == NULL) {
 					current.block->setLightingComplete(bank, i, false);
@@ -380,7 +408,7 @@ void spread_light(Map *map, const NodeDefManager *nodemgr, LightBank bank,
 					neighbor.setLight(bank, spreading_light, f);
 					neighbor_block->setNodeNoCheck(neighbor_rel_pos, neighbor);
 					light_sources.push(spreading_light, neighbor_rel_pos,
-						neighbor_block_pos, neighbor_block, i);
+						neighbor_block_pos, neighbor_block, way);
 					// The current node was modified earlier, so its block
 					// is in modified_blocks.
 					if (current.block != neighbor_block) {

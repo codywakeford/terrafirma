@@ -2,12 +2,11 @@
 import { computed, onMounted, shallowRef } from "vue"
 import type { LabScenario } from "../bridge"
 import { useBridge } from "../bridge/use"
-import { Button } from "../kit"
+import { Button, ListEmpty, ListGroup, ListItem, WorkbenchColumns } from "../kit"
 import { useLab } from "../lab/flow"
 import { LAB_DEMOS } from "./demos"
 import { useWiki } from "./nav"
 import SandboxStage from "./SandboxStage.vue"
-import WikiLayout from "./WikiLayout.vue"
 
 /**
  * The Lab: how matter behaves, shown in sandboxes (heat moving, melting,
@@ -25,9 +24,15 @@ onMounted(async () => {
 
 const groups = computed(() => {
     const out = new Map<string, typeof LAB_DEMOS>()
-    for (const d of LAB_DEMOS) out.set(d.group, [...(out.get(d.group) ?? []), d])
+    const term = wiki.search.value.trim().toLowerCase()
+    for (const d of LAB_DEMOS) {
+        if (!`${d.title} ${d.note} ${d.group}`.toLowerCase().includes(term)) continue
+        out.set(d.group, [...(out.get(d.group) ?? []), d])
+    }
     return [...out.entries()]
 })
+const visibleWorlds = computed(() => worlds.value.filter((w) =>
+    `${w.title} ${w.description} ${w.mod}`.toLowerCase().includes(wiki.search.value.trim().toLowerCase())))
 const chosen = computed(() => wiki.state.chosen.lab ?? LAB_DEMOS[0]!.id)
 const demo = computed(() => LAB_DEMOS.find((d) => d.id === chosen.value) ?? null)
 const world = computed(() => worlds.value.find((w) => `world:${w.id}` === chosen.value) ?? null)
@@ -39,21 +44,20 @@ async function enter(id: string) {
 </script>
 
 <template>
-    <WikiLayout>
+    <WorkbenchColumns>
         <template #list>
-            <section v-for="[group, demos] in groups" :key="group">
-                <h3>{{ group }}</h3>
-                <button v-for="d in demos" :key="d.id" class="item plain" :class="{ on: chosen === d.id }" @click="wiki.go('lab', d.id)">{{ d.title }}</button>
-            </section>
-            <section v-if="worlds.length">
-                <h3>Worlds</h3>
-                <button v-for="w in worlds" :key="w.id" class="item plain" :class="{ on: chosen === `world:${w.id}` }" @click="wiki.go('lab', `world:${w.id}`)">
+            <ListGroup v-for="[group, demos] in groups" :key="group" :title="group">
+                <ListItem v-for="d in demos" :key="d.id" :on="chosen === d.id" @click="wiki.go('lab', d.id)">{{ d.title }}</ListItem>
+            </ListGroup>
+            <ListGroup v-if="visibleWorlds.length" title="Worlds">
+                <ListItem v-for="w in visibleWorlds" :key="w.id" :on="chosen === `world:${w.id}`" @click="wiki.go('lab', `world:${w.id}`)">
                     {{ w.title }}
-                </button>
-            </section>
+                </ListItem>
+            </ListGroup>
+            <ListEmpty v-if="wiki.search.value && !groups.length && !visibleWorlds.length">No matches.</ListEmpty>
         </template>
 
-        <template #view>
+        <template #content>
             <SandboxStage v-if="demo" :spec="demo.spec" :speed="demo.speed" />
             <div v-else-if="world" class="world">
                 <p class="copy">{{ world.description }}</p>
@@ -73,11 +77,9 @@ async function enter(id: string) {
                 <p class="dim">from {{ world.mod }}</p>
             </template>
         </template>
-    </WikiLayout>
+    </WorkbenchColumns>
 </template>
 
 <style scoped>
 .world { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
-.copy { margin: 0; color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
-.dim { margin: 0; color: var(--ink-faint); font-size: 11px; }
 </style>

@@ -29,7 +29,6 @@
 #include "server/luaentity_sao.h"
 #include "server/player_sao.h"
 #include "server/serverinventorymgr.h"
-#include "far/aloft.h"
 
 using object_t = ServerActiveObject::object_t;
 
@@ -2954,32 +2953,6 @@ int ObjectRef::l_set_ui(lua_State *L)
 	return 0;
 }
 
-// set_aloft(self, { x, z, altitude, east, north, climb } or nil): where this
-// player is over the planet when it isn't where they stand (in space), for
-// the far view: map blocks (fractional), m above the sea, and their rates
-// per second. nil: where they stand again.
-int ObjectRef::l_set_aloft(lua_State *L)
-{
-	NO_MAP_LOCK_REQUIRED;
-	ObjectRef *ref = checkObject<ObjectRef>(L, 1);
-	RemotePlayer *player = getplayer(ref);
-	if (player == nullptr)
-		return 0;
-	std::optional<far::Aloft> aloft;
-	if (!lua_isnoneornil(L, 2)) {
-		luaL_checktype(L, 2, LUA_TTABLE);
-		auto field = [&](const char *name) {
-			lua_getfield(L, 2, name);
-			float v = (float)luaL_checknumber(L, -1);
-			lua_pop(L, 1);
-			return v;
-		};
-		aloft = far::Aloft{ field("x"), field("z"), field("altitude"), field("east"), field("north"), field("climb") };
-	}
-	getServer(L)->setAloft(player, aloft);
-	return 0;
-}
-
 // get_lighting(self)
 int ObjectRef::l_get_lighting(lua_State *L)
 {
@@ -3262,7 +3235,6 @@ luaL_Reg ObjectRef::methods[] = {
 	luamethod(ObjectRef, set_minimap_modes),
 	luamethod(ObjectRef, set_lighting),
 	luamethod(ObjectRef, set_ui),
-	luamethod(ObjectRef, set_aloft),
 	luamethod(ObjectRef, get_lighting),
 	luamethod(ObjectRef, respawn),
 	luamethod(ObjectRef, set_flags),

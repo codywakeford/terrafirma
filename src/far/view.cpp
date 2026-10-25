@@ -37,6 +37,12 @@ static const float SPLIT[4] = { 1.0f, 1.5f, 2.0f, 3.0f };
 static constexpr s32 TOP_LEVEL = 9;
 // Tiles put on the GPU per frame, at most.
 static constexpr int INSTALLS_PER_FRAME = 6;
+// The air's depth, in its scale heights: above it the haze has given way
+// to the planet seen from above (tf_flight's boundary is the same).
+static constexpr double AIR_DEPTH = 8;
+// m above the sea the land can reach (mountains, the corner landmarks): a
+// camera this far above the sea sees nothing nearer.
+static constexpr float PEAKS = 300;
 // A tile not wanted for this many frames is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
 // The mask: map-block columns around the camera, a texel each.
@@ -50,15 +56,12 @@ static float span(s32 level)
 // What the shader needs while the far view draws (scene units unless said).
 struct DrawState
 {
-	v3f eye;
-	float radius = 1;
 	float cut = 0;
 	float haze = 1;     // distance past the cut over which the air's haze builds, near the ground
 	float mask[4] = {}; // scene x, z of the mask's corner, its size, 1 if it applies
-	float share = 0;    // how far the map has become the planet (terragen::Map::share)
+	float share = 0;    // 0 down in the air's haze .. 1 above the air, seeing the planet
 	float sea = 0;      // the scene y of the sea
-	float place[4] = {}; // the eye: map x, z (blocks), altitude (m); the map's size (blocks)
-	float across[2] = { 1, 1 }; // m of planet per block east and north, where the eye is
+	float place[4] = {}; // the eye: map x, z (blocks), altitude (m), unused
 	float air = 1;      // m: the air's scale height
 };
 
@@ -69,15 +72,11 @@ public:
 
 	void onSetUniforms(video::IMaterialRendererServices *services) override
 	{
-		m_eye_vertex.set(m_state->eye, services);
-		m_eye_pixel.set(m_state->eye, services);
-		m_radius.set(&m_state->radius, services);
 		m_cut_vertex.set(&m_state->cut, services);
 		m_cut_pixel.set(&m_state->cut, services);
 		m_haze.set(&m_state->haze, services);
 		m_mask.set(m_state->mask, services);
 		m_share.set(&m_state->share, services);
-		m_across.set(m_state->across, services);
 		m_sea.set(&m_state->sea, services);
 		m_place_vertex.set(m_state->place, services);
 		m_place_pixel.set(m_state->place, services);
@@ -86,15 +85,11 @@ public:
 
 private:
 	std::shared_ptr<const DrawState> m_state;
-	CachedVertexShaderSetting<float, 3> m_eye_vertex{"farEye"};
-	CachedPixelShaderSetting<float, 3> m_eye_pixel{"farEye"};
-	CachedVertexShaderSetting<float> m_radius{"farRadius"};
 	CachedVertexShaderSetting<float> m_cut_vertex{"farCut"};
 	CachedPixelShaderSetting<float> m_cut_pixel{"farCut"};
 	CachedPixelShaderSetting<float> m_haze{"farHaze"};
 	CachedPixelShaderSetting<float, 4> m_mask{"farMask"};
 	CachedPixelShaderSetting<float> m_share{"farShare"};
-	CachedVertexShaderSetting<float, 2> m_across{"farAcross"};
 	CachedVertexShaderSetting<float> m_sea{"farSea"};
 	CachedVertexShaderSetting<float, 4> m_place_vertex{"farPlace"};
 	CachedPixelShaderSetting<float, 4> m_place_pixel{"farPlace"};
@@ -196,7 +191,7 @@ private:
 			std::lock_guard lock(m_mutex);
 			if (!m_generator && m_error.empty()) {
 				try {
-					m_generator = std::make_unique<Generator>(m_horizon);
+					m_generator = std::make_unique<Generator>(m_horizon, m_planet);
 				} catch (const std::exception &e) {
 					m_error = std::string("the world can't be built from the server's data: ") + e.what();
 				}
@@ -256,11 +251,11 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 	scene::ISceneNode(smgr->getRootSceneNode(), smgr, -1),
 	m_horizon(horizon),
 	m_planet(planet ? std::optional<planet::Planet>(*planet) : std::nullopt),
-	m_globe(terragen::WorldCode::decode(horizon.code).size, terragen::home().radius),
 	m_state(std::make_shared<DrawState>())
 {
-	terragen::WorldCode code = terragen::WorldCode::decode(horizon.code);
-	m_size = code.size;
+	// a terra world is a planet: the far view draws it through the sphere lens
+	if (!m_planet)
+		throw BaseException("far view: the world isn't a planet (every terra world is)");
 	m_colours = std::make_unique<Colours>(ndef, tsrc, blocksIn(m_horizon));
 	m_workers = std::make_unique<Workers>(m_horizon, *m_colours, m_planet);
 
@@ -303,24 +298,6 @@ View::~View()
 		SceneManager->getVideoDriver()->removeTexture(m_mask);
 }
 
-// whether the box is wholly outside one of the frustum's planes
-static bool outside(const scene::SViewFrustum &f, const aabb3f &box)
-{
-	v3f corners[8];
-	box.getEdges(corners);
-	for (const auto &plane : f.planes) {
-		bool all = true;
-		for (const v3f &c : corners)
-			if (plane.classifyPointRelation(c) != core::ISREL3D_FRONT) {
-				all = false;
-				break;
-			}
-		if (all)
-			return true;
-	}
-	return false;
-}
-
 void View::readSettings()
 {
 	m_enabled = g_settings->getBool("far_view");
@@ -332,17 +309,12 @@ void View::readSettings()
 float View::distance(const Key &key, v2f eye) const
 {
 	float s = span(key.level), x0 = key.x * s - 0.5f, z0 = key.z * s - 0.5f;
-	if (m_planet) {
-		// over the planet: from the eye to the tile's middle, less its half diagonal
-		const float cx = x0 + 0.5f * s, cz = z0 + 0.5f * s;
-		const int face = m_planet->nearest(cx, cz);
-		const terragen::Sphere::Vec p = m_planet->sphere().point(m_planet->place(face, cx, cz), 0);
-		const float d = (float)std::hypot(p.x - m_eye_point.x, p.y - m_eye_point.y, p.z - m_eye_point.z);
-		return std::max(d - 0.7072f * s, 0.0f);
-	}
-	float dx = std::max({ x0 - eye.X, 0.0f, eye.X - (x0 + s) });
-	float dz = std::max({ z0 - eye.Y, 0.0f, eye.Y - (z0 + s) });
-	return std::sqrt(dx * dx + dz * dz);
+	// over the planet: from the eye to the tile's middle, less its half diagonal
+	const float cx = x0 + 0.5f * s, cz = z0 + 0.5f * s;
+	const int face = m_planet->nearest(cx, cz);
+	const terragen::Sphere::Vec p = m_planet->sphere().point(m_planet->place(face, cx, cz), 0);
+	const float d = (float)std::hypot(p.x - m_eye_point.x, p.y - m_eye_point.y, p.z - m_eye_point.z);
+	return std::max(d - 0.7072f * s, 0.0f);
 }
 
 bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want)
@@ -403,43 +375,29 @@ bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<s
 }
 
 void View::update(const Camera &camera, ClientMap &map, float near_range, bool range_all,
-		std::optional<float> fog_limit, const std::optional<Aloft> &aloft)
+		std::optional<float> fog_limit)
 {
 	m_frame++;
 	m_camera_offset = camera.getOffset();
 	v3f eye = (camera.getCameraNode()->getPosition() + intToFloat(m_camera_offset, BS)) / BS;
-	m_aloft = aloft.has_value();
-	if (aloft)
-		eye = v3f(aloft->x, aloft->altitude + m_horizon.water_level, aloft->z);
 	m_altitude = std::max(eye.Y - m_horizon.water_level, 0.0f);
-	m_share = (float)m_globe.share(m_altitude);
-	// a block's least span here, m: how far the land reaches in blocks
-	m_across = m_globe.across(m_altitude, m_globe.latitudeAt(eye.Z));
-	m_curve = (float)m_globe.curve(m_altitude);
-	float block = (float)std::max(std::min(m_across.east, m_across.north), 1.0);
-	m_lift = m_altitude / block;
+	// up through the air the haze gives way to the planet seen from above
+	const double r = m_planet->sphere().radius(), h = m_altitude;
+	m_share = (float)std::clamp(h / (AIR_DEPTH * terragen::sphere(r).scale_height), 0.0, 1.0);
+	m_lift = m_altitude; // a block is a metre: the height counts toward a tile's distance as is
 
-	// beyond half the world east–west lies the same land again
-	float range = std::min(m_max, (float)m_size / 2);
+	// The land is drawn by the sphere lens (client/shaders/sphere/lens.glsl),
+	// out to the planet's horizon (at most half way round), and how far a tile
+	// is goes by the planet, not the net: faces that meet on the planet can be
+	// far apart in the map.
+	const float horizon = (float)std::sqrt(2 * r * h + h * h); // m
+	float range = std::min(m_max, (float)(M_PI * r));
 	if (fog_limit)
 		range = std::min(range, *fog_limit);
-	// up the air, out to the planet's horizon
-	double R = m_curve, h = m_altitude;
-	float horizon = (float)std::sqrt(2 * R * h + h * h); // m
-	if (!fog_limit && m_share > 0)
-		range = std::min((float)m_size / 2, std::max(range, 1.1f * horizon / block));
-	// On a planet the land is drawn by the sphere lens (client/shaders/sphere/
-	// lens.glsl), out to the planet's horizon (at most half way round), and
-	// how far a tile is goes by the planet, not the net: faces that meet on
-	// the planet can be far apart in the map.
-	if (m_planet) {
-		const double r = m_planet->sphere().radius();
-		const float edge = (float)std::sqrt(2 * r * h + h * h);
-		range = std::min(std::max(range, 1.1f * edge), (float)(M_PI * r));
-		const int face = m_planet->nearest(eye.X, eye.Z);
-		m_eye_point = m_planet->sphere().point(m_planet->place(face, eye.X, eye.Z), 0);
-	}
-	m_cut = m_aloft ? 0 : near_range; // in space the near world is the bubble's cell, not the land
+	else
+		range = std::min(std::max(range, 1.1f * horizon), (float)(M_PI * r));
+	m_eye_point = m_planet->sphere().point(m_planet->place(m_planet->nearest(eye.X, eye.Z), eye.X, eye.Z), 0);
+	m_cut = near_range;
 	m_range = range;
 	m_reach = std::max(range, horizon) * BS + m_altitude * BS;
 	m_showing = m_enabled && !range_all && range > m_cut;
@@ -454,14 +412,11 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	s32 top = 0;
 	while (top < TOP_LEVEL && span(top) < range / 2)
 		top++;
-	s32 lo_x = (s32)std::floor((flat.X - range) / span(top)), hi_x = (s32)std::floor((flat.X + range) / span(top));
-	s32 lo_z = (s32)std::floor((flat.Y - range) / span(top)), hi_z = (s32)std::floor((flat.Y + range) / span(top));
-	if (m_planet) { // the whole net: distance() says which tiles are in reach
-		const float pitch = (float)(m_planet->width() + planet::Planet::GAP), low = (float)planet::Planet::ORIGIN;
-		lo_x = lo_z = (s32)std::floor(low / span(top));
-		hi_x = (s32)std::floor((low + 3 * pitch) / span(top));
-		hi_z = (s32)std::floor((low + 2 * pitch) / span(top));
-	}
+	// the whole net: distance() says which tiles are in reach
+	const float pitch = (float)(m_planet->width() + planet::Planet::GAP), low = (float)planet::Planet::ORIGIN;
+	const s32 lo_x = (s32)std::floor(low / span(top)), lo_z = lo_x;
+	const s32 hi_x = (s32)std::floor((low + 3 * pitch) / span(top));
+	const s32 hi_z = (s32)std::floor((low + 2 * pitch) / span(top));
 	for (s32 z = lo_z; z <= hi_z; z++)
 		for (s32 x = lo_x; x <= hi_x; x++)
 			choose({ top, x, z }, flat, m_draw, want);
@@ -600,66 +555,49 @@ void View::render()
 		return;
 
 	// the mask, from exactly the blocks the near world is about to draw
-	// (its draw list is updated after our update(), and not every frame);
-	// in space the near world is the bubble's cell, not the land
-	if (!m_aloft)
-		updateMask(*m_map, m_eye);
+	// (its draw list is updated after our update(), and not every frame)
+	updateMask(*m_map, m_eye);
 
 	v3f eye = camera->getAbsolutePosition();
-	// the scene position of map block (0, 0, 0): where the camera stands is
-	// m_eye, which aloft is somewhere else on the map
-	v3f origin = eye - m_eye * BS;
-	m_state->eye = eye;
-	m_state->radius = m_curve * BS;
+	v3f origin = eye - m_eye * BS; // the scene position of map block (0, 0, 0)
 	m_state->cut = m_cut * BS;
-	m_state->haze = std::max(std::min(m_max, (float)m_size / 2) - m_cut, 1.0f) * BS;
+	m_state->haze = std::max(m_max - m_cut, 1.0f) * BS;
 	m_state->mask[0] = ((float)(m_mask_centre.X - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.X;
 	m_state->mask[1] = ((float)(m_mask_centre.Z - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.Z;
 	m_state->mask[2] = (float)(MAP_BLOCKSIZE * MASK) * BS;
-	m_state->mask[3] = m_aloft ? 0 : 1;
+	m_state->mask[3] = 1;
 	m_state->share = m_share;
 	m_state->sea = origin.Y + m_horizon.water_level * BS;
 	m_state->place[0] = m_eye.X;
 	m_state->place[1] = m_eye.Z;
 	m_state->place[2] = m_altitude;
-	m_state->place[3] = (float)m_size;
-	m_state->across[0] = (float)m_across.east;
-	m_state->across[1] = (float)m_across.north;
-	m_state->air = (float)terragen::home().scale_height;
+	m_state->air = (float)terragen::sphere(m_planet->sphere().radius()).scale_height;
 
 	// its own depth range: from a block away (or, high up, from well short of
-	// the land) to past the horizon
-	float znear = std::max(BS, 0.5f * (m_altitude - (float)terragen::Map::SPREAD) * BS);
-	float zfar = std::max((m_range * 1.5f + m_altitude + POLAR_WALL) * BS, 1.5f * m_reach);
+	// the land, whose peaks stand a few hundred metres up) to past the horizon
+	float znear = std::max(BS, 0.5f * (m_altitude - PEAKS) * BS);
+	float zfar = std::max((m_range * 1.5f + m_altitude) * BS, 1.5f * m_reach);
 	core::matrix4 projection = driver->getTransform(video::ETS_PROJECTION);
 	core::matrix4 own;
 	own.buildProjectionMatrixPerspectiveFovLH(camera->getFOV(), camera->getAspectRatio(),
 			znear, zfar, false);
 	driver->setTransform(video::ETS_PROJECTION, own);
 	driver->setMaterial(m_material);
-	scene::SViewFrustum frustum(own * driver->getTransform(video::ETS_VIEW), false);
 
+	// every tile chosen is drawn: drawn curved, where its box is in the flat
+	// map doesn't say whether it's in view
 	for (const Key &key : m_draw) {
 		auto it = m_tiles.find(key);
 		if (it == m_tiles.end())
 			continue;
 		// the near world draws all of it: nothing of ours would show
-		if (!m_aloft && key.level <= 3 && covered(key))
+		if (key.level <= 3 && covered(key))
 			continue;
 		float s = span(key.level);
 		v3f at(key.x * s * BS + origin.X, origin.Y, key.z * s * BS + origin.Z);
 		core::matrix4 world;
 		world.setTranslation(at);
 		driver->setTransform(video::ETS_WORLD, world);
-		// out of view (allowing for the curve, which only lowers it); once
-		// it's becoming the globe, the boxes don't say where it is
-		aabb3f box(it->second.box.MinEdge + at, it->second.box.MaxEdge + at);
-		float dx = std::max(std::fabs(box.MinEdge.X - eye.X), std::fabs(box.MaxEdge.X - eye.X));
-		float dz = std::max(std::fabs(box.MinEdge.Z - eye.Z), std::fabs(box.MaxEdge.Z - eye.Z));
-		float past = std::max(std::sqrt(dx * dx + dz * dz) - m_state->cut, 0.0f);
-		box.MinEdge.Y -= past * (past + 2 * m_state->cut) / (2 * m_state->radius);
-		if (m_share == 0 && !m_planet && outside(frustum, box))
-			continue;
 		for (const auto &part : it->second.parts)
 			driver->drawMeshBuffer(part.get());
 	}

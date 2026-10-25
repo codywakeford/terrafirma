@@ -23,13 +23,14 @@ map, and stepping off one face onto another goes through one remap.
        +--------+   +--------+   +--------+   → x
 ```
 
-- **Size.** A face is 21,808 blocks across (half = 10,904, a whole number
-  of map blocks). Three faces and two gaps are 65,456 blocks, inside s16's
-  65,536. That gives a radius of ~13.9 km and a 1 m block along the centre
-  lines (0.71 m at the corners). Orbit is ~370 m/s with an orbit every
-  ~4 minutes, and the horizon on foot is ~240 m: you can see that it's
-  round. It can grow later by widening coordinates to 32-bit, with nothing
-  else changing.
+- **Size.** A face is 20,592 blocks across (half = 10,296, a whole number
+  of map blocks). Three faces and two gaps are 61,808 blocks: all the map
+  generator makes with its default chunks (it makes whole chunks only,
+  from -30,912 to 30,927). That gives a radius of ~13.1 km and a 1 m block
+  along the centre lines (0.71 m at the corners). Orbit is ~360 m/s with an
+  orbit every ~4 minutes, and the horizon on foot is ~230 m: you can see
+  that it's round. It can grow later by widening coordinates to 32-bit,
+  with nothing else changing.
 - **Gaps (g).** Every pair of faces has one map block (16 nodes) between
   them, filled with `seam`: a solid node that's never generated over,
   never walkable into and never drawn. Only 4 of the net's 7 inner joins
@@ -43,8 +44,10 @@ map, and stepping off one face onto another goes through one remap.
   tests, not written by hand.
 - **The spare z** (~21,900 blocks north of the net) is kept for later: other
   bodies and ships.
-- `MAX_MAP_GENERATION_LIMIT` goes from 31007 to the s16 edge, in step with
-  every place that assumes 31000 (Lua included: tf_flight).
+- `MAX_MAP_GENERATION_LIMIT` stays at 31007 (changed from the plan:
+  raising it to the s16 edge puts loops like `for (y = min; y <= max; y++)`
+  one step from overflowing). The server refuses a world whose chunks
+  don't hold the net.
 
 ## The noun: `Planet` (src/planet/, no engine dependencies)
 
@@ -112,6 +115,47 @@ Tests:
 - Render (off-screen): from orbit-ish height over a corner, all three
   faces are drawn and meet without cracks (pixel checks along the joins).
 
+### Phase 1 outcome (2026-10-24)
+
+- `planet::Planet` (src/planet/): the net, `face`, `nearest`, `place`/`at`,
+  `step` (with the turn), `wrap` (a grid carried past an edge, onto the
+  face the planet has there), `distance` (through the planet) and
+  `glslAxes`. `planet::Lens<T>`: the planet seen from an eye anywhere,
+  which the shader copies line for line. TestPlanet (15): every side of
+  every face, all 8 corners closing with three blocks, turns following the
+  ground, the lens against the planet itself (on and off the eye's face,
+  points on edges), no cracks either side of an edge, floats against
+  doubles, wrap and distance.
+- The world is a planet by its map setting `planet_half` (any mapgen),
+  known before mods load. The server sends it (`TOCLIENT_PLANET`, protocol
+  59, before the horizon), and the TEMP spike setting is gone.
+- Drawn: `sphereLens` places each vertex from its own face. On the eye's
+  face it uses the precise sums; off it, the planet seen from the eye. Fog
+  goes by the curved distance (`sphereEyeVec`). The wielded item and HUD
+  models aren't lensed (their view isn't the world's).
+- Near on the planet, not in the net: the server's send shells are the
+  player face's grid wrapped over edges (`Planet::wrap`), and its sight
+  cone judges where the player sees a block (`planet::Lens`). The client
+  draws every loaded block within range over the planet (the loops
+  culler), with flat-map frustum and occlusion culling off. Without this
+  the face next to you on the planet, 1,000+ blocks off in the net, never
+  loaded.
+- The far view cuts terrain cells at face edges, and judges a tile's
+  distance over the planet.
+- `tf_planet`: the seam node (solid, invisible, never drawn) fills
+  everything off the faces; players spawn on face 0; `core.planet` has
+  `enabled`, `half`, `face`, `square`.
+- `check:sphere`: TestSphere and TestPlanet, the real shader prelude and
+  lens compiled, and renders: a flat world (unchanged), a small planet as
+  a disc, and a corner where three painted faces meet.
+- Found by the renders: the lens curved the wielded item; fog went by flat
+  distance; `core.planet` was off while mods loaded; an 80-block strip of
+  the net could never be generated, and the send loop waited on it forever.
+- Not yet: the far view on a planet shows nothing until terra generates on
+  the sphere (phase 4; it reads the net as past its polar wall). Blocks a
+  long way round a corner come through `wrap`, which is only approximate
+  there, and it'll be replaced by stepping in phase 2.
+
 ## Phase 2 — Crossing edges (the engine fork)
 
 Every place the engine asks "the node next to this one" learns `step()`.
@@ -130,6 +174,8 @@ This is the list, and the sprint isn't done until each has a test:
 | Objects and players | `carry()` when they cross: position, velocity, yaw; the client's camera turns with it so nothing jumps |
 | ABMs/LBMs neighbours, `find_node_near`, area queries | across edges (or documented as one-face) |
 | Node rotation | `turn()` wherever a node crosses an edge (schematics, pistons later) |
+| Active blocks (objects, ABMs, node timers near players) | near on the planet, not in the net, as block sending is |
+| Server culling | the flat map's occlusion rays are off on a planet (phase 1); anything else that culls by flat position likewise |
 
 Corners: three faces meet, so a step from a corner block can only go
 three ways round the point. `step()` makes that exact; the corner
@@ -146,6 +192,62 @@ Tests:
   pours water and drops sand at each, and checks the map afterwards.
 - Client: a player crossing an edge in an off-screen run has no jump in
   camera position or direction (frame-to-frame check).
+
+### Phase 2 outcome (2026-10-24)
+
+Two primitives carry it, both on `Map` (which holds the planet, server and
+client):
+
+- `Map::next(p, dir)`: the node next to p (over an edge onto the next face,
+  with the turn). For what walks node to node.
+- `Map::see(from, p)` / `getNodeSeen`: what's at p as seen from `from`'s
+  face. Past an edge it's the halo (`Planet::halo`: a step across, then on,
+  exact; nothing round a corner), the node turned into this face's grid
+  (`rotateAlongYAxis`, so a stair faces on). For what looks at an area round
+  something.
+
+Wired:
+
+| Where | How |
+|---|---|
+| Collision (server and client) | `add_area_node_boxes` reads off-face nodes through `getNodeSeen` from the mover |
+| Players | `LocalPlayer::carry`: off the face, onto the next (`Planet::carry`, exact at the crossing), speed turned; the camera's yaw turns with it (`takePlanetTurn`) |
+| Entities | `LuaEntitySAO::carry` on the server; `GenericCAO::carry` for the client's own prediction, and a carried object is put there, not glided across the net |
+| Anticheat, interact distance | over the planet (`Map::distance`) |
+| Meshes | `QueuedMeshUpdate::halo`: the border past an edge, read on the main thread and written over the seam before meshing; edits and new blocks at an edge remesh across it |
+| Raycasts, pointing | read through `getNodeSeen` from the ray's start; the pointed nodes are the real ones (dig, place); the selection box is lensed |
+| Liquids | `transformLiquidsLocal` steps with `next` |
+| Light | `step_on_planet` in voxelalgorithms: spreading and unspreading cross edges, the source direction turned |
+| ABM neighbours | through `getNodeSeen` |
+| Active blocks, objects sent | wrapped round players (as block sending); objects' range over the planet; on the client their culling is off |
+
+Tests:
+
+- TestPlanet (18): adds `halo` (20 deep off every edge, step-consistent) and
+  `carry` (exact at the crossing, round trip).
+- TestPlanetMap (7): `next`, `see` with a stair turned right, walking over
+  every edge (and the control: read flat, the gap's wall stops it), pointing
+  across, light across and back. TestPlanetMesh (1): the mesh halo.
+- `check:planet` (new): a headless small planet; off every side of every face
+  (the middle and beside both corners) a walker crosses onto the right face
+  at ground height still going, water poured on one side flows onto dry
+  ground across, sand lands past the edge. 344 checks.
+- `check:sphere`: adds a client walking itself (continuous_forward) north
+  off face 1, where the grid turns: it ends up on face 4 looking west in
+  face 4's grid (straight on), the server's anticheat doesn't reset it.
+
+Not crossing yet (phase 3, Lua, or later):
+
+- builtin's own neighbour arithmetic: attached nodes (torches on walls
+  across an edge), placement's facedir from the look direction (a stair
+  placed across an edge is turned from what the placer saw),
+  `find_node_near` and area queries.
+- Connected node boxes (fences) don't connect across an edge; sounds and
+  particles across one are placed at the net position (heard and seen in
+  the wrong place); mapgen decorations (trees) at an edge are cut by the
+  seam, which phase 4's mapgen on the sphere replaces.
+- Round a corner there's only seam: walking diagonally into the corner
+  point meets a wall the width of a block (the landmark will cover it).
 
 ## Phase 3 — Lua
 
@@ -176,7 +278,7 @@ through the Lua API.
 - **Orbit and air.** `core.orbit` works in the planet's frame from
   `Planet::point`. The map's top (~32 km, 2.3 R) is above low orbit, so
   orbiting is flying through the net. The air's scale height is set for a
-  13.9 km planet. Space bubbles go, or move to the spare z for other bodies.
+  13.1 km planet. Space bubbles go, or move to the spare z for other bodies.
 - **Sky.** Clouds and rain are drawn with the lens: a shell around the
   planet, not a ceiling.
 
@@ -186,6 +288,31 @@ Tests:
   along a join).
 - Orbit: the flight check flies a craft up, around the planet once (over
   every face), and back down.
+
+### Phase 4 progress (2026-10-24): the planet you can see
+
+- terra generates on the sphere: a map column is the world model's at its
+  latitude and longitude (`Planet::equirect`; `terra::Columns` remaps on the
+  way in, so the generator, the far view and `core.terra.surface` agree).
+  Rock, ore and caves keep the column's own coordinates (no stretching at the
+  poles). The poles are the world model's polar caps; the polar wall and the
+  space band never come up. `planet_half = 1024` is the default world's size
+  round (8 × 1024 = 8192): one block a block.
+- `core.terra` on a planet: sun, climate, geology, weather and cover at a
+  position go by its latitude and longitude; `globe`/`block` are the
+  sphere's; `across` is a metre a block on the ground, widening with height.
+- The far view draws the whole planet (cells cut at face edges); clouds are a
+  shell round it (the cloud shader is lensed).
+- Spawning searches outward from face 0's middle for land.
+- Tests: TestFar's `testOnThePlanet` (the poles are the world's poles, the
+  faces' middles its meridians, and blocks either side of every edge are
+  neighbours in the world model: no cliff along a join).
+- Seen off-screen: the planet whole from 2.5 km (seas, coasts, continents),
+  and from the ground (grass, trees, terraces, rain at 33 °C on the equator,
+  clouds curving down to the horizon).
+
+Left in phase 4: the corner landmarks; orbit and air for a planet this size
+(and the space bubbles); the haze measured over the curve.
 
 ## Out of scope
 

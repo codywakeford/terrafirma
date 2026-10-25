@@ -569,6 +569,11 @@ void Game::run()
 		updateCameraOffset();
 
 		processUserInput(dtime);
+		// Terra Firma: carried over a planet's edge, the view turns with the ground
+		if (const int turn = client->getEnv().getLocalPlayer()->takePlanetTurn()) {
+			cam_view_target.camera_yaw += 90.0f * turn;
+			cam_view.camera_yaw += 90.0f * turn;
+		}
 		// Update camera before player movement to avoid camera lag of one frame
 		updateCameraDirection(&cam_view_target, dtime);
 		if (m_cache_cam_smoothing <= 0.0f) {
@@ -1582,7 +1587,15 @@ void Game::processKeyInput()
 	} else if (wasKeyPressed(KeyType::TOGGLE_HUD)) {
 		m_game_ui->toggleHud();
 	} else if (wasKeyPressed(KeyType::MINIMAP)) {
-		toggleMinimap(isKeyDown(KeyType::SNEAK));
+		bool opened_map = false;
+#if USE_SHELL
+		if (m_shell_session && client->getHorizon()) {
+			m_shell_session->screens().open("map");
+			opened_map = true;
+		}
+#endif
+		if (!opened_map)
+			toggleMinimap(isKeyDown(KeyType::SNEAK));
 	} else if (wasKeyPressed(KeyType::TOGGLE_CHAT)) {
 		m_game_ui->toggleChat(client);
 	} else if (wasKeyPressed(KeyType::TOGGLE_FOG)) {
@@ -3528,7 +3541,7 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	// Terra Firma: the far view, once the server says this is a terra world.
 	// Created after the sky, so it draws right after it. The fog moves out to
 	// what it reaches (from high up, the planet's horizon).
-	if (!far_view && client->getHorizon())
+	if (!far_view && client->getHorizon() && client->getPlanet()) // a terra world: a planet
 		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(),
 				*client->getHorizon(), client->getPlanet()); // the planet comes first (Server::SendPlanet)
 	if (far_view) {
@@ -3536,7 +3549,7 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 		if (sky->getFogDistance() >= 0)
 			fog_limit = sky->getFogDistance();
 		far_view->update(*camera, client->getEnv().getClientMap(), draw_control->wanted_range,
-				draw_control->range_all, fog_limit, client->getAloft());
+				draw_control->range_all, fog_limit);
 		if (far_view->showing())
 			runData.fog_range = far_view->reach();
 	}

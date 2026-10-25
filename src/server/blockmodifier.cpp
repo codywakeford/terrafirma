@@ -212,8 +212,9 @@ void ABMHandler::apply(MapBlock *block, int &blocks_scanned, int &abms_run, int 
 						const MapNode &n = block->getNodeNoCheck(p1);
 						c = n.getContent();
 					} else {
-						// otherwise consult the map
-						MapNode n = map->getNode(p1 + block->getPosRelative());
+						// otherwise consult the map (Terra Firma: past a planet
+						// face's edge, the next face's node: Map::see)
+						MapNode n = map->getNodeSeen(p0 + block->getPosRelative(), p1 + block->getPosRelative());
 						c = n.getContent();
 					}
 					if (check_required_neighbors && !have_required) {

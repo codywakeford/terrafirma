@@ -1,0 +1,61 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "preview.h"
+#include "bridge.h"
+#include "worlds.h"
+#include "terragen/preview.h"
+#include "util/base64.h"
+#include <optional>
+
+namespace shell {
+
+static std::string bytes(const void *data, size_t size)
+{
+	return base64_encode(std::string_view(static_cast<const char *>(data), size));
+}
+
+Json::Value previewJson(const Json::Value &intent)
+{
+	if (!intent["code"].isString())
+		throw Refused("worldgen.preview needs a world code");
+	int resolution = intent["resolution"].isInt() ? intent["resolution"].asInt() : 0;
+	if (resolution < 16 || resolution > 512)
+		throw Refused("preview resolution must be 16..512");
+
+	terragen::WorldCode code = readWorldCode(intent["code"].asString());
+	std::optional<terragen::fix> date;
+	if (intent["date"].isNumeric()) {
+		double d = intent["date"].asDouble();
+		if (d < 0 || d >= 1)
+			throw Refused("preview date must be in [0, 1)");
+		date = (terragen::fix)(d * terragen::ONE);
+	}
+
+	terragen::World world(code);
+	terragen::Preview p = terragen::preview(world, date, resolution);
+
+	Json::Value out;
+	out["resolution"] = p.resolution;
+	out["elevation"] = bytes(p.elevation.data(), p.elevation.size() * sizeof(int16_t));
+	out["heat"] = bytes(p.heat.data(), p.heat.size());
+	out["wet"] = bytes(p.wet.data(), p.wet.size());
+	out["season"] = bytes(p.season.data(), p.season.size());
+	out["fertility"] = bytes(p.fertility.data(), p.fertility.size());
+	out["current"] = bytes(p.current.data(), p.current.size());
+	out["biome"] = bytes(p.biome.data(), p.biome.size());
+	out["lake"] = bytes(p.lake.data(), p.lake.size());
+	out["grid"] = p.grid;
+	out["rivers"] = bytes(p.rivers.data(), p.rivers.size());
+	out["province"] = bytes(p.province.data(), p.province.size());
+	out["plate"] = bytes(p.plate.data(), p.plate.size());
+	out["boundary"] = bytes(p.boundary.data(), p.boundary.size());
+	out["volcanoes"] = bytes(p.volcanoes.data(), p.volcanoes.size());
+	Json::Value names(Json::arrayValue);
+	for (const char *name : terragen::BIOME_NAMES)
+		names.append(name);
+	out["biomes"] = names;
+	return out;
+}
+
+} // namespace shell

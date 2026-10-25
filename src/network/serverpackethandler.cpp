@@ -977,7 +977,9 @@ void Server::handleCommand_Interact(NetworkPacket *pkt)
 			}
 			target_pos = pointed_object->getBasePosition();
 		}
-		float d = playersao->getEyePosition().getDistanceFrom(target_pos);
+		// Terra Firma: on a planet, over the planet (a node across a face's
+		// edge is near, wherever the net keeps it)
+		float d = m_env->getMap().distance(playersao->getEyePosition(), target_pos);
 
 		if (!checkInteractDistance(player, d, pointed.dump())) {
 			getClient(peer_id)->fixupNodePrediction(action, pointed, false);

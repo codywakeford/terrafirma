@@ -4,6 +4,8 @@
 // Copyright (C) 2013-2020 Luanti core developers & community
 
 #include "luaentity_sao.h"
+#include "planet/planet.h" // Terra Firma
+#include "server.h"
 #include "AnimSpec.h"
 #include "collision.h"
 #include "constants.h"
@@ -175,6 +177,7 @@ void LuaEntitySAO::step(float dtime, bool send_recommended)
 		m_velocity = v3f(0,0,0);
 		m_acceleration = v3f(0,0,0);
 	} else {
+		const v3f was = getBasePosition(); // Terra Firma: for carry()
 		if(m_prop.physical){
 			aabb3f box = m_prop.collisionbox;
 			box.MinEdge *= BS;
@@ -196,6 +199,7 @@ void LuaEntitySAO::step(float dtime, bool send_recommended)
 			addPos((m_velocity + m_acceleration * 0.5f * dtime) * dtime);
 			m_velocity += dtime * m_acceleration;
 		}
+		carry(was);
 
 		if (m_prop.automatic_face_movement_dir &&
 				(fabs(m_velocity.Z) > 0.001 || fabs(m_velocity.X) > 0.001)) {
@@ -598,4 +602,25 @@ bool LuaEntitySAO::getSelectionBox(aabb3f *toset) const
 bool LuaEntitySAO::collideWithObjects() const
 {
 	return m_prop.collideWithObjects;
+}
+
+void LuaEntitySAO::carry(const v3f &was)
+{
+	const planet::Planet *planet = m_env->getServer()->planet();
+	if (!planet)
+		return;
+	const v3f now = getBasePosition();
+	const int face = planet->nearest(was.X / BS, was.Z / BS);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, now.X / BS, now.Z / BS);
+	if (!c)
+		return;
+	setBasePosition(v3f(c->x * BS, now.Y, c->z * BS));
+	const auto turn = [&](v3f &v) {
+		const std::array<double, 2> t = planet::Planet::turned(v.X, v.Z, c->turn);
+		v.X = t[0];
+		v.Z = t[1];
+	};
+	turn(m_velocity);
+	turn(m_acceleration);
+	m_rotation.Y = wrapDegrees_0_360(m_rotation.Y + 90.0f * c->turn);
 }

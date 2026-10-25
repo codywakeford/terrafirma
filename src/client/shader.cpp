@@ -19,7 +19,7 @@
 #include "gettext.h"
 #include "log.h"
 #include "client/tile.h"
-#include "client/sphere_lens.h" // Terra Firma
+#include "planet/planet.h" // Terra Firma: the sphere lens's axes
 
 #include <mt_opengl.h>
 
@@ -837,7 +837,7 @@ void ShaderSource::generateShader(ShaderInfo &shaderinfo)
 	std::string lens = m_sourcecache.getOrLoad("sphere", "lens.glsl");
 	if (lens.empty())
 		throw ShaderException("Failed to find the sphere lens (client/shaders/sphere/lens.glsl).");
-	vertex_shader = common_header + vertex_header + SphereLensFactory::prelude() + lens + final_header + vertex_shader;
+	vertex_shader = common_header + vertex_header + planet::Planet::glslAxes() + lens + final_header + vertex_shader;
 	fragment_shader = common_header + fragment_header + final_header + fragment_shader;
 	const char *geometry_shader_ptr = nullptr; // optional
 	if (!geometry_shader.empty()) {

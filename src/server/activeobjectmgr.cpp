@@ -159,7 +159,8 @@ void ActiveObjectMgr::getAddedActiveObjectsAroundPos(
 		v3f player_pos, const std::string &player_name,
 		f32 radius, f32 player_radius,
 		const std::set<u16> &current_objects,
-		std::vector<u16> &added_objects)
+		std::vector<u16> &added_objects,
+		const std::function<f32(v3f, v3f)> &distance)
 {
 	/*
 		Go through the object list,
@@ -180,7 +181,7 @@ void ActiveObjectMgr::getAddedActiveObjectsAroundPos(
 		if (object->isGone())
 			continue;
 
-		f32 distance_f = object->getBasePosition().getDistanceFrom(player_pos);
+		f32 distance_f = distance(object->getBasePosition(), player_pos);
 		if (object->getType() == ACTIVEOBJECT_TYPE_PLAYER) {
 			// Discard if too far
 			if (distance_f > player_radius && player_radius != 0)

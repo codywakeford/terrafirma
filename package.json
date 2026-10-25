@@ -14,6 +14,7 @@
     "check:far": "bash scripts/far-check.sh",
     "check:flight": "bash scripts/flight-check.sh",
     "check:sphere": "bash scripts/sphere-check.sh",
+    "check:planet": "bash scripts/planet-check.sh",
     "release:gate": "bash scripts/release/gate.sh",
     "release:tag": "bun scripts/release/tag.ts",
     "release:wait": "bun scripts/release/wait.ts",

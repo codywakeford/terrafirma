@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, onMounted } from "vue"
+import { useBridge } from "../bridge/use"
 import Crosshair from "./Crosshair.vue"
 import FlightStrip from "./flight/FlightStrip.vue"
 import SpaceStrip from "./flight/SpaceStrip.vue"
@@ -9,8 +10,12 @@ import WeatherStrip from "./WeatherStrip.vue"
 import ProbeCard from "./ProbeCard.vue"
 import StatBar from "./StatBar.vue"
 import { useStore } from "./store"
+import MapWidget from "./widgets/MapWidget.vue"
+import { loadWidgetSettings } from "./widgets/config"
 
 const store = useStore()
+const bridge = useBridge()
+onMounted(() => { void loadWidgetSettings(bridge) })
 const hud = computed(() => store.state.hud)
 const player = computed(() => store.state.player)
 const flight = computed(() => store.ui.flight)
@@ -41,6 +46,7 @@ const hotbar = computed(() => {
             <Hotbar v-if="hud.hotbar && hotbar" :stacks="hotbar.stacks" :selected="hotbar.selected" />
         </div>
     </div>
+    <MapWidget />
 </template>
 
 <style scoped>

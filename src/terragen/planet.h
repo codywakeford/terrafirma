@@ -35,6 +35,13 @@ struct Planet
 // as Earth's (low orbit is ~2.3 km/s instead of 7.8).
 Planet home();
 
+// The planet a cube-sphere world is (src/planet/planet.h), at its radius:
+// Earth's pull and air at the ground; turning so its equator moves at the
+// share of orbital speed Earth's does (keep Earth's own 465 m/s and a planet
+// of a few km flings everything off); its air thinning over a tenth of the
+// radius, so the mountains breathe and a low orbit is clear of it.
+Planet sphere(double radius);
+
 // The same planet at another size, with its surface gravity and the speed of
 // its equator kept: its air's flow is the same (the same winds give the same
 // Rossby number), so a model tuned at one size runs on another.

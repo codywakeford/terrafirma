@@ -3,7 +3,13 @@
 -- the ground (its block and height), any water over it, and the top of any
 -- tree. Prints FAR lines; scripts/far-check.sh reads them.
 
-local AREAS = { { 0, 0 }, { 1500, -700 }, { -2400, 1200 }, { 3000, 2500 }, { -3500, -2900 }, { 700, 3300 } }
+-- one area on each of the planet's faces: three in the middle, three by an edge
+local AREAS = {}
+for face = 0, 5 do
+	local sq = core.planet.square(face)
+	local at = face < 3 and 0.5 or 0.03
+	AREAS[#AREAS + 1] = { sq.x + math.floor(sq.width * at), sq.z + math.floor(sq.width * 0.4) }
+end
 local SIZE = 96
 
 local function kind(name)

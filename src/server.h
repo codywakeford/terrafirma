@@ -29,7 +29,6 @@
 #include <string_view>
 #include <shared_mutex>
 #include <condition_variable>
-#include "far/aloft.h" // Terra Firma
 #include "network/connection.h" // Terra Firma: IConnection::StrayHandler
 
 class BanManager;
@@ -71,6 +70,7 @@ struct SoundSpec;
 struct StarParams;
 struct ServerTerra; // Terra Firma
 #include "planet/planet.h" // Terra Firma
+#include "orbit/flight.h" // Terra Firma
 struct SunParams;
 
 namespace con {
@@ -424,10 +424,12 @@ public:
 	ServerTerra &terra() { return *m_terra; }
 	// Terra Firma: the planet this world is, if it is one (planet/planet.h)
 	const planet::Planet *planet() const { return m_planet ? &*m_planet : nullptr; }
+	// Terra Firma: flight on the world's planet (core.orbit): its gravity and
+	// air, sized to the planet if the world is one (terragen::sphere)
+	const orbit::Flight &flight() const { return *m_flight; }
 
 	// Terra Firma: a value for the player's page (JSON; null clears).
 	void setUi(RemotePlayer *player, const std::string &key, const std::string &value_json);
-	void setAloft(RemotePlayer *player, const std::optional<far::Aloft> &aloft);
 
 	/* con::PeerHandler implementation. */
 	void peerAdded(con::IPeer *peer) override;
@@ -840,6 +842,7 @@ private:
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
 	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
 	std::optional<planet::Planet> m_planet; // Terra Firma: from the world's planet_half
+	std::unique_ptr<orbit::Flight> m_flight; // Terra Firma: core.orbit's
 	std::unique_ptr<online::Gate> m_gate; // Terra Firma: null unless hosted for friends
 
 	// Inventory manager

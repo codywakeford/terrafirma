@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue"
+import type { BodyCard } from "../bridge"
 import { GlobeRenderer } from "./globe"
 
 /**
@@ -13,6 +14,7 @@ const props = defineProps<{
     relief: number
     sun: { declination: number; color: readonly [number, number, number] }
     rotationPeriod?: number
+    layers?: BodyCard["layers"]
 }>()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -56,10 +58,12 @@ watch(() => [props.image, props.elevation] as const, ([image, elevation]) => {
     draw()
 })
 watch(() => [props.relief, props.sun], draw, { deep: true })
+watch(() => props.layers, (layers) => { renderer?.interior(layers); draw() })
 
 onMounted(() => {
     renderer = GlobeRenderer({ canvas: canvas.value! })
     renderer.terrain(props.image, props.elevation)
+    renderer.interior(props.layers)
     draw()
     frame = requestAnimationFrame(tick)
 })

@@ -2,14 +2,13 @@
 import { computed, ref, watch } from "vue"
 import type { MatterState } from "../bridge"
 import { useBridge } from "../bridge/use"
-import { Segmented } from "../kit"
+import { ListEmpty, ListGroup, ListItem, Segmented, WorkbenchColumns } from "../kit"
 import { ENVIRONMENTS } from "../matter/environments"
 import PeriodicTable from "../matter/PeriodicTable.vue"
 import PhaseBox from "../matter/PhaseBox.vue"
 import PhaseDiagram from "../matter/PhaseDiagram.vue"
 import Structure from "../matter/Structure.vue"
 import { useTable, useWiki } from "./nav"
-import WikiLayout from "./WikiLayout.vue"
 
 /**
  * Matter: every substance the engine knows, its structure in 3D, its phase
@@ -28,10 +27,12 @@ const element = ref<string | null>(null)
 const substance = computed(() => table.byId.get(chosen.value) ?? null)
 const pickedRock = computed(() => table.rocks.find((r) => r.id === rock.value) ?? null)
 const modelled = computed(() => new Set(table.substances.filter((s) => s.kind === "element").map((s) => Object.keys(s.composition)[0]!)))
+const matches = (text: string) => text.toLowerCase().includes(wiki.search.value.trim().toLowerCase())
 const groups = computed(() => [
-    { label: "Elements", items: table.substances.filter((s) => s.kind === "element") },
-    { label: "Compounds", items: table.substances.filter((s) => s.kind === "compound") },
+    { label: "Elements", items: table.substances.filter((s) => s.kind === "element" && matches(`${s.name} ${s.formula} ${s.id}`)) },
+    { label: "Compounds", items: table.substances.filter((s) => s.kind === "compound" && matches(`${s.name} ${s.formula} ${s.id}`)) },
 ])
+const rocks = computed(() => table.rocks.filter((r) => matches(`${r.name} ${r.origin} ${r.id}`)))
 // the reactions it's made by, and the ones that use it
 const madeBy = computed(() => table.reactions.filter((r) => chosen.value in r.products))
 const usedIn = computed(() => table.reactions.filter((r) => chosen.value in r.reactants))
@@ -77,23 +78,22 @@ const views = [{ value: "structure", label: "Structure" }, { value: "table", lab
 </script>
 
 <template>
-    <WikiLayout>
+    <WorkbenchColumns>
         <template #list>
-            <section v-for="g in groups" :key="g.label">
-                <h3>{{ g.label }}</h3>
-                <button v-for="s in g.items" :key="s.id" class="item" :class="{ on: chosen === s.id && !element && !rock }" @click="pick(s.id)">
-                    <span class="formula">{{ s.formula }}</span><span>{{ s.name }}</span>
-                </button>
-            </section>
-            <section v-if="table.rocks.length">
-                <h3>Rocks</h3>
-                <button v-for="r in table.rocks" :key="r.id" class="item" :class="{ on: rock === r.id }" @click="rock = r.id; element = null">
-                    <span class="formula">{{ r.origin.slice(0, 4) }}</span><span>{{ r.name }}</span>
-                </button>
-            </section>
+            <ListGroup v-for="g in groups" v-show="g.items.length" :key="g.label" :title="g.label">
+                <ListItem v-for="s in g.items" :key="s.id" :on="chosen === s.id && !element && !rock" @click="pick(s.id)">
+                    <template #lead>{{ s.formula }}</template>{{ s.name }}
+                </ListItem>
+            </ListGroup>
+            <ListGroup v-if="rocks.length" title="Rocks">
+                <ListItem v-for="r in rocks" :key="r.id" :on="rock === r.id" @click="rock = r.id; element = null">
+                    <template #lead>{{ r.origin.slice(0, 4) }}</template>{{ r.name }}
+                </ListItem>
+            </ListGroup>
+            <ListEmpty v-if="wiki.search.value && !groups.some((g) => g.items.length) && !rocks.length">No matches.</ListEmpty>
         </template>
 
-        <template #view>
+        <template #content>
             <Segmented v-model="view" :options="views" class="views" />
             <div v-if="view === 'structure' && substance" class="stage">
                 <Structure :structure="substance.structure" :elements="table.bySymbol" class="model" />
@@ -165,7 +165,7 @@ const views = [{ value: "structure", label: "Structure" }, { value: "table", lab
                 </template>
             </template>
         </template>
-    </WikiLayout>
+    </WorkbenchColumns>
 </template>
 
 <style scoped>

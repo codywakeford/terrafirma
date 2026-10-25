@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "mapnode.h"
 #include <ctime>
 #include <mutex>
 #include <unordered_set>
@@ -28,6 +29,11 @@ struct QueuedMeshUpdate
 	v3s16 crack_pos;
 	MeshMakeData *data = nullptr; // This is generated in MeshUpdateQueue::pop()
 	std::vector<MapBlock*> map_blocks;
+	// Terra Firma: on a planet, the nodes round the mesh that are past its
+	// face's edge, as seen from it (Map::getNodeSeen): written over what the
+	// net has there (the seam) before meshing, so the next face's blocks
+	// meet this one's.
+	std::vector<std::pair<v3s16, MapNode>> halo;
 	u16 epoch = U16_MAX;
 	bool urgent = false;
 

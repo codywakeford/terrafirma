@@ -14,7 +14,8 @@ cp -r "$root/scripts/matter-check/probe" "$world/worldmods/probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
 printf 'mg_name = singlenode\nseed = 1\n[end_of_params]\n' > "$world/map_meta.txt"
 port=$((30700 + RANDOM % 500))
-timeout 300 "$root/bin/luanti" --server --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE 'MATTER .*' > "$work/log.txt" || true
+# no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
+timeout 300 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE 'MATTER .*' > "$work/log.txt" || true
 cat "$work/log.txt"
 python3 -I - "$work" <<'PY'
 import sys, os, re

@@ -2,13 +2,24 @@
 import { onMounted, reactive, watch } from "vue"
 import Hud from "../../game/Hud.vue"
 import PauseScreen from "../../game/PauseScreen.vue"
+import MapScreen from "../../game/map/MapScreen.vue"
 import { useStore } from "../../game/store"
 import { Section, Slider, Toggle } from "../../kit"
 import { useMock } from "../mock"
+import { DEFAULTS, encodeWorldCode } from "../../worldgen/config"
 
 /** The real HUD, fed through the real store by the mock engine. */
 const bridge = useMock()
 const store = useStore()
+const creativePreview = new URLSearchParams(location.search).has("creative")
+const code = encodeWorldCode({ ...DEFAULTS, seed: "pine ridge" })
+const exploredBytes = new Uint8Array(256 * 256 / 8)
+for (let z = 96; z < 160; z++) for (let x = 96; x < 160; x++) {
+    if ((x - 128) ** 2 + (z - 128) ** 2 > 32 ** 2) continue
+    const bit = z * 256 + x
+    exploredBytes[bit >> 3]! |= 1 << (bit & 7)
+}
+const explored = btoa(String.fromCharCode(...exploredBytes))
 
 const live = reactive({
     hp: 17, hpMax: 20, breath: 7, breathMax: 10, selected: 2, size: 9,
@@ -20,6 +31,12 @@ function push() {
     bridge.emit({ kind: "state", section: "hud", value: { visible: live.visible, crosshair: live.crosshair, hotbar: true, health: true, breath: true } })
     bridge.emit({ kind: "state", section: "player", value: { hp: live.hp, hpMax: live.hpMax, breath: live.breath, breathMax: live.breathMax } })
     bridge.emit({ kind: "state", section: "hotbar", value: { size: live.size, selected: live.selected } })
+    bridge.emit({ kind: "ui", key: "world_controls", value: { mode: "survival", damage: true, time: 0.5, paused: false } })
+    bridge.emit({ kind: "ui", key: "map", value: {
+        code, size: DEFAULTS.size, star: DEFAULTS.star, tilt: DEFAULTS.tilt,
+        mode: creativePreview ? "creative" : "survival", explored, grid: 256,
+    } })
+    bridge.emit({ kind: "ui", key: "map_position", value: { x: 384, z: -128, date: 0.25 } })
     bridge.emit({
         kind: "state",
         section: "inventory",
@@ -42,7 +59,11 @@ function push() {
 }
 
 watch(live, push)
-onMounted(push)
+onMounted(() => {
+    push()
+    if (new URLSearchParams(location.search).get("screen") === "map")
+        bridge.emit({ kind: "screen", screen: "map" })
+})
 </script>
 
 <template>
@@ -51,6 +72,7 @@ onMounted(push)
             <div class="sky" />
             <Hud />
             <PauseScreen v-if="store.screen === 'pause'" />
+            <MapScreen v-else-if="store.screen === 'map'" />
         </div>
         <aside>
             <Section title="Player">
@@ -66,6 +88,8 @@ onMounted(push)
             <Section title="Screens">
                 <Toggle :model-value="store.screen === 'pause'" label="Pause screen (Esc)"
                     @update:model-value="bridge.emit({ kind: 'screen', screen: $event ? 'pause' : null })" />
+                <Toggle :model-value="store.screen === 'map'" label="World map (V)"
+                    @update:model-value="bridge.emit({ kind: 'screen', screen: $event ? 'map' : null })" />
             </Section>
             <Section title="Flags">
                 <Toggle v-model="live.visible" label="HUD visible (F1)" />

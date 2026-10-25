@@ -10,6 +10,7 @@
 #include "settings.h"
 #include "terragen/code.h"
 #include "util/string.h"
+#include <ctime>
 
 namespace shell {
 
@@ -83,12 +84,15 @@ WorldSpec Worlds::create(const std::string &name, const std::string &code,
 		throw Refused("A world called \"" + trimmed + "\" already exists.");
 
 	loadGameConfAndInitWorld(path, trimmed, game, true);
-	// The map generator's settings: terragen, this code, and the engine's own
-	// seed (ores, decorations) tied to the code's seed.
+	// The map generator's settings: terragen, this code, the engine's own
+	// seed (ores, decorations) tied to the code's seed, and the planet the
+	// world is: as many blocks round as the code's world (planet::Planet,
+	// 8 × planet_half round), so the world is laid on it block for block.
 	{
 		Settings meta("[end_of_params]");
 		meta.set("mg_name", "terra");
 		meta.set("mgterra_code", code);
+		meta.setS32("planet_half", world_code.size / 8);
 		meta.set("seed", std::to_string(world_code.seed_hash));
 		if (!meta.updateConfigFile((path + DIR_DELIM "map_meta.txt").c_str()))
 			throw BaseException("shell: could not write the map settings for " + path);
@@ -150,6 +154,18 @@ void Worlds::remove(const std::string &path) const
 	actionstream << "shell: deleted world " << world.name << " at " << world.path << std::endl;
 }
 
+void Worlds::pin(const std::string &path, bool pinned) const
+{
+	WorldSpec world = find(path);
+	std::string conf = world.path + DIR_DELIM "world.mt";
+	Settings settings;
+	if (!settings.readConfigFile(conf.c_str()))
+		throw BaseException("shell: could not read " + conf);
+	settings.setBool("tf_pinned", pinned);
+	if (!settings.updateConfigFile(conf.c_str()))
+		throw BaseException("shell: could not save " + conf);
+}
+
 void Worlds::select(const WorldSpec &world) const
 {
 	std::string conf = world.path + DIR_DELIM "world.mt";
@@ -160,6 +176,9 @@ void Worlds::select(const WorldSpec &world) const
 		if (settings.exists(key))
 			g_settings->setBool(key, settings.getBool(key));
 	}
+	settings.set("tf_last_opened", std::to_string(std::time(nullptr)));
+	if (!settings.updateConfigFile(conf.c_str()))
+		throw BaseException("shell: could not save " + conf);
 }
 
 WorldSpec Worlds::find(const std::string &path) const

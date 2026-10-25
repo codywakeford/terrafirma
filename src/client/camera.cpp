@@ -774,3 +774,8 @@ void Camera::updateWieldedTool()
 	m_wieldnode->setItem(m_wield_item_next, m_client);
 	m_wieldnode->setLightColorAndAnimation(m_player_light_color, m_client->getAnimationTime());
 }
+
+bool Camera::isCurved() const
+{
+	return m_client->getPlanet() != nullptr;
+}

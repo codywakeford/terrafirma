@@ -4,6 +4,7 @@
 // Copyright (C) 2013-2020 Luanti core developers & community
 
 #include "player_sao.h"
+#include "planet/planet.h" // Terra Firma
 #include "nodedef.h"
 #include "remoteplayer.h"
 #include "scripting_server.h"
@@ -711,6 +712,12 @@ bool PlayerSAO::checkMovementCheat()
 	float d_vert = diff.Y;
 	diff.Y = 0;
 	float d_horiz = diff.getLength();
+	// Terra Firma: on a planet, along the ground over the planet: a step over
+	// a face's edge is a step, wherever the net puts the next face
+	if (const planet::Planet *planet = m_env->getServer()->planet()) {
+		const v3f a = m_last_good_position / BS, b = getBasePosition() / BS;
+		d_horiz = (float)planet->distance(a.X, 0, a.Z, b.X, 0, b.Z) * BS;
+	}
 	float required_time = d_horiz / player_max_walk;
 
 	// FIXME: Checking downwards movement is not easily possible currently,

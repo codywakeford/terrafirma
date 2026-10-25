@@ -28,6 +28,7 @@ private:
 	static int l_globe(lua_State *L);
 	static int l_block(lua_State *L);
 	static int l_across(lua_State *L);
+	static int l_world_column(lua_State *L);
 
 public:
 	static void Initialize(lua_State *L, int top);

@@ -29,10 +29,20 @@ static s32 chunkMin(s32 v)
 }
 
 
-Generator::Generator(const Horizon &horizon) :
+// What grows at a column: the world model's at its column (on a planet, at its
+// latitude and longitude), as the server's planting reads it (core.terra.cover).
+terragen::Cover Generator::coverAt(s32 x, s32 z, const terragen::Ground &ground) const
+{
+	const std::array<s16, 2> w = m_columns->onWorld(x, z);
+	return m_world->cover(w[0], w[1], ground);
+}
+
+Generator::Generator(const Horizon &horizon, const std::optional<planet::Planet> &planet) :
 	m_horizon(horizon),
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level))
+	m_planet(planet),
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level,
+			m_planet ? &*m_planet : nullptr))
 {
 	// each species' typical crown, from growing a few of its trees
 	for (const terra::Species &s : m_horizon.species) {
@@ -116,7 +126,7 @@ const terra::Species *Generator::speciesAt(const terra::Column &c, s32 x, s32 z)
 {
 	if (c.beyond)
 		return nullptr;
-	Cover cover = m_world->cover(x, z, c.ground);
+	Cover cover = coverAt(x, z, c.ground);
 	content_t ground = m_columns->node(c, x, c.height, z).getContent();
 	return terra::choose(m_horizon.species, terra::spotAt(c.ground, cover), ground);
 }
@@ -142,7 +152,7 @@ Tile Generator::build(const TileKey &key) const
 			if (!s)
 				continue;
 			const Crown &crown = m_crowns[s - m_horizon.species.data()];
-			Cover cover = m_world->cover(x, z, c.ground);
+			Cover cover = coverAt(x, z, c.ground);
 			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
 				continue;
 			out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s->leaves) };
@@ -186,7 +196,7 @@ void Generator::growExact(Tile &tile) const
 		// where the game plants: a tree spot, dry ground, and not the chunk's
 		// top layer, which its planting skips
 		s32 y = c.height;
-		if (!m_world->cover(x, z, c.ground).tree || c.water > c.height || y - chunkMin(y) == CHUNK - 1)
+		if (!coverAt(x, z, c.ground).tree || c.water > c.height || y - chunkMin(y) == CHUNK - 1)
 			continue;
 		const terra::Species *s = speciesAt(c, x, z);
 		if (s)

@@ -1027,7 +1027,8 @@ void ServerMap::transformLiquidsLocal(std::map<v3s16, MapBlock*> &modified_block
 				default:
 					break;
 			}
-			v3s16 npos = p0 + liquid_6dirs[i];
+			// Terra Firma: on a planet, over a face's edge onto the next face
+			v3s16 npos = next(p0, liquid_6dirs[i]).pos;
 			NodeNeighbor nb(getNode(npos), nt, npos);
 			const ContentFeatures &cfnb = m_nodedef->get(nb.n);
 			if (nt == NEIGHBOR_UPPER && cfnb.floats)

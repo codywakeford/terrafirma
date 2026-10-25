@@ -1,21 +1,12 @@
 <script setup lang="ts">
-import { Button, Panel } from "../kit"
+import { ref } from "vue"
 import SettingsPanel from "../settings/SettingsPanel.vue"
 import type { Screen } from "./screens"
 
 defineEmits<{ go: [screen: Screen] }>()
+const query = ref("")
 </script>
 
 <template>
-    <Panel title="Settings" class="settings">
-        <template #actions>
-            <Button size="sm" @click="$emit('go', 'home')">Done</Button>
-        </template>
-        <SettingsPanel />
-    </Panel>
+    <SettingsPanel v-model:query="query" close-label="Done" @close="$emit('go', 'home')" />
 </template>
-
-<style scoped>
-.settings { width: min(1200px, 96vw); height: min(760px, 92vh); }
-.settings :deep(.body) { padding: 0; overflow: hidden; }
-</style>

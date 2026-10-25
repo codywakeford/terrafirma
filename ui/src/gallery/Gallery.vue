@@ -4,7 +4,8 @@ import { Tabs } from "../kit"
 import { PAGES, type PageId } from "./pages"
 
 /** Every component, in every state, without booting the game: `bun components`. */
-const page = ref<PageId>(PAGES[0].id)
+const requested = new URLSearchParams(location.search).get("page")
+const page = ref<PageId>(PAGES.find((item) => item.id === requested)?.id ?? PAGES[0].id)
 </script>
 
 <template>

@@ -4,6 +4,7 @@
 #include "planet.h"
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -61,6 +62,111 @@ std::array<double, 2> Planet::at(const Place &p) const
 	return { p.x + s.x + half() - 0.5, p.z + s.z + half() - 0.5 };
 }
 
+std::optional<Planet::Step> Planet::halo(int face, int32_t x, int32_t z) const
+{
+	const Square s = square(face);
+	const int32_t w = width();
+	const int32_t ox = x < s.x ? -1 : x >= s.x + w ? 1 : 0;
+	const int32_t oz = z < s.z ? -1 : z >= s.z + w ? 1 : 0;
+	if (ox == 0 && oz == 0)
+		return Step{ x, z, face, 0 };
+	if (ox != 0 && oz != 0)
+		return std::nullopt; // round a corner
+	// the node on the edge it's past, the step across, then on
+	const int32_t ex = ox == 0 ? x : ox > 0 ? s.x + w - 1 : s.x;
+	const int32_t ez = oz == 0 ? z : oz > 0 ? s.z + w - 1 : s.z;
+	const int32_t depth = std::abs(x - ex) + std::abs(z - ez);
+	if (depth > w)
+		return std::nullopt; // past the neighbour face too
+	Step out = step(ex, ez, ox, oz);
+	const std::array<int, 2> on = turned(ox, oz, out.turn);
+	out.x += on[0] * (depth - 1);
+	out.z += on[1] * (depth - 1);
+	return out;
+}
+
+std::optional<Planet::Carried> Planet::carry(int face, double x, double z) const
+{
+	const int32_t nx = (int32_t)std::lround(x), nz = (int32_t)std::lround(z);
+	const std::optional<Step> h = halo(face, nx, nz);
+	if (!h || h->face == face)
+		return std::nullopt;
+	const std::array<double, 2> in = turned(x - nx, z - nz, h->turn);
+	return Carried{ h->x + in[0], h->z + in[1], h->face, h->turn };
+}
+
+std::array<double, 2> Planet::turned(double dx, double dz, int turn)
+{
+	for (int i = 0; i < ((turn % 4) + 4) % 4; i++) {
+		const double t = dx;
+		dx = -dz;
+		dz = t;
+	}
+	return { dx, dz };
+}
+
+std::array<int32_t, 2> Planet::wrap(int face, double x, double z) const
+{
+	const Square s = square(face);
+	if (x >= s.x - 0.5 && x < s.x + width() - 0.5 && z >= s.z - 0.5 && z < s.z + width() - 0.5)
+		return { (int32_t)std::lround(x), (int32_t)std::lround(z) };
+	const Place q = m_sphere.settle(place(face, x, z));
+	const std::array<double, 2> m = at(q);
+	// on the face, never in a gap: its nearest node
+	const Square t = square(q.face);
+	const auto in = [&](double v, int32_t low) {
+		return std::clamp<int32_t>((int32_t)std::lround(v), low, low + width() - 1);
+	};
+	return { in(m[0], t.x), in(m[1], t.z) };
+}
+
+std::string Planet::glslAxes()
+{
+	std::ostringstream s;
+	const auto vec = [&](const terragen::Sphere::Vec &v) {
+		s << "vec3(" << v.x << ".0, " << v.y << ".0, " << v.z << ".0)";
+	};
+	s << "void planetAxes(highp float face, out highp vec3 o, out highp vec3 e, out highp vec3 n)\n{\n";
+	for (int f = 0; f < 6; f++) {
+		const terragen::Sphere::Axes &a = terragen::Sphere::axes(f);
+		s << (f == 0 ? "\tif" : "\telse if") << " (face < " << f << ".5) { o = ";
+		vec(a.out);
+		s << "; e = ";
+		vec(a.east);
+		s << "; n = ";
+		vec(a.north);
+		s << "; }\n";
+	}
+	s << "}\n";
+	return s.str();
+}
+
+std::array<int32_t, 2> Planet::equirect(double x, double z, int32_t size) const
+{
+	const Place p = place(nearest(x, z), x, z);
+	const double half = size / 2.0;
+	double wx = std::round(m_sphere.longitude(p) / (2 * M_PI) * size);
+	if (wx >= half)
+		wx -= size;
+	const double wz = std::clamp(std::round(m_sphere.latitude(p) / M_PI * size), 1 - half, half);
+	return { (int32_t)wx, (int32_t)wz };
+}
+
+double Planet::corner(double x, double z) const
+{
+	const terragen::Sphere::Vec d = m_sphere.direction(place(nearest(x, z), x, z));
+	// the corners are (±1, ±1, ±1)/√3: the nearest is the one with d's signs
+	const double cosine = (std::abs(d.x) + std::abs(d.y) + std::abs(d.z)) / std::sqrt(3.0);
+	return std::acos(std::clamp(cosine, -1.0, 1.0)) * m_sphere.radius();
+}
+
+double Planet::distance(double ax, double ay, double az, double bx, double by, double bz) const
+{
+	const terragen::Sphere::Vec a = m_sphere.point(place(nearest(ax, az), ax, az), ay);
+	const terragen::Sphere::Vec b = m_sphere.point(place(nearest(bx, bz), bx, bz), by);
+	return std::hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
 std::array<int, 2> Planet::turned(int dx, int dz, int turn)
 {
 	for (int i = 0; i < ((turn % 4) + 4) % 4; i++) {
@@ -106,5 +212,60 @@ Planet::Step Planet::step(int32_t x, int32_t z, int dx, int dz) const
 		turn++;
 	return { (int32_t)std::lround(m[0]), (int32_t)std::lround(m[1]), q.face, turn };
 }
+
+} // namespace planet
+
+namespace planet {
+
+template <typename T>
+Lens<T>::Lens(const Planet &planet, double x, double y, double z) :
+	face(planet.nearest(x, z)),
+	near(planet.sphere(), planet.place(face, x, z), y),
+	m_x(T(x)), m_z(T(z)),
+	m_origin(T(Planet::ORIGIN)), m_pitch(T(planet.width() + Planet::GAP)), m_half(T(planet.half()))
+{
+}
+
+template <typename T>
+typename Lens<T>::V3 Lens<T>::at(T east, T height, T north) const
+{
+	using std::floor;
+	using std::tan;
+	using std::sqrt;
+	using std::clamp;
+	// the face nearest the point (Planet::nearest), and where it is on it (Planet::place)
+	const T qx = m_x + east, qz = m_z + north;
+	const T ix = floor((qx - m_origin + T(0.5) + T(Planet::GAP) / 2) / m_pitch);
+	const T iz = floor((qz - m_origin + T(0.5) + T(Planet::GAP) / 2) / m_pitch);
+	const T col = clamp(ix, T(0), T(2)), row = clamp(iz, T(0), T(1));
+	const int f = int(row * 3 + col);
+	if (f == face) {
+		const auto p = near.at(east, north, height);
+		return { p.x, p.y, p.z };
+	}
+	// another face: its point on the planet, seen from the eye
+	const T lx = qx - (m_origin + col * m_pitch + m_half - T(0.5));
+	const T lz = qz - (m_origin + row * m_pitch + m_half - T(0.5));
+	const terragen::Sphere::Axes &a = terragen::Sphere::axes(f), &e = terragen::Sphere::axes(face);
+	const auto v = [](const terragen::Sphere::Vec &w) { return V3{ T(w.x), T(w.y), T(w.z) }; };
+	const auto unit = [](V3 w) { T n = sqrt(w.x * w.x + w.y * w.y + w.z * w.z); return V3{ w.x / n, w.y / n, w.z / n }; };
+	const auto sum = [](V3 o, T s, V3 p, T t, V3 q) {
+		return V3{ o.x + s * p.x + t * q.x, o.y + s * p.y + t * q.y, o.z + s * p.z + t * q.z };
+	};
+	const auto dot = [](V3 p, V3 q) { return p.x * q.x + p.y * q.y + p.z * q.z; };
+	const V3 d = unit(sum(v(a.out), tan(lx * near.step), v(a.east), tan(lz * near.step), v(a.north)));
+	const V3 de = unit(sum(v(e.out), tan(near.angleEast), v(e.east), tan(near.angleNorth), v(e.north)));
+	const T r = near.radius + height, rise = height - near.eyeHeight;
+	const V3 p{ r * (d.x - de.x) + rise * de.x, r * (d.y - de.y) + rise * de.y, r * (d.z - de.z) + rise * de.z };
+	const V3 local{ dot(p, v(e.east)), dot(p, v(e.out)), dot(p, v(e.north)) };
+	const auto rowOf = [&](int i) {
+		const auto &w = near.rows[i];
+		return w.x * local.x + w.y * local.y + w.z * local.z;
+	};
+	return { rowOf(0), rowOf(1), rowOf(2) };
+}
+
+template class Lens<double>;
+template class Lens<float>;
 
 } // namespace planet

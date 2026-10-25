@@ -247,6 +247,18 @@ void RemoteClient::GetNextBlocks (
 	const f32 target_cos_sq = getFovCosSq(camera_fov);
 	const f32 adjdist = getFovAdj(camera_fov);
 
+	// Terra Firma: on a planet the blocks near the player are near on the
+	// planet: the shells round them are of their face's grid, carried over
+	// its edges onto the faces the planet has there (Planet::wrap). Whether
+	// a block is in sight goes by where the player sees it (planet::Lens),
+	// not where it is in the flat map; the map's occlusion rays can't say.
+	const planet::Planet *planet = env->getServer()->planet();
+	const int planet_face = planet ? planet->nearest(cam_pos_nodes.X, cam_pos_nodes.Z) : 0;
+	std::optional<planet::Lens<double>> lens;
+	if (planet)
+		lens.emplace(*planet, camera_pos.X / BS, camera_pos.Y / BS, camera_pos.Z / BS);
+	const f32 cone = std::cos(std::min(camera_fov * 0.55f, core::PI * 0.5f)); // the view, and a tenth more
+
 	s16 d;
 	for (d = d_start; d <= d_max; d++) {
 		/*
@@ -257,6 +269,12 @@ void RemoteClient::GetNextBlocks (
 
 		for (auto li = list.begin(); li != list.end(); ++li) {
 			v3s16 p = *li + center;
+			if (planet) {
+				const double half = MAP_BLOCKSIZE / 2 - 0.5; // the block's middle node
+				const auto w = planet->wrap(planet_face, p.X * MAP_BLOCKSIZE + half, p.Z * MAP_BLOCKSIZE + half);
+				p.X = getContainerPos(w[0], MAP_BLOCKSIZE);
+				p.Z = getContainerPos(w[1], MAP_BLOCKSIZE);
+			}
 
 			/*
 				Send throttling
@@ -288,8 +306,22 @@ void RemoteClient::GetNextBlocks (
 				movement.
 				(0.1 is about 5 degrees)
 			*/
-			f32 dist;
-			if (!(isBlockInSightEx(p, camera_pos, camera_dir, target_cos_sq, adjdist,
+			f32 dist = 0;
+			if (planet) {
+				// as the player sees it: near enough, and in the view (with
+				// room for the block's own size)
+				const double middle = MAP_BLOCKSIZE / 2 - 0.5;
+				const auto v = lens->at(p.X * MAP_BLOCKSIZE + middle - camera_pos.X / BS,
+						p.Y * MAP_BLOCKSIZE + middle, p.Z * MAP_BLOCKSIZE + middle - camera_pos.Z / BS);
+				const f32 far = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+				dist = far * BS;
+				if (dist > d_blocks_in_sight)
+					continue;
+				const f32 size = MAP_BLOCKSIZE * 0.87f; // half a block's diagonal, m
+				if (far > size && (v.x * camera_dir.X + v.y * camera_dir.Y + v.z * camera_dir.Z) / far
+						< cone - size / far)
+					continue;
+			} else if (!(isBlockInSightEx(p, camera_pos, camera_dir, target_cos_sq, adjdist,
 						d_blocks_in_sight, &dist) ||
 					(playerspeed.getLength() > 1.0f * BS &&
 					isBlockInSight(p, camera_pos, playerspeeddir, 0.1f,
@@ -351,7 +383,7 @@ void RemoteClient::GetNextBlocks (
 				/*
 					Note that we do this even before the block is loaded as this does not depend on its contents.
 				 */
-				if (m_occ_cull &&
+				if (m_occ_cull && !planet &&
 						env->getMap().isBlockOccluded(p * MAP_BLOCKSIZE, cam_pos_nodes, d >= d_cull_opt)) {
 					m_blocks_occ.insert(p);
 					continue;

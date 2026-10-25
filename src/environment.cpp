@@ -156,6 +156,7 @@ void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 			break; // About to go out of bounds
 		}
 
+		const v3s16 from = floatToInt(state->m_shootline.start, BS); // Terra Firma
 		// For each untested node
 		for (s16 z = new_nodes.MinEdge.Z; z <= new_nodes.MaxEdge.Z; z++)
 		for (s16 y = new_nodes.MinEdge.Y; y <= new_nodes.MaxEdge.Y; y++)
@@ -164,7 +165,9 @@ void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 			v3s16 np(x, y, z);
 			bool is_valid_position;
 
-			n = map.getNode(np, &is_valid_position);
+			// Terra Firma: past a planet face's edge, the next face's node, as
+			// seen from where the ray starts (Map::see)
+			n = map.getNodeSeen(from, np, &is_valid_position);
 			if (!is_valid_position)
 				continue;
 
@@ -252,12 +255,16 @@ void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 			result.node_abovesurface = result.node_real_undersurface
 				+ floatToInt(result.intersection_normal, 1.0f);
 
-			// Push found PointedThing
-			state->m_found.push(std::move(result));
 			// If this is nearer than the old nearest object,
 			// the search can be shorter
 			s16 newIndex = state->m_iterator.getIndex(
 				result.node_real_undersurface);
+			// Terra Firma: the nodes the map keeps (past an edge, on the next face)
+			result.node_undersurface = map.see(from, result.node_undersurface).pos;
+			result.node_real_undersurface = map.see(from, result.node_real_undersurface).pos;
+			result.node_abovesurface = map.see(from, result.node_abovesurface).pos;
+			// Push found PointedThing
+			state->m_found.push(std::move(result));
 			if (newIndex < lastIndex) {
 				lastIndex = newIndex;
 			}

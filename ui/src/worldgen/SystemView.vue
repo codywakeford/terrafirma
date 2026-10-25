@@ -21,7 +21,6 @@ const selected = defineModel<string>({ required: true })
 const cards = useSystemPreview()
 const canvas = ref<HTMLCanvasElement | null>(null)
 const chosen = computed<Body | null>(() => (selected.value === STAR ? null : bodyOf(props.system, selected.value)))
-const card = computed(() => (chosen.value ? cards.card(chosen.value.id) : null))
 const extent = computed(() => Math.max(3, ...planets(props.system).map((body) => displayOrbit(body.orbit))) + 0.4)
 let observer: ResizeObserver | null = null
 let picks: Pick[] = []
@@ -232,12 +231,6 @@ onBeforeUnmount(() => observer?.disconnect())
     <div class="system-view">
         <canvas ref="canvas" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="drag = null"
             @wheel.prevent="onWheel" aria-label="Interactive three-dimensional star system" />
-        <div class="readout">
-            <span class="eyebrow">{{ chosen === null ? 'star' : chosen.parent ? 'moon' : 'planet' }}{{ card ? ` · ${card.kind}` : '' }}</span>
-            <strong>{{ chosen?.name ?? starInfo(star).label }}</strong>
-            <span v-if="chosen && card" class="facts">{{ (10 ** chosen.mass).toPrecision(2) }} Earth masses · {{ card.gravity.toFixed(2) }}g · {{ Math.round(card.temperature - 273) }} °C</span>
-            <span v-else-if="chosen === null" class="facts">{{ system.age.toFixed(1) }} billion years · wind {{ Math.round(system.activity * 100) }}%</span>
-        </div>
     </div>
 </template>
 
@@ -245,9 +238,4 @@ onBeforeUnmount(() => observer?.disconnect())
 .system-view { position: relative; width: 100%; height: 100%; background: radial-gradient(ellipse at 50% 45%, #172632, transparent 70%); }
 canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 canvas:active { cursor: grabbing; }
-.readout { position: absolute; bottom: 0; right: 0; display: flex; flex-direction: column; gap: 2px; width: min(75%, 330px); min-height: 90px; padding: 8px 10px; border: var(--b) solid var(--edge); background: rgb(12 14 16 / 0.88); box-shadow: var(--sunk); pointer-events: none; }
-.eyebrow { font: 10px var(--font-display); text-transform: uppercase; color: var(--accent-hi); }
-strong { font: 14px var(--font-display); text-transform: uppercase; }
-.note, .facts { color: var(--ink-dim); font-size: 10px; line-height: 1.25; }
-.facts { color: var(--ink); }
 </style>

@@ -18,11 +18,15 @@ mkdir -p "$world/worldmods"
 "$work/predict" "$code" "$world/points.txt" > "$work/predicted.txt"
 cp -r "$root/scripts/terragen-check/probe" "$world/worldmods/probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\n[end_of_params]\n' "$code" > "$world/map_meta.txt"
+# a planet (every terra world is), the world laid on it block for block (8 × 1024 = 8192 round)
+printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\nplanet_half = 1024\n[end_of_params]\n' "$code" > "$world/map_meta.txt"
 
 port=$((30200 + RANDOM % 500))
-timeout 180 "$root/bin/luanti" --server --world "$world" --port "$port" 2>&1 | grep -oE '(PROBE|TERRA|WEATHER|ACT) .*' > "$work/log.txt" || true
+# no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
+timeout 180 "$root/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE '(MAP|PROBE|TERRA|WEATHER|ACT) .*' > "$work/log.txt" || true
 grep '^PROBE' "$work/log.txt" > "$work/probed.txt" || true
+# on a planet: predicted for the columns the probed nodes actually are
+"$work/predict" --columns "$code" "$work/log.txt" > "$work/predicted.txt"
 "$work/predict" --terra "$code" "$work/log.txt" > "$work/terra-predicted.txt"
 
 python3 -I - "$work" <<'PY'

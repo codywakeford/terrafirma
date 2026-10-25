@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <array>
+namespace planet { class Planet; }
+
 #include "irrlichttypes.h"
 #include "mapnode.h"
 #include "terragen/world.h"
@@ -59,15 +62,24 @@ struct Column
 class Columns
 {
 public:
-	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level);
+	// `planet`: the world's, if it's one (src/planet/planet.h). Then a column of
+	// the map is the world model's column at its latitude and longitude on
+	// the planet: the whole world, poles and all, on the sphere.
+	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level,
+			const planet::Planet *planet);
 
 	const Blocks &blocks() const { return m_blocks; }
 	s16 waterLevel() const { return m_water_level; }
 
 	// `sun`: World::sunlight for the column's row (it depends only on z); 0
-	// beyond the polar edge.
+	// beyond the polar edge. On a planet it's found from where the column is.
 	Column at(s16 x, s16 z, terragen::fix sun) const;
 	terragen::fix sunlight(s16 z) const;
+
+	// The world model's block for a column of the map: itself, or on a planet
+	// the one at its latitude and longitude (the world model's map is
+	// equirectangular: x longitude, z latitude, poles at ±size/2).
+	std::array<s16, 2> onWorld(s16 x, s16 z) const;
 
 	// The block the generator leaves at (x, y, z) of column `c`: rock, ore
 	// and caves below the soil, the soil painted over it, water (frozen at
@@ -76,7 +88,10 @@ public:
 	MapNode node(const Column &c, s16 x, s32 y, s16 z) const;
 
 private:
+	Column column(s16 x, s16 z, terragen::fix sun) const;
+
 	const terragen::World &m_world;
+	const planet::Planet *m_planet;
 	Blocks m_blocks;
 	s16 m_water_level;
 };

@@ -310,6 +310,11 @@ void set_default_settings()
 	settings->setDefault("crosshair_alpha", "255");
 	settings->setDefault("recent_chat_messages", "6");
 	settings->setDefault("hud_scaling", "1.0");
+	settings->setDefault("widget_map", "true");
+	settings->setDefault("widget_map_corner", "0");
+	settings->setDefault("widget_map_scale", "2");
+	settings->setDefault("widget_world_controls", "true");
+	settings->setDefault("widget_world_controls_corner", "1");
 	settings->setDefault("gui_scaling", "1.0");
 	settings->setDefault("gui_scaling_filter", "false");
 	settings->setDefault("smooth_scrolling", "true");

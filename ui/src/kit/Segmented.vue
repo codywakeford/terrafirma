@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T extends string | number">
 /** Pick one of a few: joined blocks, the chosen one sunk and lit. */
 defineProps<{ options: readonly { value: T; label: string }[] }>()
-const model = defineModel<T>({ required: true })
+const model = defineModel<T | null>({ required: true })
 </script>
 
 <template>

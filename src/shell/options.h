@@ -20,6 +20,9 @@ public:
 	void set(const std::string &key, const Json::Value &value) const;
 	// Validate every value before applying a preset, then save once.
 	void apply(const Json::Value &values) const;
+	Json::Value bindings() const;
+	void bind(const std::string &key, int scancode, bool replace) const;
+	void resetBindings() const;
 };
 
 } // namespace shell

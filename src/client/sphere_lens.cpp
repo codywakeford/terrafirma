@@ -7,7 +7,8 @@
 #include "constants.h"
 #include "planet/planet.h"
 #include <ICameraSceneNode.h>
-#include <sstream>
+#include <IMaterialRendererServices.h>
+#include <IVideoDriver.h>
 
 namespace {
 
@@ -19,12 +20,16 @@ public:
 	void onSetUniforms(video::IMaterialRendererServices *services) override
 	{
 		const planet::Planet *planet = m_client->getPlanet();
-		if (!planet) {
+		Camera *camera = m_client->getCamera();
+		// Only the world is on the planet: the wielded item, the HUD's
+		// models and the like are drawn with views of their own.
+		scene::ICameraSceneNode *node = camera->getCameraNode();
+		const bool world = services->getVideoDriver()->getTransform(video::ETS_VIEW) == node->getViewMatrix();
+		if (!planet || !world) {
 			const float off[4] = {};
 			m_eye.set(off, services);
 			return;
 		}
-		Camera *camera = m_client->getCamera();
 		const v3f at = camera->getPosition() / BS; // map nodes
 		const int face = planet->nearest(at.X, at.Z);
 		const terragen::Sphere::Lens<double> lens(planet->sphere(), planet->place(face, at.X, at.Z), at.Y);
@@ -43,7 +48,6 @@ public:
 		m_north.set(row(lens.rows[2]), services);
 		m_net.set(net, services);
 		m_offset.set(v3f(offset.X, offset.Y, offset.Z), services);
-		scene::ICameraSceneNode *node = camera->getCameraNode();
 		core::matrix4 viewProj = node->getProjectionMatrix();
 		viewProj *= node->getViewMatrix();
 		m_view_proj.set(viewProj, services);
@@ -67,25 +71,4 @@ private:
 IShaderUniformSetter *SphereLensFactory::create(const std::string &name)
 {
 	return new SphereLens(m_client);
-}
-
-std::string SphereLensFactory::prelude()
-{
-	std::ostringstream s;
-	const auto vec = [&](const terragen::Sphere::Vec &v) {
-		s << "vec3(" << v.x << ".0, " << v.y << ".0, " << v.z << ".0)";
-	};
-	s << "void planetAxes(highp float face, out highp vec3 o, out highp vec3 e, out highp vec3 n)\n{\n";
-	for (int f = 0; f < 6; f++) {
-		const terragen::Sphere::Axes &a = terragen::Sphere::axes(f);
-		s << (f == 0 ? "\tif" : "\telse if") << " (face < " << f << ".5) { o = ";
-		vec(a.out);
-		s << "; e = ";
-		vec(a.east);
-		s << "; n = ";
-		vec(a.north);
-		s << "; }\n";
-	}
-	s << "}\n";
-	return s.str();
 }

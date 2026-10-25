@@ -521,6 +521,15 @@ void Server::init()
 			"corrupted or in an unsupported format.\n") + e.what());
 	}
 
+	// Terra Firma: whether the world is a planet is the world's (map_meta.txt,
+	// or the settings a new world starts from), known before any mod runs:
+	// core.planet answers while mods load.
+	if (std::string half; startup_server_map->settings_mgr.getMapSetting("planet_half", &half) && stoi(half) != 0) {
+		m_planet.emplace(stoi(half)); // throws on a size the map can't hold
+		startup_server_map->setPlanet(&*m_planet);
+	}
+	m_flight = std::make_unique<orbit::Flight>(m_planet ? terragen::sphere(m_planet->sphere().radius()) : terragen::home());
+
 	// Initialize scripting
 	infostream << "Server: Initializing Lua" << std::endl;
 
@@ -575,8 +584,20 @@ void Server::init()
 	if (!servermap.settings_mgr.makeMapgenParams())
 		FATAL_ERROR("Couldn't create any mapgen type");
 	m_emerge->initMapgens(servermap.getMapgenParams());
-	if (s32 half = m_emerge->mgparams->planet_half)
-		m_planet.emplace(half); // throws on a size the map can't hold
+	// every terra world is a planet; one made before planets were is refused,
+	// not played flat (only the Lab's worlds are flat)
+	if (m_emerge->mgparams->mgtype == MAPGEN_TERRA && !m_planet)
+		throw ServerError("This world was made before worlds were planets, and can't be played any more. "
+			"Make a new world: every world is a planet now.");
+	if (m_emerge->mgparams->planet_half != (m_planet ? m_planet->half() : 0))
+		throw ServerError("planet_half changed while mods loaded: the planet is the world's, not a mod's");
+	if (m_planet) {
+		// every node of the net must be one the generator can make
+		const auto [emin, emax] = get_mapgen_edges(m_emerge->mgparams->mapgen_limit, m_emerge->mgparams->chunksize);
+		const planet::Planet::Square low = m_planet->square(0), high = m_planet->square(5);
+		if (low.x < emin.X || low.z < emin.Z || high.x + m_planet->width() - 1 > emax.X || high.z + m_planet->width() - 1 > emax.Z)
+			throw ServerError("the planet's faces reach past what the map generator makes (chunksize, mapgen_limit)");
+	}
 
 	if (g_settings->getBool("enable_rollback_recording")) {
 		// Create rollback manager
@@ -4640,16 +4661,6 @@ void Server::setUi(RemotePlayer *player, const std::string &key, const std::stri
 	NetworkPacket pkt(TOCLIENT_UI, 0, player->getPeerId());
 	pkt << key;
 	pkt.putLongString(value_json);
-	Send(&pkt);
-}
-
-void Server::setAloft(RemotePlayer *player, const std::optional<far::Aloft> &aloft)
-{
-	sanity_check(player);
-	NetworkPacket pkt(TOCLIENT_ALOFT, 0, player->getPeerId());
-	pkt << (u8)(aloft ? 1 : 0);
-	if (aloft)
-		pkt << aloft->x << aloft->z << aloft->altitude << aloft->east << aloft->north << aloft->climb;
 	Send(&pkt);
 }
 

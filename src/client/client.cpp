@@ -1847,6 +1847,30 @@ void Client::addUpdateMeshTask(v3s16 p, bool ack_to_server, bool urgent)
 void Client::addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server, bool urgent)
 {
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, true);
+	// Terra Firma: and the blocks across a planet face's edge, which show it
+	const v3s16 low = blockpos * MAP_BLOCKSIZE;
+	for (s16 i = 0; i < MAP_BLOCKSIZE; i++) {
+		addUpdateMeshTaskAcross(low + v3s16(0, 0, i), urgent);
+		addUpdateMeshTaskAcross(low + v3s16(MAP_BLOCKSIZE - 1, 0, i), urgent);
+		addUpdateMeshTaskAcross(low + v3s16(i, 0, 0), urgent);
+		addUpdateMeshTaskAcross(low + v3s16(i, 0, MAP_BLOCKSIZE - 1), urgent);
+	}
+}
+
+void Client::addUpdateMeshTaskAcross(v3s16 nodepos, bool urgent)
+{
+	const planet::Planet *planet = getPlanet();
+	if (!planet)
+		return;
+	const std::optional<int> face = planet->face(nodepos.X, nodepos.Z);
+	if (!face)
+		return;
+	static const v3s16 DIRS[4] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	for (const v3s16 &d : DIRS) {
+		const v3s16 there = m_env.getMap().next(nodepos, d).pos;
+		if (planet->face(there.X, there.Z) != face)
+			addUpdateMeshTask(getNodeBlockPos(there), false, urgent);
+	}
 }
 
 void Client::addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server, bool urgent)
@@ -1863,6 +1887,7 @@ void Client::addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server, bool ur
 		addUpdateMeshTask(blockpos + v3s16(0, -1, 0), false, urgent);
 	if (nodepos.Z == blockpos_relative.Z)
 		addUpdateMeshTask(blockpos + v3s16(0, 0, -1), false, urgent);
+	addUpdateMeshTaskAcross(nodepos, urgent); // Terra Firma
 }
 
 ClientEvent *Client::getClientEvent()

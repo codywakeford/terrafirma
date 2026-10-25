@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "localplayer.h"
+#include "planet/planet.h" // Terra Firma
 #include <cmath>
 #include "mtevent.h"
 #include "collision.h"
@@ -242,6 +243,7 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 
 	if (noclip && free_move) {
 		position += m_speed * dtime;
+		carry(position);
 		setPosition(position);
 
 		touching_ground = false;
@@ -455,6 +457,7 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 	/*
 		Set new position but keep sneak node set
 	*/
+	carry(position);
 	setPosition(position);
 	m_sneak_node_exists = new_sneak_node_exists;
 
@@ -847,6 +850,7 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 	bool free_move = noclip && fly_allowed && player_settings.free_move;
 	if (free_move) {
 		position += m_speed * dtime;
+		carry(position);
 		setPosition(position);
 
 		touching_ground = false;
@@ -1074,6 +1078,7 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 		Set new position but keep sneak node set
 	*/
 	bool sneak_node_exists = m_sneak_node_exists;
+	carry(position);
 	setPosition(position);
 	m_sneak_node_exists = sneak_node_exists;
 
@@ -1245,4 +1250,22 @@ void LocalPlayer::handleAutojump(f32 dtime, Environment *env,
 		m_autojump = true;
 		m_autojump_time = 0.1f;
 	}
+}
+
+void LocalPlayer::carry(v3f &position)
+{
+	const planet::Planet *planet = m_client->getPlanet();
+	if (!planet)
+		return;
+	const v3f was = getPosition() / BS;
+	const int face = planet->nearest(was.X, was.Z);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, position.X / BS, position.Z / BS);
+	if (!c)
+		return;
+	position.X = c->x * BS;
+	position.Z = c->z * BS;
+	const std::array<double, 2> speed = planet::Planet::turned(m_speed.X, m_speed.Z, c->turn);
+	m_speed.X = speed[0];
+	m_speed.Z = speed[1];
+	m_planet_turn += c->turn;
 }

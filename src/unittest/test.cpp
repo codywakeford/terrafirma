@@ -22,6 +22,7 @@ content_t t_CONTENT_TORCH;
 content_t t_CONTENT_WATER;
 content_t t_CONTENT_LAVA;
 content_t t_CONTENT_BRICK;
+content_t t_CONTENT_FACEDIR;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -179,6 +180,17 @@ void TestGameDef::defineSomeNodes()
 	f.is_ground_content = true;
 	idef->registerItem(itemdef);
 	t_CONTENT_BRICK = ndef->set(f.name, std::move(f));
+
+	//// A node that faces a way (Terra Firma: turned across a planet's edges)
+	itemdef = ItemDefinition();
+	itemdef.type = ITEM_NODE;
+	itemdef.name = "test:facedir";
+	f = ContentFeatures();
+	f.name = itemdef.name;
+	f.param_type_2 = CPT2_FACEDIR;
+	f.is_ground_content = true;
+	idef->registerItem(itemdef);
+	t_CONTENT_FACEDIR = ndef->set(f.name, std::move(f));
 }
 
 bool TestGameDef::joinModChannel(const std::string &channel)

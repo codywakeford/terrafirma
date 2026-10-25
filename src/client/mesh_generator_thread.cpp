@@ -44,6 +44,24 @@ void QueuedMeshUpdate::retrieveBlocks(Map *map, u16 cell_size)
 		}
 		i++;
 	}
+
+	// Terra Firma: the border past a planet face's edge, read now (this is
+	// the main thread; meshes are made on others)
+	halo.clear();
+	if (!map->getPlanet())
+		return;
+	const s16 n = cell_size * MAP_BLOCKSIZE;
+	const v3s16 low = p * MAP_BLOCKSIZE, from = low + v3s16(n / 2);
+	if (!map->getPlanet()->face(from.X, from.Z))
+		return; // the seam's own blocks
+	for (s16 z = low.Z - 1; z <= low.Z + n; z++)
+	for (s16 x = low.X - 1; x <= low.X + n; x++) {
+		const v3s16 column(x, 0, z);
+		if (map->see(from, column).pos == column)
+			continue; // on the face (or round a corner: the seam)
+		for (s16 y = low.Y - 1; y <= low.Y + n; y++)
+			halo.emplace_back(v3s16(x, y, z), map->getNodeSeen(from, v3s16(x, y, z)));
+	}
 }
 
 bool QueuedMeshUpdate::checkSkip(u16 cell_size)
@@ -276,6 +294,8 @@ void MeshUpdateQueue::fillDataFromMapBlocks(QueuedMeshUpdate *q)
 		if (block)
 			block->copyTo(data->m_vmanip);
 	}
+	for (const auto &[pos, node] : q->halo) // Terra Firma: over the seam
+		data->m_vmanip.setNodeNoEmerge(pos, node);
 
 	data->setCrack(q->crack_level, q->crack_pos);
 

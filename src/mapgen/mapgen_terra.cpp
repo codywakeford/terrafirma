@@ -76,7 +76,8 @@ terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef)
 MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 	MapgenBasic(MAPGEN_TERRA, params, emerge),
 	m_world(decodeOrFail(params->code)),
-	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level)
+	m_planet(params->planet_half ? std::optional<planet::Planet>(params->planet_half) : std::nullopt),
+	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_planet ? &*m_planet : nullptr)
 {
 	for (int i = 0; i < (int)terragen::Biome::Count; i++)
 		m_biomes[i] = (::Biome *)m_bmgr->getByName(BIOME_NAMES[i]);
@@ -86,6 +87,9 @@ MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 
 bool MapgenTerra::groundAt(s16 x, s16 z, terragen::Ground &ground) const
 {
+	const std::array<s16, 2> w = m_columns.onWorld(x, z); // on a planet, its latitude and longitude
+	x = w[0];
+	z = w[1];
 	fix v = m_world.v(z);
 	if (v < 0 || v >= ONE)
 		return false; // beyond the polar edge

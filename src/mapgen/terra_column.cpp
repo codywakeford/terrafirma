@@ -3,14 +3,52 @@
 
 #include "terra_column.h"
 #include "mapgen.h" // MAX_MAP_GENERATION_LIMIT
+#include "planet/planet.h"
+#include <algorithm>
+#include <cmath>
 
 using namespace terragen;
 
 namespace terra {
 
-Columns::Columns(const World &world, const Blocks &blocks, s16 water_level) :
-	m_world(world), m_blocks(blocks), m_water_level(water_level)
+Columns::Columns(const World &world, const Blocks &blocks, s16 water_level,
+		const planet::Planet *planet) :
+	m_world(world), m_planet(planet), m_blocks(blocks), m_water_level(water_level)
 {
+}
+
+std::array<s16, 2> Columns::onWorld(s16 x, s16 z) const
+{
+	if (!m_planet)
+		return { x, z };
+	const std::array<int32_t, 2> w = m_planet->equirect(x, z, m_world.code().size);
+	return { (s16)w[0], (s16)w[1] };
+}
+
+// The corner landmarks (a planet's 8 corners, where three faces meet): a bare
+// stone peak over each, so the corner point is inside a mountain, never open
+// ground.
+static constexpr double LANDMARK_RADIUS = 32; // m
+static constexpr double LANDMARK_HEIGHT = 72; // m above the sea, at the corner
+
+Column Columns::at(s16 x, s16 z, fix sun) const
+{
+	if (!m_planet)
+		return column(x, z, sun);
+	const std::array<s16, 2> w = onWorld(x, z);
+	Column c = column(w[0], w[1], sunlight(w[1]));
+	const double d = m_planet->corner(x, z);
+	if (d < LANDMARK_RADIUS) {
+		const s32 peak = m_water_level + (s32)std::lround(LANDMARK_HEIGHT * (1 - d / LANDMARK_RADIUS));
+		if (peak > c.height) {
+			c.height = c.water = peak;
+			c.water_above = c.lava = false;
+			c.top = m_blocks.stone;
+			c.soil = 0;
+			c.top_end = c.filler_end = c.height;
+		}
+	}
+	return c;
 }
 
 fix Columns::sunlight(s16 z) const
@@ -19,7 +57,7 @@ fix Columns::sunlight(s16 z) const
 	return v < 0 || v >= ONE ? 0 : m_world.sunlight(v, std::nullopt);
 }
 
-Column Columns::at(s16 x, s16 z, fix sun) const
+Column Columns::column(s16 x, s16 z, fix sun) const
 {
 	Column c{};
 	fix v = m_world.v(z);

@@ -1948,25 +1948,6 @@ void Client::handleCommand_Planet(NetworkPacket *pkt)
 	s32 half;
 	*pkt >> half;
 	m_planet.emplace(half); // throws on a size the map can't hold
+	m_env.getMap().setPlanet(&*m_planet);
 }
 
-void Client::handleCommand_Aloft(NetworkPacket *pkt)
-{
-	u8 present;
-	*pkt >> present;
-	if (!present) {
-		m_aloft.reset();
-		return;
-	}
-	far::Aloft a;
-	*pkt >> a.x >> a.z >> a.altitude >> a.east >> a.north >> a.climb;
-	m_aloft = a;
-	m_aloft_at = porting::getTimeMs();
-}
-
-std::optional<far::Aloft> Client::getAloft() const
-{
-	if (!m_aloft)
-		return std::nullopt;
-	return m_aloft->after((porting::getTimeMs() - m_aloft_at) / 1000.0f);
-}

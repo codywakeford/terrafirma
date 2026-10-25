@@ -4,6 +4,7 @@
 #include "session.h"
 #include "bridge.h"
 #include "shell.h"
+#include "preview.h"
 #include "gui/mainmenumanager.h"
 #include "porting.h"
 
@@ -11,7 +12,7 @@ namespace shell {
 
 static const char *const VERBS[] = {
 	"screen.close", "game.leave", "game.quit",
-	"inventory.move", "inventory.craft", "inventory.drop", "creative.list", "ui.send", "screen.open",
+	"inventory.move", "inventory.craft", "inventory.drop", "creative.list", "ui.send", "screen.open", "worldgen.preview",
 };
 
 Session::Session(const Opts &opts) :
@@ -38,6 +39,9 @@ Session::Session(const Opts &opts) :
 	});
 	m_shell.on("creative.list", [this](const Json::Value &) {
 		return m_items.catalog();
+	});
+	m_shell.onAsync("worldgen.preview", [](const Json::Value &intent) {
+		return previewJson(intent);
 	});
 	m_shell.on("ui.send", [this](const Json::Value &intent) {
 		m_ui.send(intent);

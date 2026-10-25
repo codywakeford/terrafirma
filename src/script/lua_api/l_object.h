@@ -419,7 +419,6 @@ private:
 
 	// Terra Firma: set_ui(self, key, value)
 	static int l_set_ui(lua_State *L);
-	static int l_set_aloft(lua_State *L);
 
 	// get_lighting(self)
 	static int l_get_lighting(lua_State *L);

@@ -2,8 +2,7 @@
 import { computed, ref, shallowRef, watch } from "vue"
 import type { Intents } from "../bridge"
 import { useBridge } from "../bridge/use"
-import { Segmented, Slider } from "../kit"
-import WikiLayout from "./WikiLayout.vue"
+import { ListGroup, Segmented, Slider, WorkbenchColumns } from "../kit"
 
 /**
  * Newton's cannonball on this world's planet: fire from the equator and the
@@ -61,19 +60,18 @@ const outcome = computed(() => {
 </script>
 
 <template>
-    <WikiLayout wide>
+    <WorkbenchColumns>
         <template #list>
-            <section class="controls">
-                <h3>Newton's cannon</h3>
+            <ListGroup title="Newton's cannon" class="controls">
                 <Slider v-model="speed" label="Speed over the ground" :min="0" :max="4000" :step="25" :format="(v) => `${v} m/s`" />
                 <Slider v-model="angle" label="Above the horizon" :min="0" :max="90" :step="1" :format="(v) => `${v}°`" />
                 <Slider v-model="altitude" label="Fired from" :min="0" :max="400" :step="5" :format="(v) => `${v} km up`" />
                 <Segmented v-model="heading" :options="[{ value: 'east', label: 'East' }, { value: 'west', label: 'West' }]" />
                 <Segmented v-model="air" :options="[{ value: 'on', label: 'Air' }, { value: 'off', label: 'No air' }]" />
                 <p class="note">East, the planet's spin is on your side: its equator already moves ~460 m/s that way.</p>
-            </section>
+            </ListGroup>
         </template>
-        <template #view>
+        <template #content>
             <div class="stage">
                 <svg :viewBox="`0 0 ${SIZE} ${SIZE}`" class="picture" aria-label="The planet, its air and the cannonball's path">
                     <circle :cx="SIZE / 2" :cy="SIZE / 2" :r="airEdge" class="air" />
@@ -90,12 +88,11 @@ const outcome = computed(() => {
                 <p v-if="problem" class="problem">{{ problem }}</p>
             </div>
         </template>
-    </WikiLayout>
+    </WorkbenchColumns>
 </template>
 
 <style scoped>
 .controls { display: flex; flex-direction: column; gap: 14px; }
-h3 { margin: 0; }
 .note { margin: 0; font-size: 11px; color: var(--ink-dim); }
 .stage { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .picture { width: min(100%, 520px); background: #05070d; border: var(--b) solid var(--edge); }
