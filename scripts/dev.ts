@@ -11,9 +11,11 @@ const devUrl = "http://localhost:5173"
 // ../arclabs lists it); ARCLABS_URL points elsewhere, e.g. production.
 const arclabsUrl = process.env.ARCLABS_URL ?? "http://localhost:3099"
 
-async function run(cmd: string[], cwd: string) {
+async function run(cmd: string[], cwd: string, label: string) {
+    const started = performance.now()
     const code = await Bun.spawn(cmd, { cwd: cwd, stdio: ["inherit", "inherit", "inherit"] }).exited
     if (code !== 0) throw new Error(`${cmd.join(" ")} exited with ${code}`)
+    console.log(`dev: ${label} ${((performance.now() - started) / 1000).toFixed(2)}s`)
 }
 
 async function waitFor(url: string, timeoutMs: number) {
@@ -53,10 +55,13 @@ async function launchGame(args: string[]) {
     }
 }
 
-await run(["cmake", "-S", ".", "-B", ".output/build", "-DRUN_IN_PLACE=TRUE"], root)
-await run(["cmake", "--build", ".output/build", "-j"], root)
-await run(["bash", "scripts/stage-runtime.sh"], root)
-if (!(await Bun.file(`${ui}/node_modules/.bin/vite`).exists())) await run(["bun", "install"], ui)
+if (!(await Bun.file(`${root}/.output/build/CMakeCache.txt`).exists()))
+    await run(["cmake", "-S", ".", "-B", ".output/build", "-DRUN_IN_PLACE=TRUE"], root, "configure")
+// CMake regenerates its build files when CMake inputs change.
+await run(["cmake", "--build", ".output/build", "-j8"], root, "engine build")
+await run(["bash", "scripts/stage-runtime.sh"], root, "runtime staging")
+if (!(await Bun.file(`${ui}/node_modules/.bin/vite`).exists()))
+    await run(["bun", "install"], ui, "UI dependencies")
 
 // Another game's dev loop may already serve the UI: share it rather than fail
 // on the port. (It goes away when that game closes.)
@@ -72,7 +77,9 @@ process.on("SIGINT", stop)
 process.on("SIGTERM", stop)
 
 try {
+    const uiStarted = performance.now()
     await waitFor(devUrl, 15_000)
+    console.log(`dev: UI server ready in ${((performance.now() - uiStarted) / 1000).toFixed(2)}s`)
     game = await launchGame(process.argv.slice(2))
     process.exitCode = await game.exited
 } finally {
