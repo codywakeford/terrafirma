@@ -24,6 +24,7 @@
 
 class IGameDef;
 class Map;
+namespace planet { class Atlas; }
 struct PointedThing;
 class RaycastState;
 struct Pointabilities;
@@ -97,6 +98,8 @@ public:
 	 * @param state current state of the raycast
 	 * @result output, will contain the next pointed thing
 	 */
+	// Terra Firma: a ray past an atlas's seam (environment.cpp)
+	void seamCells(RaycastState *state, Map &map, const planet::Atlas &atlas, v3s16 from, v3s16 np);
 	void continueRaycast(RaycastState *state, PointedThing *result);
 
 	// counter used internally when triggering ABMs

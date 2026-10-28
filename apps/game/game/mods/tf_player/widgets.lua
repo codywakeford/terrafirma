@@ -112,6 +112,41 @@ core.register_globalstep(function(dtime)
 	end
 end)
 
+-- The map's Go there (creative): to the ground at a place on the planet,
+-- found as spawn finds it (the column's own grid, at its spawn level; over
+-- the sea, at its surface). The page asks; the server decides.
+core.register_on_ui_event(function(player, name, payload)
+	if name ~= "map.teleport" then return end
+	local who = player:get_player_name()
+	if not core.planet.atlas() then
+		core.log("warning", "tf_player: " .. who .. " asked to teleport, and this world isn't a planet")
+		return
+	end
+	if not modes[who] then
+		core.log("warning", "tf_player: " .. who .. " asked to teleport out of creative")
+		return
+	end
+	local lat, lon = type(payload) == "table" and payload.latitude, type(payload) == "table" and payload.longitude
+	if type(lat) ~= "number" or type(lon) ~= "number" or lat ~= lat or lon ~= lon or math.abs(lat) > math.pi / 2 then
+		core.log("warning", "tf_player: " .. who .. " sent a teleport that isn't a place")
+		return
+	end
+	local column = core.planet.atlas_node(lat, lon, 0)
+	if not column then
+		core.log("warning", "tf_player: no ground at " .. lat .. ", " .. lon)
+		return
+	end
+	local layer = core.get_spawn_level(column.x, column.z) or sea + 1
+	local at_lat, at_lon = core.planet.atlas_place(column)
+	local node = core.planet.atlas_node(at_lat, at_lon, layer)
+	if not node then
+		core.log("warning", "tf_player: no node at layer " .. layer .. " there")
+		return
+	end
+	player:set_pos(node)
+	core.log("action", "tf_player: " .. who .. " went to " .. core.pos_to_string(node))
+end)
+
 local TIMES = { dawn = 0.23, noon = 0.5, dusk = 0.77, midnight = 0 }
 core.register_on_ui_event(function(player, name, payload)
 	if name ~= "world.mode" and name ~= "world.time" and name ~= "world.clock" then return end

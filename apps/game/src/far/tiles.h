@@ -70,6 +70,8 @@ public:
 	// How many tiles update() wanted that aren't built yet: 0 once the eye's
 	// view is complete.
 	size_t pending() const { return m_pending; }
+	// Whether every root is built: the coarse planet is all there.
+	bool based() const;
 
 private:
 	struct Key

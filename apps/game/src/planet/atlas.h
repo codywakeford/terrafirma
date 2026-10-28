@@ -238,20 +238,59 @@ public:
 	static Affine view(const Frame &eye, const Frame &block);
 
 	/*
-		A cell's solid part: the node, or for a cut cell the part of it in its
-		territory, clipped along the one storage axis the territory's edge
-		most faces (where it crosses the line through the centre). A box:
-		where the edge runs slantwise a little overlap with the next grid's
-		cell stays, rather than a gap. In the cell's own
-		storage axes, from its node's centre. None for a whole cell, and for
-		a node that stores no cell. What collision takes as the cell, so two
-		grids' cut cells over one place never both stand there. Kept.
+		A cut cell's solid: the part of its node inside its territory, cut by
+		a plane for each edge of the territory that crosses it (one along a
+		seam; two or three at a corner, where a segment's meridians meet a
+		cap's circle), in the cell's own storage axes from its node's centre.
+		Each edge is flat to about 1e-4 over a cell, and the cells beside it in
+		both grids are cut by it: they meet on one surface, no gap and no
+		overlap. Drawing, collision and pointing all take this as the cell.
+		None for a whole cell, and for a node that stores no cell. Kept.
 	*/
-	struct Extent
+	struct Cut
 	{
-		std::array<double, 3> low, high;
+		// d with normal·d + offset >= 0 is kept; |normal| 1
+		struct Plane
+		{
+			std::array<double, 3> normal;
+			double offset;
+
+			double at(double x, double y, double z) const { return normal[0] * x + normal[1] * y + normal[2] * z + offset; }
+			// The storage axis it most faces.
+			int axis() const;
+		};
+		std::vector<Plane> planes;
+
+		// How far inside a point (storage, from the node's centre) is: >= 0 kept.
+		double at(double x, double y, double z) const;
+		// Boxes standing for the solid where only boxes will do (collision):
+		// the node in `n` × `n` columns along the first plane's axis, each
+		// kept to where its middle is. Storage, from the node's centre.
+		struct Box
+		{
+			std::array<double, 3> low, high;
+		};
+		std::vector<Box> boxes(int n) const;
 	};
-	std::optional<Extent> extent(Node node) const;
+	std::optional<Cut> cut(Node node) const;
+	// A block's cut cells (cut() for the block's every node, found once),
+	// each with what its cut faces lie against: for each plane, the nodes
+	// just past it at its middle and toward its corners (where those are on
+	// the face; none for a face the other planes leave nothing of). Empty
+	// for an interior block. Kept: the planet never changes.
+	struct CutCell
+	{
+		Node node;
+		Cut cut;
+		std::vector<std::vector<Node>> across; // by plane
+	};
+	using Cuts = std::vector<CutCell>;
+	const Cuts &cutsIn(Block block) const;
+	// Whether what a block's mesh reads of the atlas (its rim, its cut cells,
+	// its chart) is found yet; and finding it (slow at seams: off the main
+	// thread).
+	bool prepared(Block block) const;
+	void prepare(Block block) const;
 
 	// A node that is always seam (above the atlas): what lies past the top.
 	Node seam() const;
@@ -283,7 +322,8 @@ private:
 	std::optional<Step> findStep(Node from, const Cell &c, int axis, int sign) const;
 	std::optional<BlockChart> findChart(Block block) const;
 	std::vector<RimNode> findRim(Block block) const;
-	Extent findExtent(const Cell &c) const;
+	std::optional<Cut> findCut(const Cell &c) const;
+	std::vector<std::vector<Node>> findAcross(Node n, const Cut &cut) const;
 	// What's found about blocks, kept (the planet never changes; shared by
 	// copies of the atlas, and between threads)
 	struct Found
@@ -294,7 +334,8 @@ private:
 		std::unordered_map<uint64_t, std::vector<RimNode>> rims;     // by block
 		std::map<std::array<int32_t, 4>, std::optional<Step>> steps; // by node and direction, at seams
 		std::map<std::array<int64_t, 4>, std::vector<Block>> at;     // by the grid looked from, and the box's middle
-		std::map<std::array<int32_t, 3>, Extent> extents;            // cut cells', by node
+		std::map<std::array<int32_t, 3>, std::optional<Cut>> cuts;   // cells near an edge, by node
+		std::unordered_map<uint64_t, std::shared_ptr<const Cuts>> blockCuts; // by block
 		std::unordered_map<uint64_t, bool> interior;                 // by block
 	};
 	std::shared_ptr<Found> m_found = std::make_shared<Found>();

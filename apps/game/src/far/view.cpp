@@ -100,7 +100,7 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 	video::IVideoDriver *driver = smgr->getVideoDriver();
 	bool mipmaps = driver->getTextureCreationFlag(video::ETCF_CREATE_MIP_MAPS);
 	driver->setTextureCreationFlag(video::ETCF_CREATE_MIP_MAPS, false);
-	m_mask = driver->addTexture(core::dimension2du(MASK, MASK), "far_view_mask", video::ECF_A8R8G8B8);
+	m_mask = driver->addTexture(core::dimension2du(MASK * SUB, MASK * SUB), "far_view_mask", video::ECF_A8R8G8B8);
 	driver->setTextureCreationFlag(video::ETCF_CREATE_MIP_MAPS, mipmaps);
 	if (!m_mask)
 		throw BaseException("far view: can't make its mask texture");
@@ -177,17 +177,38 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 
 void View::updateMask(ClientMap &map, v2f corner)
 {
-	// the map-block-wide columns round the eye the near world draws a block in, this frame
-	std::vector<u8> near((size_t)MASK * MASK, 0);
-	const float w = MAP_BLOCKSIZE * BS;
+	// the texels the near world's drawn blocks cover whole, this frame: each
+	// block's footprint (it may be turned: another grid's) filled where a
+	// texel's four corners are all in it. Its edges stay ours, under the near
+	// world's faces, so nothing between them is ever sky.
+	constexpr s32 SIDE = MASK * SUB;
+	const float texel = MAP_BLOCKSIZE * BS / SUB;
+	std::vector<u8> near((size_t)SIDE * SIDE, 0);
 	map.forEachDrawn([&](v3s16 block) {
-		const core::matrix4 *m = m_view->transform(block);
-		if (!m)
+		const std::optional<std::array<v2f, 4>> f = m_view->footprint(block);
+		if (!f)
 			return;
-		const v3f at = m->getTranslation(); // the block's middle, where it's drawn
-		const s32 u = (s32)std::floor((at.X - corner.X) / w), v = (s32)std::floor((at.Z - corner.Y) / w);
-		if (u >= 0 && u < MASK && v >= 0 && v < MASK)
-			near[(size_t)v * MASK + u] = 1;
+		std::array<v2f, 4> q;
+		f32 x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+		for (int k = 0; k < 4; k++) {
+			q[k] = ((*f)[k] - corner) / texel;
+			x0 = std::min(x0, q[k].X), x1 = std::max(x1, q[k].X);
+			z0 = std::min(z0, q[k].Y), z1 = std::max(z1, q[k].Y);
+		}
+		// which way round the quad is, so "inside" is one sign
+		const f32 turn = (q[1] - q[0]).X * (q[2] - q[1]).Y - (q[1] - q[0]).Y * (q[2] - q[1]).X;
+		const auto inside = [&](f32 x, f32 z) {
+			for (int k = 0; k < 4; k++) {
+				const v2f e = q[(k + 1) % 4] - q[k];
+				if ((e.X * (z - q[k].Y) - e.Y * (x - q[k].X)) * turn < 0)
+					return false;
+			}
+			return true;
+		};
+		for (s32 v = std::max(0, (s32)std::floor(z0)); v <= std::min(SIDE - 1, (s32)std::ceil(z1)); v++)
+			for (s32 u = std::max(0, (s32)std::floor(x0)); u <= std::min(SIDE - 1, (s32)std::ceil(x1)); u++)
+				if (inside(u, v) && inside(u + 1, v) && inside(u, v + 1) && inside(u + 1, v + 1))
+					near[(size_t)v * SIDE + u] = 1;
 	});
 	auto *pixels = static_cast<u32 *>(m_mask->lock(video::ETLM_WRITE_ONLY, 0, 0, video::ETLF_NONE));
 	if (!pixels)

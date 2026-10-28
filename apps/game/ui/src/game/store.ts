@@ -1,5 +1,5 @@
 import { inject, reactive, type InjectionKey } from "vue"
-import type { Account, BridgeHandle, Social, ItemInfo, Mode, ScreenName, StateSections, UiValues } from "../bridge"
+import type { Account, BridgeHandle, Social, ItemInfo, Mode, PlanetariumMessage, ScreenName, StateSections, UiValues } from "../bridge"
 
 type Sections = { [S in keyof StateSections]: StateSections[S] | null }
 type Ui = { [K in keyof UiValues]: UiValues[K] | null }
@@ -24,6 +24,8 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
         state: empty(),
         /** What game Lua set for this page (player:set_ui), by key. */
         ui: noUi(),
+        /** The last place clicked on the Planetarium, while it's shown. */
+        picked: null as Omit<PlanetariumMessage, "kind" | "event"> | null,
     })
 
     // Messages carry every change after this; the first answer fills the gap
@@ -48,6 +50,9 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
                 break
             case "screen":
                 store.screen = message.screen
+                break
+            case "planetarium":
+                store.picked = { latitude: message.latitude, longitude: message.longitude, cell: message.cell }
                 break
             case "account":
                 store.account = message.account

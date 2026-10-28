@@ -14,6 +14,8 @@ namespace Json { class Value; }
 
 namespace shell {
 
+class Planetarium;
+
 /*
 	Chromium re-launches this executable for its renderer and GPU processes.
 	Call first thing in main(): returns the exit code when this process is one
@@ -74,6 +76,10 @@ public:
 
 	// Where item icons are written; served to the page as terra://item/.
 	const std::string &itemDir() const;
+	// Window pixels to a page (CSS) pixel: where the page puts something, ×.
+	float scale() const;
+	// The planet under the page (planetarium.h): the window's, as long as it.
+	Planetarium &planetarium();
 
 private:
 	struct Impl;

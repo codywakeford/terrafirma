@@ -204,7 +204,7 @@ struct Faults
 	int total() const { return holes + phantoms + doubled + untransformed; }
 	// what it cost: blocks sent, choosing them (ms), making their meshes (ms)
 	size_t blocks = 0;
-	double choosing = 0, meshing = 0;
+	double choosing = 0, meshing = 0, preparing = 0; // preparing: the atlas's geometry, off the main thread
 };
 
 Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = true)
@@ -259,35 +259,27 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 	std::vector<std::pair<v3f, f32>> spheres; // per block: its triangles' bound
 	std::vector<std::pair<size_t, size_t>> spans;
 	std::set<v3s16> drawnBlocks;
-	Clock::duration meshing{};
+	Clock::duration meshing{}, preparing{};
 	for (const v3s16 &bp : sent) {
+		// the atlas's geometry for it, first: found on a thread of its own in game
+		// (MeshUpdateQueue::Preparer), so not the main thread's to pay
+		const Clock::time_point prepareFrom = Clock::now();
+		atlas.prepare({ bp.X, bp.Y, bp.Z });
+		preparing += Clock::now() - prepareFrom;
 		const Clock::time_point meshFrom = Clock::now();
-		static Clock::duration tRim{}, tRet{}, tGen{}, tBend{};
-		static int nb = 0;
-		{ const auto a0 = Clock::now(); atlas.rim({ bp.X, bp.Y, bp.Z }); tRim += Clock::now() - a0; }
-		const auto a1 = Clock::now();
 		QueuedMeshUpdate q;
 		q.p = bp;
 		q.retrieveBlocks(&map, 1);
 		MeshMakeData data(def.ndef(), MAP_BLOCKSIZE, MeshGrid{ 1 });
 		q.fill(&data);
-		tRet += Clock::now() - a1;
 		for (MapBlock *b : q.map_blocks)
 			if (b)
 				b->refDrop();
 		q.map_blocks.clear();
 
 		MeshCollector collector(v3f(0));
-		const auto a2 = Clock::now();
 		MapblockMeshGenerator(&data, &collector).generate();
-		tGen += Clock::now() - a2;
-		const auto a3 = Clock::now();
 		bendOntoAtlas(collector, atlas, bp);
-		tBend += Clock::now() - a3;
-		if (++nb % 1000 == 0) {
-			const auto m = [](Clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
-			rawstream << "PHASES rim(first) " << m(tRim) << " retrieve " << m(tRet) << " generate " << m(tGen) << " bend " << m(tBend) << std::endl;
-		}
 		meshing += Clock::now() - meshFrom;
 		size_t count = 0;
 		for (const auto &layer : collector.prebuffers)
@@ -324,6 +316,7 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 	f.blocks = sent.size();
 	f.choosing = ms(started, chosen);
 	f.meshing = std::chrono::duration<double, std::milli>(meshing).count();
+	f.preparing = std::chrono::duration<double, std::milli>(preparing).count();
 	if (!rays)
 		return f;
 
@@ -395,7 +388,10 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 				const v3s16 b = getContainerPos(v3s16(sn.x, sn.y, sn.z), MAP_BLOCKSIZE);
 				rawstream << "    planet's cell: region " << (int)c.region << " " << c.index << " i "
 					<< c.i << " j " << c.j << " k " << c.k << "; block (" << b.X << "," << b.Y << "," << b.Z << ")"
-					<< (sent.count(b) ? " sent" : " NOT SENT") << (drawnBlocks.count(b) ? ", drawn" : ", not drawn") << std::endl;
+					<< (sent.count(b) ? " sent" : " NOT SENT") << (drawnBlocks.count(b) ? ", drawn" : ", not drawn");
+				const auto cut = atlas.cut(sn);
+				rawstream << (cut ? ", cut by " + std::to_string(cut->planes.size()) : ", whole")
+					<< (atlas.interior({ b.X, b.Y, b.Z }) ? ", interior block" : ", seam block") << std::endl;
 			};
 			// clearly so, not a ray grazing a cell's corner: the planet solid a
 			// little past where it starts (a hole), or air a little past the
@@ -487,7 +483,8 @@ void TestAtlasRender::testWithinBudget()
 		const double perMesh = f.meshing / std::max<size_t>(f.blocks, 1);
 		rawstream << "eye lat " << b.eye.lat << " lon " << b.eye.lon << " +" << b.eye.above << ": " << f.blocks
 			<< " blocks (budget " << b.blocks << "), choosing " << f.choosing << " ms (" << b.choosing << "), "
-			<< perMesh << " ms a mesh (" << b.perMesh << ")" << std::endl;
+			<< perMesh << " ms a mesh (" << b.perMesh << "), " << f.preparing / std::max<size_t>(f.blocks, 1)
+			<< " ms preparing it (its own thread)" << std::endl;
 		over += f.blocks > b.blocks || f.choosing > b.choosing || perMesh > b.perMesh;
 	}
 	UTEST(over == 0, "%d of %zu views over budget", over, budgets.size());

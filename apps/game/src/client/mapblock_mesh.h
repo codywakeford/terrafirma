@@ -12,6 +12,7 @@
 #include "util/numeric.h"
 #include "client/tile.h"
 #include "voxel.h"
+#include <unordered_map>
 #include <map>
 
 namespace video {
@@ -52,6 +53,9 @@ struct MeshMakeData
 	// never drawn: an atlas's seam inside a block, holding what lies across
 	// it (QueuedMeshUpdate::halo). Empty, or one per node of the area.
 	std::vector<bool> m_hidden;
+	// Terra Firma, an atlas: what each cut cell's cut faces show across, a
+	// node for each of its planes (QueuedMeshUpdate::cuts), by its node (absolute)
+	std::unordered_map<v3s16, std::vector<MapNode>> m_cuts;
 	// Terra Firma: an atlas's: the mesh is bent onto the planet (bendOntoAtlas)
 	const planet::Atlas *m_atlas = nullptr;
 	float m_ao_gamma_inv = 0.0f;

@@ -211,6 +211,25 @@ double Atlas::inside(Region region, int index, const Vec &p) const
 	return std::min({ between, cap, core });
 }
 
+std::array<double, 4> Atlas::edges(const Cell &cell, const Vec &p) const
+{
+	const Params &prm = m_params;
+	const double r = length(p);
+	const double core = prm.core > 0 ? r - prm.core : NONE;
+	if (cell.region == Region::Core)
+		return { -core, NONE, NONE, NONE };
+	const double lat = std::asin(std::clamp(p.y / std::max(r, 1e-300), -1.0, 1.0));
+	const double cap = (prm.capLatitude * DEGREE - std::abs(lat)) * r;
+	if (cell.region == Region::Cap)
+		return { cell.index * lat > 0 ? -cap : -std::abs(lat) * r, core, NONE, NONE };
+	const double width = TAU / prm.segments;
+	// east of the west meridian, −π .. π (a cell's points are near it or the east one)
+	double lon = std::atan2(p.z, p.x) - cell.index * width;
+	lon -= std::floor(lon / TAU + 0.5) * TAU;
+	const double across = r * std::cos(lat);
+	return { lon * across, (width - lon) * across, cap, core };
+}
+
 bool Atlas::above(const Vec &p) const
 {
 	return length(p) >= m_params.radius + m_params.height;

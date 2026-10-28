@@ -23,13 +23,7 @@ namespace planetarium {
 void runStandalone(const std::string &code)
 {
 	const terragen::WorldCode world = terragen::WorldCode::decode(code);
-	const std::string path = porting::path_share + DIR_DELIM "games" DIR_DELIM "terrafirma" DIR_DELIM "palette.json";
-	std::ifstream in(path);
-	if (!in)
-		throw BaseException("planetarium: no baked palette at " + path + " (bun stage)");
-	Json::Value json;
-	in >> json;
-	far::Baked baked = far::Baked::read(json);
+	far::Baked baked = far::Baked::load("terrafirma");
 
 	// the light curve tiles are lit by, as a client sets it when its server sends none
 	set_light_curve(g_settings->getFloat("display_gamma"));
@@ -41,7 +35,7 @@ void runStandalone(const std::string &code)
 	// as a new world of the code is laid out (shell/worlds.cpp): as many blocks round as it is
 	const planet::Atlas atlas(terragen::Atlas::standard(world.size / (2 * M_PI)));
 	const far::Horizon horizon{ code, MapgenParams().water_level, std::move(baked.content) };
-	Planetarium view({ atlas, horizon, std::move(baked.palette) });
+	Planetarium view({ atlas, horizon, std::move(baked.palette), std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(world)) });
 	bool quit = false;
 	receiver.capture = [&](const SEvent &event) {
 		if (event.EventType == EET_KEY_INPUT_EVENT) {
@@ -59,7 +53,8 @@ void runStandalone(const std::string &code)
 	while (!quit && !*kill && engine.run()) {
 		const u64 start = porting::getTimeMs();
 		driver->beginScene(true, true, video::SColor(255, 8, 10, 14));
-		view.draw(driver);
+		const core::dimension2du window = driver->getScreenSize();
+		view.draw(driver, core::recti(0, 0, window.Width, window.Height));
 		driver->endScene();
 		const u64 spent = porting::getTimeMs() - start;
 		if (spent < frame_ms)

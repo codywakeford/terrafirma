@@ -901,7 +901,15 @@ void Hud::drawSelectionMesh()
 	rotation.setRotationRadians(m_selection_rotation_radians);
 	driver->setTransform(video::ETS_WORLD, translate * rotation);
 
-	if (m_mode == HIGHLIGHT_BOX) {
+	if (m_mode == HIGHLIGHT_BOX && !m_selection_lines.empty()) {
+		// Terra Firma: the cell's own outline, already where it's drawn
+		const video::SColor colour(255, selectionbox_argb.getRed() * m_selection_mesh_color.getRed() / 255,
+				selectionbox_argb.getGreen() * m_selection_mesh_color.getGreen() / 255,
+				selectionbox_argb.getBlue() * m_selection_mesh_color.getBlue() / 255);
+		driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+		for (const auto &[a, b] : m_selection_lines)
+			driver->draw3DLine(a, b, colour);
+	} else if (m_mode == HIGHLIGHT_BOX) {
 		// Draw 3D selection boxes
 		for (auto & selection_box : m_selection_boxes) {
 			u32 r = (selectionbox_argb.getRed() *

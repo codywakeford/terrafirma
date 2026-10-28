@@ -68,8 +68,11 @@ public:
 	void readSettings();
 
 private:
-	// The mask's side, in map-block columns.
+	// The mask's side, in map-block columns, and its texels to a block's side
+	// (a block's footprint is turned in the scene: finer than a block, so
+	// what it marks lies under the near world).
 	static constexpr s32 MASK = 128;
+	static constexpr s32 SUB = 4;
 
 	void updateMask(ClientMap &map, v2f corner);
 

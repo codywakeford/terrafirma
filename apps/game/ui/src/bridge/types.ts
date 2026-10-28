@@ -273,8 +273,8 @@ export type UiMessage = {
 
 /** Events the page sends game Lua (core.register_on_ui_event), by name. */
 export type UiEvents = {
-	/** Ask the flight system for a fresh projected path while viewing the globe. */
-	"map.trajectory": {}
+	/** Creative: go to the ground at a place (radians); tf_player checks and moves the player. */
+	"map.teleport": { latitude: number; longitude: number }
 	/** Replace one hotbar slot from the catalogue; tf_player validates on the server. */
 	"creative.take": { item: string; slot: number; count: number }
 	"creative.clear": { slot: number }
@@ -328,6 +328,30 @@ export type Social = {
     problem?: string
 }
 
+/**
+ * The Planetarium (src/shell/planetarium.h): the native planet drawn under the
+ * page while shown. Places are radians; a cell is the atlas's
+ * (terragen::Atlas::Cell) at the sea there.
+ */
+export type PlanetariumPlace = { latitude: number; longitude: number }
+export type PlanetariumCell = { region: "segment" | "cap" | "core"; index: number; i: number; j: number; k: number }
+/** Where `planetarium.fly` takes the camera: what's left out stays as it is. */
+export type PlanetariumFlight = {
+    body?: string
+    latitude?: number
+    longitude?: number
+    altitude?: number // blocks over the sea; or
+    radii?: number    // the body's radii over its sea
+    seconds: number
+}
+
+export type PlanetariumMarker = PlanetariumPlace & { colour: string /* "#rrggbb" */ }
+/** In game the body is always the world being played (null); on the create screen, the world being made. */
+export type PlanetariumBody = null | { code: string }
+/** Where the planet is drawn: a part of the page (page pixels), or the whole window. (A request is spread into the message, so it's never null.) */
+export type PlanetariumViewport = { whole: true } | { x: number; y: number; width: number; height: number }
+export type PlanetariumMessage = { kind: "planetarium"; event: "picked"; latitude: number; longitude: number; cell: PlanetariumCell }
+
 /** Engine → UI */
 export type EngineMessage =
     | { kind: "mode"; mode: Mode }
@@ -336,6 +360,7 @@ export type EngineMessage =
     | { kind: "screen"; screen: ScreenName | null }
     | { kind: "account"; account: Account }
     | { kind: "social"; social: Social | null }
+    | PlanetariumMessage
     | StateMessage
     | UiMessage
 
@@ -426,6 +451,19 @@ export type Intents = {
     /** Opens a screen the page decides on (src/shell/screens.cpp: SCREENS); one that needs a UI value stays shut without it. */
     "screen.open": { request: { name: ScreenName }; response: null }
     "screen.close": { request: {}; response: null }
+    /** Shows a body under the page (the last one stays on screen until it's ready); markers and focus at once if given. */
+    "planetarium.show": { request: { body: PlanetariumBody; focus?: PlanetariumPlace & { altitude?: number }; markers?: PlanetariumMarker[]; viewport?: PlanetariumViewport }; response: null }
+    /** Where the page leaves room for the planet (page pixels); null: the whole window. */
+    "planetarium.viewport": { request: PlanetariumViewport; response: null }
+    "planetarium.hide": { request: {}; response: null }
+    /** Puts the camera over a place, at an altitude (blocks over the sea) if given. */
+    /** Over a place on the body, or to another body of its system (by id). */
+    /** Eases the camera to a body (by id), over a place on it, at an altitude (blocks) or so many of its radii up, over `seconds`. */
+    "planetarium.fly": { request: PlanetariumFlight; response: null }
+    /** What the page covers round the window (page pixels): the planet is framed in the rest. */
+    "planetarium.frame": { request: { left?: number; right?: number; top?: number; bottom?: number }; response: null }
+    "planetarium.focus": { request: (PlanetariumPlace & { altitude?: number }) | { body: string }; response: null }
+    "planetarium.markers": { request: { markers: PlanetariumMarker[] }; response: null }
     "game.leave": { request: {}; response: null }
     "game.quit": { request: {}; response: null }
 	"creative.list": { request: {}; response: CreativeItem[] }

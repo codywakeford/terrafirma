@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <csignal>
+#include "client/atlas_view.h" // Terra Firma
 #include "client/gameui.h"
 #include "client/inputhandler.h"
 #include "client/texturepaths.h"
@@ -477,6 +478,22 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 	sanity_check(g_shell);
 	m_shell_session = std::make_unique<shell::Session>(shell::Session::Opts{
 		*g_shell, client, driver, guienv });
+	// the Planetarium, while shown, takes the mouse where the page doesn't;
+	// the keyboard only when its key opened it (a screen over it keeps its own)
+	input->capture([this](const SEvent &event) {
+		if (!planetariumShown())
+			return false;
+		if (event.EventType == EET_KEY_INPUT_EVENT) {
+			if (!m_planetarium_alone)
+				return false;
+			const std::vector<KeyPress> keys = getKeySetting("keymap_planetarium");
+			const bool ours = std::find(keys.begin(), keys.end(), KeyPress(event.KeyInput)) != keys.end();
+			if (event.KeyInput.PressedDown && (ours || event.KeyInput.Key == KEY_ESCAPE))
+				m_planetarium_closing = true;
+			return true; // the player stands still meanwhile
+		}
+		return m_shell_session->planetarium().handle(event);
+	});
 #endif
 
 	return true;
@@ -630,6 +647,7 @@ void Game::run()
 void Game::shutdown()
 {
 #if USE_SHELL
+	input->capture({}); // its callback holds the session
 	m_shell_session.reset();
 	if (m_online_host) {
 		if (server)
@@ -655,8 +673,6 @@ void Game::shutdown()
 	}
 
 	clouds.reset();
-	if (m_planetarium)
-		closePlanetarium(); // its input callback holds the game
 	if (far_view)
 		far_view->remove(); // the scene manager holds it too
 	far_view.reset();
@@ -1870,38 +1886,38 @@ void Game::toggleAutoforward()
 }
 
 // Terra Firma: the planet this world is, in the Planetarium, over the
-// whole window. Its key or Escape closes it; while it's open it has the
-// mouse and the keyboard (the player stands still).
+// whole window, by its key. Its key or Escape closes it; meanwhile it has the
+// mouse and the keyboard (the player stands still). Under a page's screen
+// (the map) the page shows and hides it, and keys go on to the screen.
 void Game::openPlanetarium()
 {
-	const planet::Atlas *atlas = client->getAtlas();
-	const std::optional<far::Horizon> &horizon = client->getHorizon();
-	if (!atlas || !horizon) {
-		m_game_ui->showTranslatedStatusText("The Planetarium shows a planet: this world isn't one");
+#if USE_SHELL
+	if (const std::optional<std::string> why = m_shell_session->showWorld()) {
+		m_game_ui->showStatusText(utf8_to_wide(*why));
 		return;
 	}
-	far::Palette palette = far::Palette::live(client->ndef(), texture_src, far::blocksIn(horizon->content));
-	m_planetarium = std::make_unique<planetarium::Planetarium>(
-			planetarium::Planetarium::Opts{ *atlas, *horizon, std::move(palette) });
-	const std::vector<KeyPress> keys = getKeySetting("keymap_planetarium"); // a copy: the reference may not last
-	input->capture([this, keys](const SEvent &event) {
-		if (event.EventType == EET_KEY_INPUT_EVENT) {
-			const bool ours = std::find(keys.begin(), keys.end(), KeyPress(event.KeyInput)) != keys.end();
-			if (event.KeyInput.PressedDown && (ours || event.KeyInput.Key == KEY_ESCAPE))
-				m_planetarium_closing = true;
-			return true; // the player stands still meanwhile
-		}
-		return m_planetarium->handle(event);
-	});
+	m_planetarium_alone = true;
 	input->releaseAllKeys();
+#endif
 }
 
 void Game::closePlanetarium()
 {
-	input->capture({});
-	m_planetarium.reset();
+#if USE_SHELL
+	m_shell_session->planetarium().hide();
+#endif
+	m_planetarium_alone = false;
 	m_planetarium_closing = false;
 	m_first_loop_after_window_activation = true; // the mouse moved while it was open
+}
+
+bool Game::planetariumShown()
+{
+#if USE_SHELL
+	return m_shell_session && m_shell_session->planetarium().shown();
+#else
+	return false;
+#endif
 }
 
 void Game::toggleMinimap(bool shift_pressed)
@@ -2082,10 +2098,10 @@ void Game::updateCameraDirection(CameraOrientation *cam, float dtime)
 	this results in duplicated input. To avoid that, we don't enable relative
 	mouse mode if we're in touchscreen mode. */
 	if (cur_control)
-		cur_control->setRelativeMode(!g_touchcontrols && !isMenuActive() && !m_planetarium);
+		cur_control->setRelativeMode(!g_touchcontrols && !isMenuActive() && !planetariumShown());
 
 	if ((device->isWindowActive() && device->isWindowFocused()
-			&& !isMenuActive() && !m_planetarium) || input->isRandom()) {
+			&& !isMenuActive() && !planetariumShown()) || input->isRandom()) {
 
 		if (cur_control && !input->isRandom()) {
 			// Mac OSX gets upset if this is set every frame
@@ -2979,6 +2995,7 @@ PointedThing Game::updatePointedThing(
 {
 	std::vector<aabb3f> *selectionboxes = hud->getSelectionBoxes();
 	selectionboxes->clear();
+	hud->getSelectionLines()->clear();
 	hud->setSelectedFaceNormal(v3f());
 	static thread_local const bool show_entity_selectionbox = g_settings->getBool(
 		"show_entity_selectionbox");
@@ -3028,6 +3045,10 @@ PointedThing Game::updatePointedThing(
 			camera_offset);
 		hud->setSelectionRotationRadians(v3f());
 		hud->setSelectedFaceNormal(result.intersection_normal);
+		// Terra Firma: on a planet, the cell as it's drawn (over a seam, cut)
+		if (AtlasView *view = map.atlasView())
+			if (auto lines = view->outline(result.node_undersurface, *selectionboxes))
+				*hud->getSelectionLines() = std::move(*lines);
 	}
 
 	// Update selection mesh light level and vertex colors
@@ -3872,9 +3893,11 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 
 	if (m_planetarium_closing)
 		closePlanetarium();
-	if (m_planetarium)
-		m_planetarium->draw(this->driver); // Terra Firma: over the whole window
+#if USE_SHELL
+	if (planetariumShown())
+		m_shell_session->planetarium().draw(this->driver); // Terra Firma: over the whole window
 	else
+#endif
 		this->m_rendering_engine->draw_scene(sky_color, this->m_game_ui->m_flags.show_hud,
 				draw_wield_tool, draw_crosshair);
 

@@ -9,6 +9,9 @@
 #include "state.h"
 #include "director.h"
 #include "ui.h"
+#include "planetarium.h"
+#include <optional>
+#include <string>
 
 class Client;
 namespace video { class IVideoDriver; }
@@ -40,6 +43,12 @@ public:
 	void update(const HudView &view);
 
 	Screens &screens() { return m_screens; }
+	// The planet under the page: this world's, when the page or a key shows it.
+	Planetarium &planetarium() { return m_planetarium; }
+	// This world, as the Planetarium shows it. Throws Refused off a planet.
+	planetarium::Planetarium::Opts world() const;
+	// Shows this world (by a key: no page asked); why not, if it can't.
+	std::optional<std::string> showWorld();
 
 private:
 	Shell &m_shell;
@@ -50,6 +59,9 @@ private:
 	Director m_director;
 	Screens m_screens;
 	Actions m_actions;
+	Client *m_client;
+	Planetarium &m_planetarium; // the window's (Shell::planetarium), showing this world
+	mutable int32_t m_year = 0;  // this world's, once world() has read its code
 };
 
 } // namespace shell

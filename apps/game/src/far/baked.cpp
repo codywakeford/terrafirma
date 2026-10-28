@@ -3,6 +3,9 @@
 
 #include "far/baked.h"
 #include "exceptions.h"
+#include "filesys.h"
+#include "porting.h"
+#include <fstream>
 #include "mapnode.h"
 #include "terragen/geology.h"
 #include "terragen/world.h"
@@ -297,6 +300,20 @@ Baked Baked::read(const Json::Value &json)
 	}
 	out.names = std::move(ids.names);
 	return out;
+}
+
+Baked Baked::load(const std::string &game)
+{
+	const std::string path = porting::path_share + DIR_DELIM "games" DIR_DELIM + game + DIR_DELIM "palette.json";
+	std::ifstream in(path);
+	if (!in)
+		fail("no baked palette at " + path + " (bun palette, bun stage)");
+	Json::Value json;
+	Json::CharReaderBuilder reader;
+	std::string errors;
+	if (!Json::parseFromStream(reader, in, &json, &errors))
+		fail(path + " isn't JSON: " + errors);
+	return read(json);
 }
 
 } // namespace far

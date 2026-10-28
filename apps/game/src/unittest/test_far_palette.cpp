@@ -100,13 +100,7 @@ std::string nameOf(content_t id)
 // The game's own, as staged next to the binary.
 Baked shipped()
 {
-	const std::string path = porting::path_share + DIR_DELIM "games" DIR_DELIM "terrafirma" DIR_DELIM "palette.json";
-	std::ifstream in(path);
-	if (!in)
-		throw BaseException("no palette at " + path + " (bun stage)");
-	Json::Value json;
-	in >> json;
-	return Baked::read(json);
+	return Baked::load("terrafirma");
 }
 
 } // namespace

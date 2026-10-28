@@ -298,6 +298,14 @@ export function MockBridge() {
 
     const handlers: Handlers = {
         ready: () => null,
+        // no native planet in the gallery: the page around it is what's shown
+        "planetarium.show": () => null,
+        "planetarium.hide": () => null,
+        "planetarium.focus": () => null,
+        "planetarium.markers": () => null,
+        "planetarium.viewport": () => null,
+        "planetarium.fly": () => null,
+        "planetarium.frame": () => null,
         capture: () => null,
         "worlds.list": () => worlds,
         "worlds.create": ({ name, code, settings }) => {
@@ -361,7 +369,7 @@ export function MockBridge() {
             return null
         },
         "ui.send": (event) => {
-            if (event.name === "map.trajectory") return null // HUD gallery publishes its sample path.
+            if (event.name === "map.teleport") return null // the gallery has no world to move in
             if (event.name === "world.mode") {
                 worldControls.mode = event.payload.mode
                 emitAll({ kind: "ui", key: "world_controls", value: { ...worldControls } })

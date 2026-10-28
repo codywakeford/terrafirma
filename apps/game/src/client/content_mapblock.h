@@ -6,6 +6,7 @@
 
 #include "nodedef.h"
 #include "tile.h"
+#include "planet/atlas.h" // Terra Firma: cut cells
 
 struct MeshMakeData;
 struct MeshCollector;
@@ -154,6 +155,8 @@ private:
 
 	template <bool LIQUID>
 	void drawSolidNode();
+	void drawCutFace(); // Terra Firma
+	static std::vector<v3f> cutFace(const planet::Atlas::Cut &cut, size_t plane);
 
 	void drawLiquidNode();
 	void drawGlasslikeNode();

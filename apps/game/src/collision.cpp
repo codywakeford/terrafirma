@@ -227,18 +227,23 @@ static v3s16 moverNode(v3f pos)
 	return v3s16(n.x, n.y, n.z);
 }
 
-// Terra Firma, an atlas: a cut cell's solid part (planet::Atlas::extent),
+// Terra Firma, an atlas: a cut cell's solid (planet::Atlas::cut) as boxes,
 // turned into the grid it's seen from, about its centre (nodes × BS). None
 // for a whole cell.
-static std::optional<aabb3f> solidPart(const planet::Atlas &atlas, const Map::Next &seen)
+static constexpr int CUT_COLUMNS = 4; // a side: the slant's steps are a quarter node
+static std::optional<std::vector<aabb3f>> solidParts(const planet::Atlas &atlas, const Map::Next &seen)
 {
-	const std::optional<planet::Atlas::Extent> e = atlas.extent({ seen.pos.X, seen.pos.Y, seen.pos.Z });
-	if (!e)
+	const std::optional<planet::Atlas::Cut> cut = atlas.cut({ seen.pos.X, seen.pos.Y, seen.pos.Z });
+	if (!cut)
 		return std::nullopt;
-	const auto a = planet::Atlas::turned<double>(e->low[0], e->low[2], seen.turn);
-	const auto b = planet::Atlas::turned<double>(e->high[0], e->high[2], seen.turn);
-	return aabb3f(v3f(std::min(a[0], b[0]), e->low[1], std::min(a[1], b[1])) * BS,
-			v3f(std::max(a[0], b[0]), e->high[1], std::max(a[1], b[1])) * BS);
+	std::vector<aabb3f> out;
+	for (const planet::Atlas::Cut::Box &e : cut->boxes(CUT_COLUMNS)) {
+		const auto a = planet::Atlas::turned<double>(e.low[0], e.low[2], seen.turn);
+		const auto b = planet::Atlas::turned<double>(e.high[0], e.high[2], seen.turn);
+		out.emplace_back(v3f(std::min(a[0], b[0]), e.low[1], std::min(a[1], b[1])) * BS,
+				v3f(std::max(a[0], b[0]), e.high[1], std::max(a[1], b[1])) * BS);
+	}
+	return out;
 }
 
 // `from`: where the mover is. Terra Firma: on a planet, past a seam the
@@ -273,7 +278,7 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 			// grid overlaps, its box where the cell really is (Map::seeAll)
 			const planet::Atlas &atlas = *map->getAtlas();
 			const Map::Next seen = map->see(from, p);
-			const bool cut = seen.pos == p && atlas.extent({ p.X, p.Y, p.Z });
+			const bool cut = seen.pos == p && atlas.cut({ p.X, p.Y, p.Z });
 			if (seen.pos != p || seen.offset != v3f() || cut) {
 				for (const Map::Next &c : map->seeAll(from, p)) {
 					if (std::find(across.begin(), across.end(), c.pos) != across.end())
@@ -285,14 +290,13 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 					// collisions report the node really hit (c.pos), not the
 					// mover-grid slot it was seen in
 					// a cut cell is only its part in its territory
-					const std::optional<aabb3f> part = solidPart(atlas, c);
+					const std::optional<std::vector<aabb3f>> parts = solidParts(atlas, c);
 					if (!valid || n.getContent() == CONTENT_IGNORE) {
-						aabb3f box = getNodeBox(v3s16(0, 0, 0), BS);
-						if (part)
-							box = *part;
-						box.MinEdge += posf;
-						box.MaxEdge += posf;
-						cinfo.emplace_back(true, 0, c.pos, box); // not loaded: solid, as below
+						for (aabb3f box : parts ? *parts : std::vector<aabb3f>{ getNodeBox(v3s16(0, 0, 0), BS) }) {
+							box.MinEdge += posf;
+							box.MaxEdge += posf;
+							cinfo.emplace_back(true, 0, c.pos, box); // not loaded: solid, as below
+						}
 						continue;
 					}
 					any_position_valid = true;
@@ -301,18 +305,17 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 						continue;
 					nodeboxes.clear();
 					n.getCollisionBoxes(nodedef, &nodeboxes, 0);
-					for (auto box : nodeboxes) {
-						if (part) {
-							box.MinEdge = componentwise_max(box.MinEdge, part->MinEdge);
-							box.MaxEdge = componentwise_min(box.MaxEdge, part->MaxEdge);
+					for (const aabb3f &whole : nodeboxes)
+						for (aabb3f box : parts ? *parts : std::vector<aabb3f>{ whole }) {
+							box.MinEdge = componentwise_max(box.MinEdge, whole.MinEdge);
+							box.MaxEdge = componentwise_min(box.MaxEdge, whole.MaxEdge);
 							if (box.MinEdge.X >= box.MaxEdge.X || box.MinEdge.Y >= box.MaxEdge.Y
 									|| box.MinEdge.Z >= box.MaxEdge.Z)
 								continue;
+							box.MinEdge += posf;
+							box.MaxEdge += posf;
+							cinfo.emplace_back(false, abs(itemgroup_get(f.groups, "bouncy")), c.pos, box);
 						}
-						box.MinEdge += posf;
-						box.MaxEdge += posf;
-						cinfo.emplace_back(false, abs(itemgroup_get(f.groups, "bouncy")), c.pos, box);
-					}
 				}
 				continue;
 			}

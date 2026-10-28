@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "irr_v2d.h"
 #include "irr_v3d.h"
 #include "irrlichttypes.h"
 #include "planet/atlas.h"
@@ -10,6 +11,9 @@
 #include <array>
 #include <optional>
 #include <unordered_map>
+#include <utility>
+#include <vector>
+#include "irr_aabb3d.h"
 
 /*
 	An atlas planet as the eye sees it (planning/sprint-30-atlas.md, phase
@@ -42,6 +46,17 @@ public:
 	// coordinates: BS, from `centre`, a point on the planet): the far view's
 	// tiles. None while the eye has no grid.
 	std::optional<core::matrix4> place(const terragen::Atlas::Vec &centre) const;
+	// Where a block stands in the scene, seen from above: its four upright
+	// edges at its middle height (scene x, z; BS), round it in order. None if
+	// the eye or the block has no cell, and for a block at a seam: its square
+	// reaches past its cells, where another grid's block draws (or doesn't).
+	std::optional<std::array<v2f, 4>> footprint(v3s16 block);
+	// A pointed cell's outline in the scene (BS, as its mesh is drawn): the
+	// edges of its selection boxes (BS, round its node's centre), cut as the
+	// cell is (planet::Atlas::cut), its cut faces' edges with them. None if
+	// the eye or its block has no cell.
+	using Line = std::pair<v3f, v3f>;
+	std::optional<std::vector<Line>> outline(v3s16 node, const std::vector<aabb3f> &boxes);
 	// The eye this frame: its point on the planet, and where that is in the
 	// scene (BS units, as the camera is drawn). None while it has no grid.
 	const std::optional<planet::Atlas::Frame> &eye() const { return m_eye; }

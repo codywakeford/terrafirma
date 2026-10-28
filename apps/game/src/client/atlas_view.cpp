@@ -3,6 +3,64 @@
 
 #include "atlas_view.h"
 #include "constants.h" // BS
+#include "util/numeric.h"
+#include <algorithm>
+#include <cmath>
+
+namespace {
+
+using Plane = planet::Atlas::Cut::Plane;
+
+// A polygon less what a plane cuts off (Sutherland–Hodgman)
+std::vector<v3f> keep(const std::vector<v3f> &poly, const Plane &plane)
+{
+	std::vector<v3f> out;
+	for (size_t i = 0; i < poly.size(); i++) {
+		const v3f &a = poly[i], &b = poly[(i + 1) % poly.size()];
+		const double fa = plane.at(a.X, a.Y, a.Z), fb = plane.at(b.X, b.Y, b.Z);
+		if (fa >= 0)
+			out.push_back(a);
+		if ((fa >= 0) != (fb >= 0))
+			out.push_back(a + (b - a) * (f32)(fa / (fa - fb)));
+	}
+	return out;
+}
+
+// Where a plane crosses a box: its polygon, in order round it
+std::vector<v3f> section(const aabb3f &box, const Plane &plane)
+{
+	const f32 lo[3] = { box.MinEdge.X, box.MinEdge.Y, box.MinEdge.Z }, hi[3] = { box.MaxEdge.X, box.MaxEdge.Y, box.MaxEdge.Z };
+	std::vector<v3f> points;
+	for (int axis = 0; axis < 3; axis++) {
+		if (std::abs(plane.normal[axis]) < 1e-12)
+			continue;
+		const int b = (axis + 1) % 3, c = (axis + 2) % 3;
+		for (int e = 0; e < 4; e++) {
+			double d[3];
+			d[b] = e & 1 ? hi[b] : lo[b];
+			d[c] = e & 2 ? hi[c] : lo[c];
+			d[axis] = -(plane.normal[b] * d[b] + plane.normal[c] * d[c] + plane.offset) / plane.normal[axis];
+			if (d[axis] >= lo[axis] && d[axis] <= hi[axis])
+				points.emplace_back(d[0], d[1], d[2]);
+		}
+	}
+	if (points.size() < 3)
+		return {};
+	v3f middle;
+	for (const v3f &p : points)
+		middle += p;
+	middle /= (f32)points.size();
+	const v3f n(plane.normal[0], plane.normal[1], plane.normal[2]);
+	const v3f e1 = (std::abs(n.X) < 0.9f ? v3f(1, 0, 0) : v3f(0, 1, 0)).crossProduct(n).normalize();
+	const v3f e2 = n.crossProduct(e1);
+	std::sort(points.begin(), points.end(), [&](const v3f &p, const v3f &q) {
+		return std::atan2((p - middle).dotProduct(e2), (p - middle).dotProduct(e1)) <
+				std::atan2((q - middle).dotProduct(e2), (q - middle).dotProduct(e1));
+	});
+	return points;
+}
+
+} // namespace
 
 void AtlasView::update(v3f camera, v3f feet, v3s16 offset)
 {
@@ -67,4 +125,71 @@ std::optional<core::matrix4> AtlasView::place(const terragen::Atlas::Vec &centre
 		w[12 + r] = (f32)((at - (r == 0 ? m_offset.X : r == 1 ? m_offset.Y : m_offset.Z)) * BS);
 	}
 	return w;
+}
+
+std::optional<std::array<v2f, 4>> AtlasView::footprint(v3s16 block)
+{
+	const auto &c = chart(block);
+	const core::matrix4 *m = transform(block);
+	if (!c || !m || !m_atlas.interior({ block.X, block.Y, block.Z }))
+		return std::nullopt;
+	const double lo = -0.5, hi = MAP_BLOCKSIZE - 0.5, mid = MAP_BLOCKSIZE / 2.0 - 0.5;
+	const v3s16 low = block * MAP_BLOCKSIZE;
+	const double corners[4][2] = { { lo, lo }, { hi, lo }, { hi, hi }, { lo, hi } };
+	std::array<v2f, 4> out;
+	for (int k = 0; k < 4; k++) {
+		// the corner on the planet, from the block's middle (a mesh's coordinates), drawn
+		const terragen::Atlas::Vec p = m_atlas.onPlanet(*c, low.X + corners[k][0], low.Y + mid, low.Z + corners[k][1]);
+		v3f at((f32)p.x * BS, (f32)p.y * BS, (f32)p.z * BS);
+		m->transformVect(at);
+		out[k] = v2f(at.X, at.Z);
+	}
+	return out;
+}
+
+std::optional<std::vector<AtlasView::Line>> AtlasView::outline(v3s16 node, const std::vector<aabb3f> &boxes)
+{
+	const v3s16 block = getContainerPos(node, MAP_BLOCKSIZE);
+	const auto &c = chart(block);
+	const core::matrix4 *m = transform(block);
+	if (!c || !m)
+		return std::nullopt;
+	const std::optional<planet::Atlas::Cut> cut = m_atlas.cut({ node.X, node.Y, node.Z });
+	const std::vector<Plane> planes = cut ? cut->planes : std::vector<Plane>{};
+	std::vector<std::vector<v3f>> faces; // node coordinates, from its centre
+	for (const aabb3f &b : boxes) {
+		const aabb3f box(b.MinEdge / BS, b.MaxEdge / BS);
+		v3f k[8]; // bit 0 x, bit 1 y, bit 2 z: max
+		for (int i = 0; i < 8; i++)
+			k[i] = v3f(i & 1 ? box.MaxEdge.X : box.MinEdge.X, i & 2 ? box.MaxEdge.Y : box.MinEdge.Y,
+					i & 4 ? box.MaxEdge.Z : box.MinEdge.Z);
+		for (const auto &f : { std::array<int, 4>{ 0, 2, 6, 4 }, { 1, 3, 7, 5 }, { 0, 1, 5, 4 }, { 2, 3, 7, 6 },
+					 { 0, 1, 3, 2 }, { 4, 5, 7, 6 } }) {
+			std::vector<v3f> poly{ k[f[0]], k[f[1]], k[f[2]], k[f[3]] };
+			for (const Plane &p : planes)
+				poly = keep(poly, p);
+			if (poly.size() >= 3)
+				faces.push_back(poly);
+		}
+		for (size_t i = 0; i < planes.size(); i++) {
+			std::vector<v3f> poly = section(box, planes[i]);
+			for (size_t o = 0; o < planes.size() && poly.size() >= 3; o++)
+				if (o != i)
+					poly = keep(poly, planes[o]);
+			if (poly.size() >= 3)
+				faces.push_back(poly);
+		}
+	}
+	// each point onto the planet as the mesh's vertices are, then drawn as its block is
+	const auto scene = [&](const v3f &p) {
+		const terragen::Atlas::Vec q = m_atlas.onPlanet(*c, node.X + p.X, node.Y + p.Y, node.Z + p.Z);
+		v3f at((f32)q.x * BS, (f32)q.y * BS, (f32)q.z * BS);
+		m->transformVect(at);
+		return at;
+	};
+	std::vector<Line> lines;
+	for (const std::vector<v3f> &f : faces)
+		for (size_t i = 0; i < f.size(); i++)
+			lines.emplace_back(scene(f[i]), scene(f[(i + 1) % f.size()]));
+	return lines;
 }

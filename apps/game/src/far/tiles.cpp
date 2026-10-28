@@ -220,6 +220,16 @@ void Tiles::update(const Eye &eye)
 		evict();
 }
 
+bool Tiles::based() const
+{
+	for (const TileKey &root : m_tiling.roots()) {
+		auto it = m_tiles.find(Key(root));
+		if (it == m_tiles.end() || !it->second.ready)
+			return false;
+	}
+	return true;
+}
+
 std::vector<Tiles::Drawn> Tiles::drawn() const
 {
 	std::vector<Drawn> out;

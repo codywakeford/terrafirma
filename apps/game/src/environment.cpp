@@ -3,6 +3,8 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "environment.h"
+#include "planet/atlas.h" // Terra Firma
+#include "exceptions.h"
 #include "collision.h"
 #include "raycast.h"
 #include "settings.h"
@@ -98,6 +100,103 @@ inline static PointabilityType isPointableNode(const MapNode &n,
 	return features.pointable;
 }
 
+/*
+	Terra Firma, an atlas: where the ray meets the cells over slot `np` of its
+	grid (Map::seeAll: one to a few over a seam, each where it really is),
+	a cut cell only its solid (planet::Atlas::cut). What's pointed is the cell
+	really hit; above it, the cell past the face hit: across a cut face, the
+	other grid's cell there (Atlas::seeAt), never a slot of the ray's grid.
+*/
+void Environment::seamCells(RaycastState *state, Map &map, const planet::Atlas &atlas, v3s16 from, v3s16 np)
+{
+	const NodeDefManager *nodedef = map.getNodeDefManager();
+	std::vector<aabb3f> boxes;
+	const v3f dir = state->m_shootline.getVector();
+	// the cell of `from`'s grid carried on at a point (BS)
+	const auto cellAt = [&](v3f p) {
+		const v3f q = p / BS;
+		const std::optional<planet::Atlas::Seen> s = atlas.seeAt({ from.X, from.Y, from.Z }, q.X, q.Y, q.Z);
+		if (!s)
+			throw BaseException("raycast: the ray starts in seam");
+		return v3s16(s->node.x, s->node.y, s->node.z);
+	};
+	for (const Map::Next &c : map.seeAll(from, np)) {
+		bool valid;
+		const MapNode n = map.getNodeTurned(c.pos, c.turn);
+		map.getNode(c.pos, &valid);
+		if (!valid)
+			continue;
+		const PointabilityType pointable = isPointableNode(n, nodedef, state->m_liquids_pointable, state->m_pointabilities);
+		if (pointable == PointabilityType::POINTABLE_NOT)
+			continue;
+		const v3f centre = intToFloat(np, BS) + c.offset * BS;
+		const v3f start = state->m_shootline.start - centre;
+		// the cut's planes, turned into the ray's grid (BS, from the centre)
+		std::vector<std::pair<v3f, f32>> planes;
+		if (const std::optional<planet::Atlas::Cut> cut = atlas.cut({ c.pos.X, c.pos.Y, c.pos.Z }))
+			for (const planet::Atlas::Cut::Plane &p : cut->planes) {
+				const auto t = planet::Atlas::turned<double>(p.normal[0], p.normal[2], c.turn);
+				planes.emplace_back(v3f(t[0], p.normal[1], t[1]), (f32)(p.offset * BS));
+			}
+		boxes.clear();
+		n.getSelectionBoxes(nodedef, &boxes, n.getNeighbors(c.pos, &map));
+		for (const aabb3f &box : boxes) {
+			// the ray through the box, and the cut's half-space: where it enters and leaves
+			f32 enter = 0, leave = 1;
+			v3f normal;
+			bool onCut = false, missed = false;
+			for (int a = 0; a < 3 && !missed; a++) {
+				const f32 s = a == 0 ? start.X : a == 1 ? start.Y : start.Z;
+				const f32 d = a == 0 ? dir.X : a == 1 ? dir.Y : dir.Z;
+				const f32 lo = a == 0 ? box.MinEdge.X : a == 1 ? box.MinEdge.Y : box.MinEdge.Z;
+				const f32 hi = a == 0 ? box.MaxEdge.X : a == 1 ? box.MaxEdge.Y : box.MaxEdge.Z;
+				if (std::abs(d) < 1e-9f) {
+					missed = s < lo || s > hi;
+					continue;
+				}
+				const f32 t0 = ((d > 0 ? lo : hi) - s) / d, t1 = ((d > 0 ? hi : lo) - s) / d;
+				if (t0 > enter) {
+					enter = t0;
+					normal = v3f(a == 0, a == 1, a == 2) * (d > 0 ? -1.0f : 1.0f);
+					onCut = false;
+				}
+				leave = std::min(leave, t1);
+			}
+			for (const auto &[pn, po] : planes) {
+				if (missed)
+					break;
+				const f32 f0 = pn.dotProduct(start) + po, fd = pn.dotProduct(dir);
+				if (std::abs(fd) < 1e-9f)
+					missed = f0 < 0;
+				else if (fd > 0) {
+					const f32 t = -f0 / fd;
+					if (t > enter) {
+						enter = t;
+						normal = -pn;
+						onCut = true;
+					}
+				} else
+					leave = std::min(leave, -f0 / fd);
+			}
+			if (missed || enter > leave || enter <= 0)
+				continue;
+			PointedThing result;
+			result.pointability = pointable;
+			result.type = POINTEDTHING_NODE;
+			result.intersection_point = state->m_shootline.start + dir * enter;
+			result.intersection_normal = normal;
+			result.distanceSq = (dir * enter).getLengthSQ();
+			result.node_undersurface = c.pos;
+			result.node_real_undersurface = c.pos;
+			// past the face: across the cut, a point just over it; else the
+			// next cell of its grid, its centre a node on
+			result.node_abovesurface = onCut ? cellAt(result.intersection_point + normal * (0.05f * BS))
+					: cellAt(centre + normal * BS);
+			state->m_found.push(std::move(result));
+		}
+	}
+}
+
 void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 {
 	const NodeDefManager *nodedef = getMap().getNodeDefManager();
@@ -165,6 +264,15 @@ void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 			v3s16 np(x, y, z);
 			bool is_valid_position;
 
+			// Terra Firma, an atlas: over a seam, or in a cut cell, the cells
+			// really there, each as it is (seamCells)
+			if (const planet::Atlas *atlas = map.getAtlas()) {
+				const Map::Next seen = map.see(from, np);
+				if (seen.pos != np || seen.offset != v3f() || atlas->cut({ np.X, np.Y, np.Z })) {
+					seamCells(state, map, *atlas, from, np);
+					continue;
+				}
+			}
 			// Terra Firma: past a planet face's edge, the next face's node, as
 			// seen from where the ray starts (Map::see)
 			n = map.getNodeSeen(from, np, &is_valid_position);

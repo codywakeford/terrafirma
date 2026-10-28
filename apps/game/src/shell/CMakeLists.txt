@@ -10,12 +10,12 @@ set(shell_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/items.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/menu.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/options.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/orbit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/pixels.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/preview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/scheme.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/screens.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/session.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/planetarium.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/shell.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/social.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/state.cpp

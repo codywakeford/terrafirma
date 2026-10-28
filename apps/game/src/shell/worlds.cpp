@@ -188,6 +188,39 @@ void Worlds::select(const WorldSpec &world) const
 		throw BaseException("shell: could not save " + conf);
 }
 
+std::optional<int64_t> Worlds::lastOpened(const WorldSpec &world) const
+{
+	Settings settings;
+	if (!settings.readConfigFile((world.path + DIR_DELIM "world.mt").c_str()) || !settings.exists("tf_last_opened"))
+		return std::nullopt;
+	const std::string v = settings.get("tf_last_opened");
+	try {
+		size_t used = 0;
+		const int64_t t = std::stoll(v, &used);
+		if (used == v.size())
+			return t;
+	} catch (const std::exception &) {
+	}
+	throw BaseException("shell: " + world.path + " says it was last opened at '" + v + "', which isn't a time");
+}
+
+std::optional<std::string> Worlds::lastVisited() const
+{
+	std::optional<std::string> code;
+	int64_t latest = 0;
+	for (const WorldSpec &w : list()) {
+		const std::optional<int64_t> t = lastOpened(w);
+		if (!t || *t <= latest)
+			continue;
+		Settings meta("[end_of_params]");
+		if (!meta.readConfigFile((w.path + DIR_DELIM "map_meta.txt").c_str()) || !meta.exists("mgterra_code"))
+			continue; // not a terra world (no system to show)
+		latest = *t;
+		code = meta.get("mgterra_code");
+	}
+	return code;
+}
+
 WorldSpec Worlds::find(const std::string &path) const
 {
 	// Only paths we listed: the page never names an arbitrary directory.

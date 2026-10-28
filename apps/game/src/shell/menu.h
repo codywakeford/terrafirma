@@ -6,10 +6,13 @@
 #include "content/subgames.h"
 #include "community.h"
 #include "online/join.h"
+#include "planetarium.h"
+#include "far/baked.h"
 #include <mutex>
 #include <optional>
 #include <string>
 
+class MyEventReceiver;
 class RenderingEngine;
 
 namespace shell {
@@ -36,6 +39,7 @@ public:
 	struct Opts {
 		Shell &shell;
 		RenderingEngine *engine;
+		MyEventReceiver &receiver; // the window's input: the Planetarium takes what the page doesn't
 		const Worlds &worlds;
 		const Lab &lab;
 	};
@@ -53,6 +57,12 @@ private:
 	const Worlds &m_worlds;
 	const Lab &m_lab;
 	Community m_community;
+	MyEventReceiver &m_receiver;
+	// The create screen's planet (the window's: Shell::planetarium) is the
+	// world being made, from a code
+	Planetarium &m_planetarium;
+	planetarium::Planetarium::Opts body(const Json::Value &body);
+	std::optional<far::Baked> m_baked; // the game's palette, read once it's first needed
 	std::optional<Choice> m_choice;
 	bool m_quit = false;
 	// Set on the bridge's worker once a join is ready; taken by run().

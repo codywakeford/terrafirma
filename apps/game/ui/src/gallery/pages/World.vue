@@ -12,7 +12,7 @@ import { SYSTEM_PREVIEW, SystemPreview } from "../../system/preview.ts"
 import Specimen from "../Specimen.vue"
 
 const draft = WorldDraft()
-const view = ref<"globe" | "map" | "system">("globe")
+const view = ref<"globe" | "map">("globe")
 const bridge = useBridge()
 const system = SystemPreview({ bridge })
 provide(SYSTEM_PREVIEW, system)
@@ -24,7 +24,7 @@ provide(LOOKS, looks)
 <template>
     <div class="grid">
         <Specimen name="Viewer" note="interactive 3D system · body list · globe ↔ map ↔ system">
-            <div class="box"><BodyNavigator v-model:view="view" :system="draft.system" :star="draft.config.star" /><Viewer v-model:view="view" :draft="draft" /></div>
+            <div class="box"><BodyNavigator v-model:view="view" :system="draft.system" :star="draft.config.star" /><Viewer v-model:view="view" :draft="draft" :frame="{ left: 0, right: 0 }" /></div>
         </Specimen>
         <div class="col">
             <Specimen name="Game tab"><div class="col"><GameTab :draft="draft" /></div></Specimen>

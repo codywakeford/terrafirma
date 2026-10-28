@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include "content_mapblock.h"
+#include "planet/atlas.h" // Terra Firma
+#include "exceptions.h"
 #include "util/basic_macros.h"
 #include "util/numeric.h"
 #include "util/directiontables.h"
@@ -2000,10 +2002,12 @@ void MapblockMeshGenerator::drawNode()
 	// Solid nodes don't need the usual setup
 	if (cur_node.f->drawtype == NDT_NORMAL) {
 		drawSolidNode<false>();
+		drawCutFace();
 		return;
 	}
 	if (cur_node.f->drawtype == NDT_LIQUID) {
 		drawSolidNode<true>();
+		drawCutFace();
 		return;
 	}
 
@@ -2015,9 +2019,9 @@ void MapblockMeshGenerator::drawNode()
 	}
 	switch (cur_node.f->drawtype) {
 		case NDT_FLOWINGLIQUID:     drawLiquidNode(); break;
-		case NDT_GLASSLIKE:         drawGlasslikeNode(); break;
-		case NDT_GLASSLIKE_FRAMED:  drawGlasslikeFramedNode(); break;
-		case NDT_ALLFACES:          drawAllfacesNode(); break;
+		case NDT_GLASSLIKE:         drawGlasslikeNode(); drawCutFace(); break;
+		case NDT_GLASSLIKE_FRAMED:  drawGlasslikeFramedNode(); drawCutFace(); break;
+		case NDT_ALLFACES:          drawAllfacesNode(); drawCutFace(); break;
 		case NDT_TORCHLIKE:         drawTorchlikeNode(); break;
 		case NDT_SIGNLIKE:          drawSignlikeNode(); break;
 		case NDT_PLANTLIKE:         drawPlantlikeNode(); break;
@@ -2029,6 +2033,121 @@ void MapblockMeshGenerator::drawNode()
 		case NDT_MESH:              drawMeshNode(); break;
 		default:                    errorUnknownDrawtype(); break;
 	}
+}
+
+/*
+	Terra Firma, an atlas: a cut cell's cut faces (planet::Atlas::cut): each
+	plane across its node, as much of it as the other planes keep, where
+	what's across (MeshMakeData::m_cuts) shows it; textured as the node's face
+	the plane most faces. Their triangles are on the planes, so clipping
+	(bendOntoAtlas) keeps them whole. Drawn from both sides (no backface
+	culling): which way round they wind doesn't matter.
+*/
+void MapblockMeshGenerator::drawCutFace()
+{
+	if (!data->m_atlas)
+		return;
+	const v3s16 at = blockpos_nodes + cur_node.p;
+	const auto found = data->m_cuts.find(at);
+	if (found == data->m_cuts.end())
+		return;
+	const std::optional<planet::Atlas::Cut> cut = data->m_atlas->cut({ at.X, at.Y, at.Z });
+	if (!cut || cut->planes.size() != found->second.size())
+		throw BaseException("mesh: a cell read as cut isn't cut so");
+	bool lit = false;
+	for (size_t k = 0; k < cut->planes.size(); k++) {
+		const MapNode across = found->second[k];
+		if (across.getContent() == cur_node.n.getContent() || across.getContent() == CONTENT_IGNORE)
+			continue;
+		const ContentFeatures &f2 = nodedef->get(across);
+		if (NDT_solidness[f2.drawtype] == 2 || cur_node.f->sameLiquidRender(f2))
+			continue;
+		const std::vector<v3f> points = cutFace(*cut, k);
+		if (points.size() < 3)
+			continue;
+		const planet::Atlas::Cut::Plane &plane = cut->planes[k];
+		const int a = plane.axis(), b = (a + 1) % 3, c = (a + 2) % 3;
+		v3s16 dir(0, 0, 0);
+		(a == 0 ? dir.X : a == 1 ? dir.Y : dir.Z) = plane.normal[a] > 0 ? -1 : 1;
+		TileSpec tile;
+		getTile(dir, &tile);
+		const v3f out = -v3f(plane.normal[0], plane.normal[1], plane.normal[2]);
+		if (data->m_smooth_lighting && !lit) {
+			getSmoothLightFrame();
+			lit = true;
+		}
+		const video::SColor flat = encode_light(getFaceLight(cur_node.n, across, nodedef), cur_node.f->light_source);
+		std::vector<video::S3DVertex> vertices(points.size());
+		for (size_t i = 0; i < points.size(); i++) {
+			const v3f &p = points[i];
+			const f32 d[3] = { p.X, p.Y, p.Z };
+			video::S3DVertex &v = vertices[i];
+			v.Pos = p * BS + cur_node.origin;
+			v.Normal = out;
+			v.Color = data->m_smooth_lighting ? blendLightColor(p * BS) : flat;
+			if (!cur_node.f->light_source)
+				applyFacesShading(v.Color, out);
+			v.TCoords = v2f(d[b] + 0.5f, 0.5f - d[c]);
+		}
+		std::vector<u16> indices;
+		for (u16 i = 1; i + 1 < points.size(); i++)
+			indices.insert(indices.end(), { 0, i, (u16)(i + 1) });
+		collector->append(tile, vertices.data(), vertices.size(), indices.data(), indices.size());
+	}
+}
+
+// One of a cut's faces: its plane through the node (where it crosses the
+// cube's twelve edges, in order round it), less what its other planes cut
+// off. Node coordinates, from its centre.
+std::vector<v3f> MapblockMeshGenerator::cutFace(const planet::Atlas::Cut &cut, size_t k)
+{
+	const planet::Atlas::Cut::Plane &plane = cut.planes[k];
+	const v3f n(plane.normal[0], plane.normal[1], plane.normal[2]);
+	std::vector<v3f> points;
+	for (int axis = 0; axis < 3; axis++) {
+		if (std::abs(plane.normal[axis]) < 1e-12)
+			continue;
+		const int b = (axis + 1) % 3, c = (axis + 2) % 3;
+		for (int e = 0; e < 4; e++) {
+			double d[3];
+			d[b] = e & 1 ? 0.5 : -0.5;
+			d[c] = e & 2 ? 0.5 : -0.5;
+			d[axis] = -(plane.normal[b] * d[b] + plane.normal[c] * d[c] + plane.offset) / plane.normal[axis];
+			if (d[axis] >= -0.5 && d[axis] <= 0.5)
+				points.emplace_back(d[0], d[1], d[2]);
+		}
+	}
+	if (points.size() < 3)
+		return {};
+	v3f middle;
+	for (const v3f &p : points)
+		middle += p;
+	middle /= (f32)points.size();
+	const v3f e1 = (std::abs(n.X) < 0.9f ? v3f(1, 0, 0) : v3f(0, 1, 0)).crossProduct(n).normalize();
+	const v3f e2 = n.crossProduct(e1);
+	std::sort(points.begin(), points.end(), [&](const v3f &p, const v3f &q) {
+		return std::atan2((p - middle).dotProduct(e2), (p - middle).dotProduct(e1)) >
+				std::atan2((q - middle).dotProduct(e2), (q - middle).dotProduct(e1));
+	});
+	// less the other planes' cuts (Sutherland–Hodgman)
+	for (size_t o = 0; o < cut.planes.size(); o++) {
+		if (o == k)
+			continue;
+		const planet::Atlas::Cut::Plane &other = cut.planes[o];
+		std::vector<v3f> next;
+		for (size_t i = 0; i < points.size(); i++) {
+			const v3f &p0 = points[i], &p1 = points[(i + 1) % points.size()];
+			const double f0 = other.at(p0.X, p0.Y, p0.Z), f1 = other.at(p1.X, p1.Y, p1.Z);
+			if (f0 >= 0)
+				next.push_back(p0);
+			if ((f0 >= 0) != (f1 >= 0))
+				next.push_back(p0 + (p1 - p0) * (f32)(f0 / (f0 - f1)));
+		}
+		points = std::move(next);
+		if (points.size() < 3)
+			return {};
+	}
+	return points;
 }
 
 void MapblockMeshGenerator::generate()

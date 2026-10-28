@@ -9,6 +9,7 @@
 #include "client.h"
 #include "ime.h"
 #include "options.h"
+#include "planetarium.h"
 #include "porting.h"
 #include "input.h"
 #include "pixels.h"
@@ -66,6 +67,7 @@ struct Shell::Impl
 	CefRefPtr<CefMessageRouterBrowserSide> router;
 	CefRefPtr<Client> client;
 	CefRefPtr<CefBrowser> browser;
+	std::unique_ptr<Planetarium> planetarium; // its verbs come off before the rest goes
 
 	// Page state, as far as the engine knows it. Reset on every navigation:
 	// a reloaded page has to announce itself again before it is spoken to.
@@ -251,6 +253,7 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 		m->social->dismiss(idOf(intent));
 		return Json::Value();
 	});
+	m->planetarium = std::make_unique<Planetarium>(Planetarium::Opts{ *this });
 	m->router = CefMessageRouterBrowserSide::Create(routerConfig());
 	m->router->AddHandler(&m->bridge, true);
 	m->client = new Client(m->pixels, m->viewport, m->router, [this] { m->onNavigate(); });
@@ -273,6 +276,7 @@ Shell::Shell(const Opts &opts) : m(std::make_unique<Impl>(opts))
 Shell::~Shell()
 {
 	g_shell = nullptr;
+	m->planetarium.reset();
 
 	m->browser->GetHost()->CloseBrowser(true);
 	while (!m->client->closed())
@@ -350,6 +354,16 @@ Social &Shell::social()
 Account &Shell::account()
 {
 	return *m->account;
+}
+
+Planetarium &Shell::planetarium()
+{
+	return *m->planetarium;
+}
+
+float Shell::scale() const
+{
+	return m->viewport.scale;
 }
 
 const std::string &Shell::itemDir() const

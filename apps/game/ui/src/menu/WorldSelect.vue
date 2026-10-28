@@ -3,9 +3,9 @@ import { computed, onMounted, ref, watch } from "vue"
 import { BridgeError, type CommunityCatalog, type Friend, type Invite, type Player, type PublicServer, type ServerDirectory, type World } from "../bridge/index.ts"
 import { useBridge } from "../bridge/use.ts"
 import { useStore } from "../game/store.ts"
-import { Button, Notice, WorkbenchPanel } from "../kit/index.ts"
+import { Button, Dock, Notice } from "../kit/index.ts"
+import { usePlanetarium } from "../planetarium/use.ts"
 import { decodeWorldCode } from "../worldgen/config.ts"
-import CommunityMap from "./CommunityMap.vue"
 import { Copier } from "./create/copy.ts"
 import type { Screen } from "./screens.ts"
 
@@ -102,6 +102,22 @@ const groups = computed<ListGroup[]>(() => {
 const entries = computed(() => groups.value.flatMap((group) => group.entries))
 const current = computed(() => entries.value.find((entry) => entry.id === selected.value) ?? null)
 const local = computed(() => current.value?.kind === "local" ? current.value.world : null)
+
+// the world selected is the universe behind: its system, the camera flown to
+// it (src/shell/planetarium.h; the menu's own when none is)
+const covers = ref({ left: 0, right: 0 })
+const code = computed(() => local.value?.code ?? null)
+const planet = usePlanetarium({
+    bridge: bridge,
+    element: ref(null),
+    active: computed(() => code.value !== null),
+    body: computed(() => ({ code: code.value ?? "" })),
+    whole: true,
+    frame: covers,
+})
+watch(code, (now) => {
+    if (now) planet.fly({ radii: 3, seconds: 2 })
+})
 const friend = computed(() => current.value?.kind === "friend" ? current.value : null)
 const server = computed(() => current.value?.kind === "server" ? current.value.server : null)
 const installedMods = computed(() => catalog.value?.mods.filter((mod) =>
@@ -165,7 +181,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <WorkbenchPanel v-model:group="section" v-model:query="query" class="play-panel"
+    <Dock v-model:group="section" v-model:query="query" v-model:covers="covers" class="play-panel"
         title="Play" :section="sectionTitle" :groups="RAIL" rail-label="Places to play"
         :search-label="`Search ${sectionTitle.toLowerCase()}`"
         :search-placeholder="`Search ${sectionTitle.toLowerCase()}…`">
@@ -202,8 +218,7 @@ onMounted(() => {
                     <p>{{ local.lastOpened ? `Last opened ${date(local.lastOpened)}` : "Ready for its first day" }}</p>
                 </header>
                 <div class="world-overview">
-                    <CommunityMap v-if="local.code" :code="local.code" />
-                    <div v-else class="no-map">No Terra planet code is saved for this world.</div>
+                    <div v-if="!local.code" class="no-map">No Terra planet code is saved for this world.</div>
                     <div class="world-facts">
                         <h3>World at a glance</h3>
                         <dl>
@@ -310,11 +325,10 @@ onMounted(() => {
                 </template>
             </div>
         </template>
-    </WorkbenchPanel>
+    </Dock>
 </template>
 
 <style scoped>
-.play-panel { width: min(1340px, 97vw); height: min(840px, 94vh); }
 .list-group { margin-bottom: 14px; }
 .list-group h3 { margin: 0 0 5px; padding: 0 8px; color: var(--ink-faint); font: 10px var(--font-display); text-transform: uppercase; letter-spacing: .07em; }
 .entry { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 8px 8px 8px 11px; border: 0; border-left: 3px solid transparent; background: none; color: var(--ink); text-align: left; cursor: pointer; }
@@ -332,7 +346,7 @@ onMounted(() => {
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 h2 { margin: 0; font: 24px var(--font-display); text-transform: uppercase; overflow-wrap: anywhere; }
 .detail-head p, .description { margin: 0; color: var(--ink-dim); font-size: 12px; line-height: 1.55; }
-.world-overview { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; padding: 8px 0; }
+.world-overview { display: grid; gap: 20px; padding: 8px 0; }
 .world-overview :deep(.preview) { width: 100%; }
 .no-map { display: grid; place-items: center; aspect-ratio: 1; border: var(--b) solid var(--edge); background: var(--stone-1); color: var(--ink-dim); font-size: 12px; text-align: center; padding: 24px; }
 .world-facts { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0; }

@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, provide, ref, watch } from "vue"
 import { BridgeError } from "../../bridge/index.ts"
 import { useBridge } from "../../bridge/use.ts"
-import { Button, ListItem, WorkbenchPanel } from "../../kit/index.ts"
+import { Button, Dock, ListItem } from "../../kit/index.ts"
 import { body as bodyOf, STAR } from "../../system/model.ts"
 import { SYSTEM_PREVIEW, SystemPreview } from "../../system/preview.ts"
 import { decodeWorldCode, encodeWorldCode } from "../../worldgen/config.ts"
@@ -42,7 +42,9 @@ const group = ref<Group>("start")
 const page = ref<Page>("quick")
 const problem = ref<string | null>(null)
 const busy = ref(false)
-const view = ref<"globe" | "map" | "system">("globe")
+const view = ref<"globe" | "map">("globe")
+// how much of the window the panel takes: the planet is framed in the rest
+const covers = ref({ left: 0, right: 0 })
 const code = computed(() => encodeWorldCode(draft.config))
 const chosen = computed(() => draft.system.selected === STAR ? null : bodyOf(draft.system, draft.system.selected))
 const currentPages = computed(() => PAGE_GROUPS[group.value])
@@ -102,7 +104,9 @@ async function create() {
 </script>
 
 <template>
-    <WorkbenchPanel v-model:group="group" class="create-workbench" title="Create world" :section="title" :groups="RAIL" rail-label="World creator sections">
+    <div class="create">
+    <Dock v-model:group="group" v-model:covers="covers" class="create-workbench" title="Create world" :section="title" :groups="RAIL"
+        rail-label="World creator sections" :width="group === 'start' ? 'min(470px, 42vw)' : 'min(660px, 52vw)'">
         <template #actions>
             <Button size="sm" @click="emit('go', 'worlds')">Back</Button>
         </template>
@@ -133,11 +137,6 @@ async function create() {
                     <Inspector v-else-if="group === 'body'" :draft="draft" :page="bodyPage" />
                     <DynamicsTab v-else-if="group === 'rules'" :draft="draft" :page="rulesPage" />
                 </div>
-
-                <div class="visual">
-                    <BodyNavigator v-model:view="view" :system="draft.system" :star="draft.config.star" />
-                    <Viewer v-model:view="view" :draft="draft" />
-                </div>
             </div>
         </template>
         <template #footer>
@@ -145,27 +144,36 @@ async function create() {
             <span v-if="problem" class="problem" role="alert">{{ problem }}</span>
             <Button variant="primary" :disabled="busy || !draft.name.trim()" @click="create">Create & play »</Button>
         </template>
-    </WorkbenchPanel>
+    </Dock>
+    <!-- over the planet, in what the panel leaves free -->
+    <div class="visual" :style="{ left: `${covers.left + 16}px` }">
+        <Viewer v-model:view="view" :draft="draft" :frame="covers" />
+        <!-- the bodies to go to, bottom right over space -->
+        <BodyNavigator v-model:view="view" class="bodies" :system="draft.system" :star="draft.config.star" />
+    </div>
+    </div>
 </template>
 
 <style scoped>
-.create-workbench { width: min(1400px, 98vw); height: min(800px, 91vh); }
-.creator-stage { display: grid; grid-template-columns: 190px 355px minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.creator-stage { display: grid; grid-template-columns: 170px minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .pages, .controls { min-width: 0; min-height: 0; overflow-y: auto; }
 .pages { padding: 18px 8px; border-right: var(--b) solid var(--edge); background: var(--stone-1); }
 .pages section + section { margin-top: 18px; }
 .pages h3 { margin: 0 0 6px; padding: 0 7px; color: var(--ink-faint); font: 9px var(--font-display); text-transform: uppercase; }
-.controls { display: flex; flex-direction: column; gap: 18px; padding: 20px 18px 28px; border-right: var(--b) solid var(--edge); background: var(--stone-0); }
+.controls { display: flex; flex-direction: column; gap: 18px; padding: 20px 18px 28px; background: var(--stone-0); }
 .start-controls { grid-column: 1 / 3; }
 .page-head { display: grid; gap: 8px; padding-bottom: 15px; border-bottom: 1px solid var(--stone-4); }
 .page-head span { color: var(--accent-hi); font: 9px var(--font-display); text-transform: uppercase; }
 .page-head h2 { margin: 0; font: 18px var(--font-display); text-transform: uppercase; }
 .page-head p { margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.5; }
-.visual { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--stone-0); }
-.visual :deep(.viewer) { flex: 1; min-height: 0; padding: 12px 16px; }
+/* the body strip, the views and overlays, the date: floating over the planet */
+.visual { position: fixed; top: 16px; right: 16px; bottom: 16px; display: flex; flex-direction: column; min-width: 0; pointer-events: none; }
+.visual > * { pointer-events: auto; }
+.visual .bodies { align-self: flex-end; }
+.visual :deep(.viewer) { flex: 1; min-height: 0; padding: 12px 0; pointer-events: none; }
+.visual :deep(.viewer) :is(button, input, nav, .concept-note, .date, .spawn, .square > :not(.native)) { pointer-events: auto; }
 .save-status { margin-right: auto; color: var(--ink-faint); font-size: 10px; }
 .save-status strong { color: var(--ink-dim); font-weight: 400; }
 .save-status span { padding: 0 4px; }
 .problem { max-width: 360px; color: var(--danger); font-size: 11px; }
-@media (max-width: 1100px) { .creator-stage { grid-template-columns: 150px 300px minmax(0, 1fr); } }
 </style>

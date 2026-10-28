@@ -3,6 +3,7 @@
 
 #include "session.h"
 #include "bridge.h"
+#include "client/client.h"
 #include "shell.h"
 #include "preview.h"
 #include "gui/mainmenumanager.h"
@@ -23,8 +24,12 @@ Session::Session(const Opts &opts) :
 	m_ui({ opts.shell, opts.client }),
 	m_director({ m_ui, opts.client }),
 	m_screens({ opts.shell, opts.guienv, m_ui }),
-	m_actions(opts.client)
+	m_actions(opts.client),
+	m_client(opts.client),
+	m_planetarium(opts.shell.planetarium())
 {
+	// the page shows only this world (whatever `body` it names)
+	m_planetarium.serve([this](const Json::Value &) { return world(); });
 	m_shell.on("inventory.move", [this](const Json::Value &intent) {
 		m_actions.move(intent);
 		return Json::Value();
@@ -79,12 +84,38 @@ void Session::update(const HudView &view)
 	m_state.update(view);
 	m_ui.update();
 	m_director.update();
+	// the system as the world's date has it (its year's share of the orbit)
+	if (m_planetarium.shown() && m_year > 0)
+		m_planetarium.dayIn(m_client->getEnv().getDayCount() + m_client->getEnv().getTimeOfDayF(), m_year);
+}
+
+planetarium::Planetarium::Opts Session::world() const
+{
+	const planet::Atlas *atlas = m_client->getAtlas();
+	const std::optional<far::Horizon> &horizon = m_client->getHorizon();
+	if (!atlas || !horizon)
+		throw Refused("the Planetarium shows a planet, and this world isn't one");
+	far::Palette palette = far::Palette::live(m_client->ndef(), m_client->tsrc(), far::blocksIn(horizon->content));
+	const terragen::WorldCode code = terragen::WorldCode::decode(horizon->code);
+	m_year = code.year;
+	return { *atlas, *horizon, std::move(palette), std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(code)) };
+}
+
+std::optional<std::string> Session::showWorld()
+{
+	try {
+		m_planetarium.show(world());
+	} catch (const Refused &e) {
+		return std::string(e.what());
+	}
+	return std::nullopt;
 }
 
 Session::~Session()
 {
 	for (const char *verb : VERBS)
 		m_shell.off(verb);
+	m_planetarium.serve(nullptr); // its bodies were this session's
 }
 
 } // namespace shell

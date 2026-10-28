@@ -4,6 +4,7 @@
 #include "atlas.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -240,22 +241,53 @@ std::vector<Atlas::Block> Atlas::findAt(Node from, double x, double y, double z)
 			out.push_back(b);
 	}
 	// and on across seams from them (another grid's block clipping a corner
-	// of the box, between the samples), while a block is near enough to
-	// reach into the box: its middle within the two blocks' half diagonals
-	// of the box's
-	const std::optional<terragen::Atlas::Vec> middle = point(from, x, y, z);
-	const double near = BLOCK * std::sqrt(3.0);
-	for (size_t i = 0; i < out.size(); i++)
-		for (const Block &b : blocksAcross(out[i])) {
-			if (std::find(out.begin(), out.end(), b) != out.end())
-				continue;
-			const std::optional<BlockChart> c = blockChart(b);
-			if (!c || !middle)
-				continue;
-			const double dx = c->centre.x - middle->x, dy = c->centre.y - middle->y, dz = c->centre.z - middle->z;
-			if (dx * dx + dy * dy + dz * dz <= near * near)
-				out.push_back(b);
+	// of the box, between the samples), and from a seam block to its own
+	// grid's neighbours, while a block reaches into the box: its corners,
+	// put in the box's grid (its frame at the middle), not all past one of
+	// the box's faces
+	const std::optional<Frame> f = frame(from, { x, y, z });
+	if (!f)
+		return out;
+	using V = terragen::Atlas::Vec;
+	const auto cross = [](V a, V b) { return V{ a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; };
+	const std::array<V, 3> &j = f->axes;
+	const V r0 = cross(j[1], j[2]), r1 = cross(j[2], j[0]), r2 = cross(j[0], j[1]);
+	const double det = j[0].x * r0.x + j[0].y * r0.y + j[0].z * r0.z;
+	const std::array<V, 3> inverse{ V{ r0.x / det, r0.y / det, r0.z / det }, V{ r1.x / det, r1.y / det, r1.z / det },
+		V{ r2.x / det, r2.y / det, r2.z / det } };
+	const double half = BLOCK / 2.0;
+	const auto reaches = [&](const Block &b) {
+		const std::optional<BlockChart> c = blockChart(b);
+		if (!c)
+			return false;
+		std::array<double, 3> lo{ 1e30, 1e30, 1e30 }, hi{ -1e30, -1e30, -1e30 };
+		for (int k = 0; k < 8; k++) {
+			const V p = onPlanet(*c, b.x * BLOCK - 0.5 + (k & 1 ? BLOCK : 0), b.y * BLOCK - 0.5 + (k & 2 ? BLOCK : 0),
+					b.z * BLOCK - 0.5 + (k & 4 ? BLOCK : 0));
+			const V d{ c->centre.x + p.x - f->origin.x, c->centre.y + p.y - f->origin.y, c->centre.z + p.z - f->origin.z };
+			for (int a = 0; a < 3; a++) {
+				const double v = inverse[a].x * d.x + inverse[a].y * d.y + inverse[a].z * d.z;
+				lo[a] = std::min(lo[a], v);
+				hi[a] = std::max(hi[a], v);
+			}
 		}
+		for (int a = 0; a < 3; a++)
+			if (lo[a] > half || hi[a] < -half)
+				return false;
+		return true;
+	};
+	for (size_t i = 0; i < out.size(); i++) {
+		// a seam block's own grid's neighbours too: past a turned grid's
+		// edge the box can take a corner of one between the samples
+		std::vector<Block> next = blocksAcross(out[i]);
+		if (!interior(out[i]))
+			for (const auto &d : { Block{ 1, 0, 0 }, Block{ -1, 0, 0 }, Block{ 0, 1, 0 }, Block{ 0, -1, 0 }, Block{ 0, 0, 1 },
+						 Block{ 0, 0, -1 } })
+				next.push_back({ out[i].x + d.x, out[i].y + d.y, out[i].z + d.z });
+		for (const Block &b : next)
+			if (std::find(out.begin(), out.end(), b) == out.end() && reaches(b))
+				out.push_back(b);
+	}
 	return out;
 }
 
@@ -392,7 +424,7 @@ bool Atlas::interior(Block block) const
 	return m_found->interior.emplace(blockKey(block), found).first->second;
 }
 
-std::optional<Atlas::Extent> Atlas::extent(Node n) const
+std::optional<Atlas::Cut> Atlas::cut(Node n) const
 {
 	if (interior(blockOf(n)))
 		return std::nullopt;
@@ -403,47 +435,163 @@ std::optional<Atlas::Extent> Atlas::extent(Node n) const
 	const std::array<int32_t, 3> key{ n.x, n.y, n.z };
 	{
 		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->extents.find(key);
-		if (it != m_found->extents.end())
+		const auto it = m_found->cuts.find(key);
+		if (it != m_found->cuts.end())
 			return it->second;
 	}
-	const Extent found = findExtent(*c);
+	const std::optional<Cut> found = findCut(*c);
 	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->extents.emplace(key, found).first->second;
+	return m_found->cuts.emplace(key, found).first->second;
 }
 
-Atlas::Extent Atlas::findExtent(const Cell &c) const
+bool Atlas::prepared(Block block) const
 {
-	constexpr int STEPS = 16;
-	Extent out{ { -0.5, -0.5, -0.5 }, { 0.5, 0.5, 0.5 } };
-	for (int axis = 0; axis < 3; axis++) {
-		double low = 1, high = -1;
-		for (int s = 0; s <= STEPS; s++) {
-			const double t = -0.5 + (double)s / STEPS;
-			std::array<double, 3> d{ 0, 0, 0 };
-			d[axis] = t;
-			if (m_atlas.territory(c, chart(c, d[0], d[1], d[2])) >= 0) {
-				low = std::min(low, t);
-				high = std::max(high, t);
-			}
-		}
-		if (low > high)
-			continue; // the line through the centre is outside: the cell is kept off it, whole along it
-		// to halfway to the first sample outside
-		out.low[axis] = std::max(-0.5, low - 0.5 / STEPS);
-		out.high[axis] = std::min(0.5, high + 0.5 / STEPS);
+	std::lock_guard<std::mutex> hold(m_found->lock);
+	const uint64_t key = blockKey(block);
+	return m_found->rims.count(key) && m_found->blockCuts.count(key) && m_found->charts.count(key);
+}
+
+void Atlas::prepare(Block block) const
+{
+	rim(block);
+	cutsIn(block);
+	blockChart(block);
+}
+
+const Atlas::Cuts &Atlas::cutsIn(Block block) const
+{
+	{
+		std::lock_guard<std::mutex> hold(m_found->lock);
+		const auto it = m_found->blockCuts.find(blockKey(block));
+		if (it != m_found->blockCuts.end())
+			return *it->second;
 	}
-	// clipped along the one axis the edge most faces (cut shortest): a box
-	// clipped along two where the edge runs slantwise loses its corners,
-	// and leaves gaps between it and the next grid's cells
-	int across = 0;
-	for (int axis = 1; axis < 3; axis++)
-		if (out.high[axis] - out.low[axis] < out.high[across] - out.low[across])
-			across = axis;
-	for (int axis = 0; axis < 3; axis++)
-		if (axis != across) {
-			out.low[axis] = -0.5;
-			out.high[axis] = 0.5;
+	auto found = std::make_shared<Cuts>();
+	if (!interior(block))
+		for (int32_t z = 0; z < BLOCK; z++)
+			for (int32_t y = 0; y < BLOCK; y++)
+				for (int32_t x = 0; x < BLOCK; x++) {
+					const Node n{ block.x * BLOCK + x, block.y * BLOCK + y, block.z * BLOCK + z };
+					if (const std::optional<Cut> c = cut(n))
+						found->push_back({ n, *c, findAcross(n, *c) });
+				}
+	std::lock_guard<std::mutex> hold(m_found->lock);
+	return *m_found->blockCuts.emplace(blockKey(block), std::move(found)).first->second;
+}
+
+// The nodes just past each of a cut cell's faces (cutsIn)
+std::vector<std::vector<Atlas::Node>> Atlas::findAcross(Node n, const Cut &cut) const
+{
+	constexpr double PAST = 0.05; // nodes past the face
+	constexpr double E = 0.35;
+	static const double PLACES[5][2] = { { 0, 0 }, { -E, -E }, { E, -E }, { -E, E }, { E, E } };
+	std::vector<std::vector<Node>> out;
+	for (size_t plane = 0; plane < cut.planes.size(); plane++) {
+		const Cut::Plane &face = cut.planes[plane];
+		const int a = face.axis(), b = (a + 1) % 3, c = (a + 2) % 3;
+		std::vector<Node> nodes;
+		for (const auto &uv : PLACES) {
+			std::array<double, 3> d{};
+			d[b] = uv[0];
+			d[c] = uv[1];
+			d[a] = -(face.normal[b] * uv[0] + face.normal[c] * uv[1] + face.offset) / face.normal[a];
+			if (std::abs(d[a]) > 0.5)
+				continue; // the plane leaves the node here
+			bool kept = true; // and the other planes leave it on the solid
+			for (size_t k = 0; k < cut.planes.size(); k++)
+				kept &= k == plane || cut.planes[k].at(d[0], d[1], d[2]) >= 0;
+			if (!kept)
+				continue;
+			for (int k = 0; k < 3; k++)
+				d[k] -= face.normal[k] * PAST;
+			const std::optional<Seen> seen = seeAt(n, n.x + d[0], n.y + d[1], n.z + d[2]);
+			if (!seen)
+				throw std::logic_error("planet::Atlas: a cut cell sees nothing across its face");
+			nodes.push_back(seen->node);
+		}
+		out.push_back(std::move(nodes));
+	}
+	return out;
+}
+
+// A plane for each edge of the territory some corner of the cell is past,
+// fitted (least squares) to how far inside that edge each corner is: exact
+// where the edge is flat over the cell.
+std::optional<Atlas::Cut> Atlas::findCut(const Cell &c) const
+{
+	std::array<std::array<double, 4>, 8> t;
+	for (int k = 0; k < 8; k++)
+		t[k] = m_atlas.edges(c, chart(c, k & 1 ? 0.5 : -0.5, k & 2 ? 0.5 : -0.5, k & 4 ? 0.5 : -0.5));
+	Cut cut;
+	for (int e = 0; e < 4; e++) {
+		std::array<double, 3> g{ 0, 0, 0 };
+		double sum = 0, least = std::numeric_limits<double>::infinity();
+		for (int k = 0; k < 8; k++) {
+			least = std::min(least, t[k][e]);
+			sum += t[k][e];
+			const std::array<double, 3> d{ k & 1 ? 0.5 : -0.5, k & 2 ? 0.5 : -0.5, k & 4 ? 0.5 : -0.5 };
+			for (int a = 0; a < 3; a++)
+				g[a] += t[k][e] * d[a] / 2; // Σ t·d / Σ d² (Σ d² = 8 · ¼)
+		}
+		if (least >= 0)
+			continue; // every corner inside this edge (or the cell has no such edge)
+		const double length = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+		if (!(length > 1e-9))
+			throw std::logic_error("planet::Atlas: an edge crosses a cell without falling off anywhere");
+		cut.planes.push_back({ { g[0] / length, g[1] / length, g[2] / length }, sum / 8 / length });
+	}
+	if (cut.planes.empty())
+		return std::nullopt;
+	return cut;
+}
+
+double Atlas::Cut::at(double x, double y, double z) const
+{
+	double least = std::numeric_limits<double>::infinity();
+	for (const Plane &p : planes)
+		least = std::min(least, p.at(x, y, z));
+	return least;
+}
+
+int Atlas::Cut::Plane::axis() const
+{
+	int a = 0;
+	for (int k = 1; k < 3; k++)
+		if (std::abs(normal[k]) > std::abs(normal[a]))
+			a = k;
+	return a;
+}
+
+std::vector<Atlas::Cut::Box> Atlas::Cut::boxes(int n) const
+{
+	const int a = planes.front().axis(), b = (a + 1) % 3, c = (a + 2) % 3;
+	std::vector<Box> out;
+	for (int u = 0; u < n; u++)
+		for (int v = 0; v < n; v++) {
+			Box box;
+			box.low[b] = -0.5 + (double)u / n;
+			box.high[b] = -0.5 + (double)(u + 1) / n;
+			box.low[c] = -0.5 + (double)v / n;
+			box.high[c] = -0.5 + (double)(v + 1) / n;
+			box.low[a] = -0.5;
+			box.high[a] = 0.5;
+			const double mb = (box.low[b] + box.high[b]) / 2, mc = (box.low[c] + box.high[c]) / 2;
+			for (const Plane &p : planes) {
+				// where the plane is along a, at the column's middle
+				const double rest = p.normal[b] * mb + p.normal[c] * mc + p.offset;
+				if (std::abs(p.normal[a]) < 1e-9) {
+					if (rest < 0)
+						box.high[a] = box.low[a]; // the column is past it
+					continue;
+				}
+				const double edge = -rest / p.normal[a];
+				if (p.normal[a] > 0)
+					box.low[a] = std::max(box.low[a], edge);
+				else
+					box.high[a] = std::min(box.high[a], edge);
+			}
+			if (box.high[a] - box.low[a] > 1e-6)
+				out.push_back(box);
 		}
 	return out;
 }

@@ -4,7 +4,11 @@
 #include "menu.h"
 #include "lab.h"
 #include "system.h"
-#include "orbit.h"
+#include "far/baked.h"
+#include "client/inputhandler.h"
+#include "light.h"
+#include "mapgen/mapgen.h"
+#include "terragen/code.h"
 #include "bridge.h"
 #include "shell.h"
 #include "worlds.h"
@@ -33,7 +37,10 @@ static const char *const VERBS[] = {
 	"servers.list", "servers.join", "servers.favorite.set",
 };
 
-static Json::Value worldJson(const WorldSpec &world)
+// The world the menu's universe is when none has been visited yet.
+static const char *const DEFAULT_CODE = "TF5.dGVycmE";
+
+static Json::Value worldJson(const Worlds &worlds, const WorldSpec &world)
 {
 	Json::Value out;
 	out["name"] = world.name;
@@ -44,6 +51,8 @@ static Json::Value worldJson(const WorldSpec &world)
 	out["damage"] = Json::Value();
 	out["pinned"] = false;
 	out["lastOpened"] = Json::Value();
+	if (const std::optional<int64_t> t = worlds.lastOpened(world))
+		out["lastOpened"] = Json::Int64(*t);
 	out["rules"] = Json::Value(Json::objectValue);
 	if (settings.readConfigFile((world.path + DIR_DELIM "world.mt").c_str())) {
 		if (settings.exists("creative_mode"))
@@ -52,10 +61,7 @@ static Json::Value worldJson(const WorldSpec &world)
 			out["damage"] = settings.getBool("enable_damage");
 		if (settings.exists("tf_pinned"))
 			out["pinned"] = settings.getBool("tf_pinned");
-		if (settings.exists("tf_last_opened")) {
-			try { out["lastOpened"] = Json::Int64(std::stoll(settings.get("tf_last_opened"))); }
-			catch (const std::exception &) {}
-		}
+
 		for (const char *key : { "tf_difficulty", "tf_hunger", "tf_weather", "tf_seasons",
 				"tf_temperature", "tf_keep_inventory" }) {
 			if (settings.exists(key))
@@ -130,8 +136,16 @@ static std::string stringField(const Json::Value &intent, const char *field)
 
 Menu::Menu(const Opts &opts) :
 	m_shell(opts.shell), m_engine(opts.engine), m_worlds(opts.worlds), m_lab(opts.lab),
-	m_community(opts.worlds, g_settings->get("game_id"))
+	m_community(opts.worlds, g_settings->get("game_id")),
+	m_receiver(opts.receiver),
+	m_planetarium(opts.shell.planetarium())
 {
+	// the universe behind every page: the system of the world last visited
+	// (a fresh install: the default world's)
+	const std::string backdrop = m_worlds.lastVisited().value_or(DEFAULT_CODE);
+	Json::Value universe;
+	universe["code"] = backdrop;
+	m_planetarium.serve([this](const Json::Value &b) { return body(b); }, universe);
 	m_shell.on("community.list", [this](const Json::Value &) {
 		return m_community.list();
 	});
@@ -148,11 +162,11 @@ Menu::Menu(const Opts &opts) :
 	m_shell.on("worlds.list", [this](const Json::Value &) {
 		Json::Value out(Json::arrayValue);
 		for (const auto &world : m_worlds.list())
-			out.append(worldJson(world));
+			out.append(worldJson(m_worlds, world));
 		return out;
 	});
 	m_shell.on("worlds.create", [this](const Json::Value &intent) {
-		return worldJson(m_worlds.create(stringField(intent, "name"), stringField(intent, "code"),
+		return worldJson(m_worlds, m_worlds.create(stringField(intent, "name"), stringField(intent, "code"),
 				intent["settings"]));
 	});
 	m_shell.on("worlds.delete", [this](const Json::Value &intent) {
@@ -230,6 +244,7 @@ Menu::~Menu()
 {
 	for (const char *verb : VERBS)
 		m_shell.off(verb);
+	m_planetarium.serve(nullptr); // its bodies were this menu's
 }
 
 std::optional<Choice> Menu::run(const std::string &error)
@@ -247,8 +262,13 @@ std::optional<Choice> Menu::run(const std::string &error)
 	cursor->setRelativeMode(false);
 
 	video::IVideoDriver *driver = m_engine->get_video_driver();
-	Orbit orbit(driver);
-	u64 scene_start = porting::getTimeMs();
+	// the create screen's planet is lit as a game's is (its curve: set_light_curve)
+	set_light_curve(g_settings->getFloat("display_gamma"));
+	m_receiver.capture = [this](const SEvent &event) {
+		return m_planetarium.shown() && event.EventType == EET_MOUSE_INPUT_EVENT && m_planetarium.handle(event);
+	};
+	u64 last = porting::getTimeMs();
+	double days = 0; // the universe's time, run fast: a day a minute
 	volatile auto *kill = porting::signal_handler_killstatus();
 	const u64 frame_ms = 1000 / 60;
 
@@ -264,14 +284,38 @@ std::optional<Choice> Menu::run(const std::string &error)
 		}
 		u64 start = porting::getTimeMs();
 		driver->beginScene(true, true, video::SColor(255, 12, 14, 12));
-		orbit.draw((porting::getTimeMs() - scene_start) / 1000.0f);
+		days += (start - last) / 1000.0 / 60;
+		last = start;
+		m_planetarium.day(days);
+		m_planetarium.draw(driver); // always shown: the backdrop when no page asks for another
 		m_shell.frame();
 		driver->endScene();
 		u64 spent = porting::getTimeMs() - start;
 		if (spent < frame_ms)
 			sleep_ms(frame_ms - spent);
 	}
+	m_receiver.capture = nullptr;
 	return m_choice;
+}
+
+// The world a code makes, as a new world of it is laid out (worlds.cpp: as
+// many blocks round as it is), its land from the game's baked palette.
+planetarium::Planetarium::Opts Menu::body(const Json::Value &body)
+{
+	if (!body.isObject() || !body["code"].isString())
+		throw Refused("planetarium.show in the menu needs body { code }");
+	const std::string code = body["code"].asString();
+	terragen::WorldCode world;
+	try {
+		world = terragen::WorldCode::decode(code);
+	} catch (const std::exception &e) {
+		throw Refused(std::string("that world code doesn't decode: ") + e.what());
+	}
+	if (!m_baked)
+		m_baked = far::Baked::load(g_settings->get("game_id"));
+	const planet::Atlas atlas(terragen::Atlas::standard(world.size / (2 * M_PI)));
+	return { atlas, far::Horizon{ code, MapgenParams().water_level, m_baked->content }, m_baked->palette,
+		std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(world)) };
 }
 
 } // namespace shell

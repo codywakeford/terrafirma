@@ -37,6 +37,7 @@ public:
 	void testCarryKeepsThePoint();
 	void testTurnsFollowTheGround();
 	void testViewIsTheGrid();
+	void testCutsPartitionThePlanet();
 };
 
 static TestPlanetAtlas g_test_instance;
@@ -101,6 +102,7 @@ void TestPlanetAtlas::runTests(IGameDef *gamedef)
 	TEST(testCarryKeepsThePoint);
 	TEST(testTurnsFollowTheGround);
 	TEST(testViewIsTheGrid);
+	TEST(testCutsPartitionThePlanet);
 }
 
 namespace {
@@ -479,5 +481,65 @@ void TestPlanetAtlas::testViewIsTheGrid()
 			}
 		}
 		UTEST(across > 200, "only %zu crossings", across);
+	}
+}
+
+/*
+	The true cut (sprint 34): where grids meet, every point is in exactly one
+	cell's solid (its node, or a cut cell's part on its side of the edge:
+	Atlas::cut). No gap, no overlap. Points round cut cells, every grid's
+	cell there counted; those within a hair of an edge (where the fitted
+	plane and the true edge can disagree by its flatness) are left out.
+*/
+void TestPlanetAtlas::testCutsPartitionThePlanet()
+{
+	constexpr double HAIR = 0.01;
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		const terragen::Atlas &t = a.atlas();
+		std::mt19937_64 rng(34);
+		std::uniform_real_distribution<double> unit(-0.5, 0.5);
+		size_t points = 0, gaps = 0, overlaps = 0;
+		// how many solids hold a point, over every grid
+		const auto holders = [&](const terragen::Atlas::Vec &q) {
+			int n = 0;
+			for (const Atlas::Region &r : a.regions()) {
+				const std::array<double, 3> g = t.grid(r.kind, r.index, q);
+				const Atlas::Cell c{ r.kind, r.index, (int64_t)std::floor(g[0]), (int64_t)std::floor(g[1]),
+					(int64_t)std::floor(g[2]) };
+				const Atlas::Node node{ (int32_t)(r.rect.x + c.i - r.i0), (int32_t)c.k, (int32_t)(r.rect.z + c.j - r.j0) };
+				const std::optional<Atlas::Cell> stored = a.cell(node);
+				if (!stored || !(*stored == c))
+					continue;
+				const std::optional<Atlas::Cut> cut = a.cut(node);
+				if (!cut || cut->at(g[0] - c.i - 0.5, g[2] - c.k - 0.5, g[1] - c.j - 0.5) >= 0)
+					n++;
+			}
+			return n;
+		};
+		for (const Atlas::Node n : edgeNodes(a, 7)) {
+			if (!a.cut(n))
+				continue;
+			const Atlas::Cell c = *a.cell(n);
+			for (int k = 0; k < 32; k++) {
+				const terragen::Atlas::Vec q = t.at(c, unit(rng), unit(rng), unit(rng));
+				const double r = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z);
+				if (r > p.radius + p.height - 1 || r < 1)
+					continue;
+				// a hair from any edge: the owner's territory, and this cell's
+				if (std::abs(t.territory(c, q)) < HAIR || std::abs(t.territory(t.owner(q), q)) < HAIR)
+					continue;
+				points++;
+				const int held = holders(q);
+				gaps += held == 0;
+				overlaps += held > 1;
+			}
+		}
+		const double gap = (double)gaps / points, overlap = (double)overlaps / points;
+		infostream << "cuts: radius " << p.radius << ": " << points << " points, " << gap * 100 << "% in no cell, "
+				<< overlap * 100 << "% in two" << std::endl;
+		UTEST(points > 1000, "only %zu points by cuts", points);
+		UTEST(gap < 1e-3 && overlap < 1e-3, "radius %.0f: %.3f%% of points in no cell, %.3f%% in two", p.radius,
+				gap * 100, overlap * 100);
 	}
 }

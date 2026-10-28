@@ -4,6 +4,7 @@
 
 #include "mapblock_mesh.h"
 #include "planet/atlas.h" // Terra Firma
+#include "exceptions.h"
 #include "CMeshBuffer.h"
 #include "client.h"
 #include "mapblock.h"
@@ -796,39 +797,88 @@ u8 get_solid_sides(MeshMakeData *data)
 
 /*
 	Terra Firma: a cut cell (where a grid's territory ends inside it) is drawn
-	as the part of it in its territory (planet::Atlas::extent, what collision
-	takes too), so two grids' cut cells over one place don't both show. Each
-	triangle's node is the one its middle is in, a hair back from its face;
-	its vertices are clamped into that node's part. In storage axes, before
-	the mesh is bent.
+	as the part of it in its territory (planet::Atlas::cut, what collision
+	and pointing take too): each of its triangles clipped by the cut's planes,
+	so two grids' cut cells meet on one surface. Its cut faces (where they show
+	what's across) are drawn by the generator on those planes. Each triangle's
+	node is the one its middle is in, a hair back from its face. In storage
+	axes, before the mesh is bent.
 */
 static void clipToTerritory(MeshCollector &collector, const planet::Atlas &atlas, v3s16 low)
 {
 	if (atlas.interior({ low.X / MAP_BLOCKSIZE, low.Y / MAP_BLOCKSIZE, low.Z / MAP_BLOCKSIZE }))
 		return;
+	constexpr double ON = 1e-5; // a vertex this near the plane is on it (the cut face's are)
+	const planet::Atlas::Cuts &cuts = atlas.cutsIn({ low.X / MAP_BLOCKSIZE, low.Y / MAP_BLOCKSIZE, low.Z / MAP_BLOCKSIZE });
+	if (cuts.empty())
+		return;
+	// the block's cut cells, by their place in it
+	std::vector<const planet::Atlas::Cut *> cutAt((size_t)MAP_BLOCKSIZE * MAP_BLOCKSIZE * MAP_BLOCKSIZE, nullptr);
+	for (const planet::Atlas::CutCell &c : cuts)
+		cutAt[((size_t)(c.node.z - low.Z) * MAP_BLOCKSIZE + (c.node.y - low.Y)) * MAP_BLOCKSIZE + (c.node.x - low.X)] = &c.cut;
 	for (auto &layer : collector.prebuffers)
 		for (PreMeshBuffer &buf : layer) {
-			std::vector<bool> clipped(buf.vertices.size(), false);
-			for (size_t t = 0; t + 2 < buf.indices.size(); t += 3) {
-				video::S3DVertex *v[3] = { &buf.vertices[buf.indices[t]], &buf.vertices[buf.indices[t + 1]],
-					&buf.vertices[buf.indices[t + 2]] };
-				const v3f middle = (v[0]->Pos + v[1]->Pos + v[2]->Pos) / (3 * BS) - v[0]->Normal * 0.01f;
+			std::vector<u16> kept;
+			kept.reserve(buf.indices.size());
+			const size_t count = buf.indices.size();
+			for (size_t t = 0; t + 2 < count; t += 3) {
+				const video::S3DVertex v[3] = { buf.vertices[buf.indices[t]], buf.vertices[buf.indices[t + 1]],
+					buf.vertices[buf.indices[t + 2]] };
+				const v3f middle = (v[0].Pos + v[1].Pos + v[2].Pos) / (3 * BS) - v[0].Normal * 0.01f;
 				const v3s16 at(std::lround(middle.X), std::lround(middle.Y), std::lround(middle.Z));
-				const std::optional<planet::Atlas::Extent> e = atlas.extent({ low.X + at.X, low.Y + at.Y, low.Z + at.Z });
-				if (!e)
+				const bool in = at.X >= 0 && at.Y >= 0 && at.Z >= 0 && at.X < MAP_BLOCKSIZE && at.Y < MAP_BLOCKSIZE && at.Z < MAP_BLOCKSIZE;
+				const planet::Atlas::Cut *cut = in ? cutAt[((size_t)at.Z * MAP_BLOCKSIZE + at.Y) * MAP_BLOCKSIZE + at.X] : nullptr;
+				const auto local = [&](const video::S3DVertex &x) { return x.Pos / BS - intToFloat(at, 1); };
+				bool all = true, none = false;
+				if (cut)
+					for (const planet::Atlas::Cut::Plane &plane : cut->planes) {
+						int in = 0, out = 0;
+						for (const video::S3DVertex &x : v) {
+							const v3f d = local(x);
+							const double f = plane.at(d.X, d.Y, d.Z);
+							in += f >= -ON;
+							out += f <= ON;
+						}
+						all &= in == 3;
+						none |= out == 3 && in < 3;
+					}
+				if (!cut || all) {
+					kept.insert(kept.end(), { buf.indices[t], buf.indices[t + 1], buf.indices[t + 2] });
 					continue;
-				for (int k = 0; k < 3; k++) {
-					const size_t index = buf.indices[t + k];
-					if (clipped[index])
-						continue;
-					clipped[index] = true;
-					v3f &pos = v[k]->Pos;
-					const v3f centre = intToFloat(at, BS);
-					pos.X = centre.X + std::clamp<f32>((pos.X - centre.X) / BS, e->low[0], e->high[0]) * BS;
-					pos.Y = centre.Y + std::clamp<f32>((pos.Y - centre.Y) / BS, e->low[1], e->high[1]) * BS;
-					pos.Z = centre.Z + std::clamp<f32>((pos.Z - centre.Z) / BS, e->low[2], e->high[2]) * BS;
 				}
+				if (none)
+					continue; // wholly past an edge
+				// Sutherland–Hodgman against each plane in turn
+				std::vector<video::S3DVertex> poly(v, v + 3);
+				for (const planet::Atlas::Cut::Plane &plane : cut->planes) {
+					std::vector<video::S3DVertex> next;
+					for (size_t k = 0; k < poly.size(); k++) {
+						const video::S3DVertex &p0 = poly[k], &p1 = poly[(k + 1) % poly.size()];
+						const v3f d0 = local(p0), d1 = local(p1);
+						const double f0 = plane.at(d0.X, d0.Y, d0.Z), f1 = plane.at(d1.X, d1.Y, d1.Z);
+						if (f0 >= -ON)
+							next.push_back(p0);
+						if ((f0 < -ON && f1 > ON) || (f0 > ON && f1 < -ON)) {
+							const f32 f = (f32)(f0 / (f0 - f1));
+							video::S3DVertex x = p0;
+							x.Pos = p0.Pos + (p1.Pos - p0.Pos) * f;
+							x.TCoords = p0.TCoords + (p1.TCoords - p0.TCoords) * f;
+							x.Color = p1.Color.getInterpolated(p0.Color, f);
+							next.push_back(x);
+						}
+					}
+					poly = std::move(next);
+				}
+				if (poly.size() < 3)
+					continue;
+				const size_t base = buf.vertices.size();
+				if (base + poly.size() > U16_MAX)
+					throw BaseException("mesh: a cut block's clipped buffer outgrew 16-bit indices");
+				buf.vertices.insert(buf.vertices.end(), poly.begin(), poly.end());
+				for (size_t k = 1; k + 1 < poly.size(); k++)
+					kept.insert(kept.end(), { (u16)base, (u16)(base + k), (u16)(base + k + 1) });
 			}
+			buf.indices = std::move(kept);
 		}
 }
 

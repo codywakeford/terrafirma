@@ -96,7 +96,9 @@ const CREDITS_ICON = {
     overflow: hidden;
     background: transparent;
 }
-.menu::before {
+.menu:has(.home)::before {
+    /* behind Home's title only: anywhere else it would take the mouse from
+       the planet (the shell gives the page any pixel it draws at all) */
     content: "";
     position: absolute;
     inset: 0;

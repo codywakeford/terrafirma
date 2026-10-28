@@ -5,6 +5,7 @@
 
 #include "content/subgames.h"
 #include <json/json.h>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,12 @@ public:
 	// Before playing a world: its creative_mode / enable_damage (world.mt)
 	// become the engine's, as Luanti's own menu does when you pick a world.
 	void select(const WorldSpec &world) const;
+	// When a world was last opened (seconds since the epoch: select()), if
+	// ever. Throws for a value that isn't one.
+	std::optional<int64_t> lastOpened(const WorldSpec &world) const;
+	// The world code of the world opened last, if any was (the menu shows
+	// its system). Lab worlds aren't listed, so never this.
+	std::optional<std::string> lastVisited() const;
 
 private:
 	std::string m_gameid;

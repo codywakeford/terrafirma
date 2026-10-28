@@ -623,6 +623,7 @@ void Client::step(float dtime)
 		// before processing them.
 		updateStaticLighting(player->getLighting().static_);
 
+		m_mesh_update_manager->takePrepared(&m_env.getMap()); // Terra Firma
 		int num_processed_meshes = 0;
 		std::vector<v3s16> blocks_to_ack;
 		bool force_update_shadows = false;

@@ -134,6 +134,11 @@ public:
 	double clearance(const Cell &cell) const { return inside(cell.region, cell.index, centre(cell)); }
 	// How far inside a cell's territory any point is (negative outside).
 	double territory(const Cell &cell, const Vec &point) const { return inside(cell.region, cell.index, point); }
+	// The same, edge by edge: how far inside each of its territory's edges
+	// a point is (a segment's west and east meridians, its cap circle, the
+	// core's sphere; infinite for an edge it hasn't). territory() is the
+	// least. Each is smooth where the territory, at a corner, isn't.
+	std::array<double, 4> edges(const Cell &cell, const Vec &point) const;
 
 	// A point of a cell's grid, continued past it: (di, dj, dk) from its
 	// centre along i, j, k. The cell's true geometry; corners() are its

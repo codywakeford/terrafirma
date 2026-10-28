@@ -521,7 +521,7 @@ bool ClientLauncher::launch_game(GameErrorData &errordata, GameStartData &start_
 	if (!skip_main_menu) {
 		shell::Worlds worlds(g_settings->get("game_id"));
 		shell::Lab lab(findSubgame(g_settings->get("game_id")).gamemods_path);
-		shell::Menu menu({ *m_shell, m_rendering_engine, worlds, lab });
+		shell::Menu menu({ *m_shell, m_rendering_engine, *receiver, worlds, lab });
 		std::optional<shell::Choice> choice = menu.run(error_message);
 		error_message.clear(); // shown by the page
 

@@ -37,6 +37,9 @@ struct Baked
 	// Throws BaseException for another version, a missing or malformed
 	// field, or a block with no look.
 	static Baked read(const Json::Value &json);
+	// The file a game ships (`<share>/games/<game>/palette.json`), read.
+	// Throws if it isn't there or won't read.
+	static Baked load(const std::string &game);
 };
 
 } // namespace far
