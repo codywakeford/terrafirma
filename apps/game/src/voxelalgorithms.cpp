@@ -5,7 +5,7 @@
 #include <array>
 
 #include "voxelalgorithms.h"
-#include "planet/planet.h" // Terra Firma
+#include "planet/atlas.h" // Terra Firma
 #include "nodedef.h"
 #include "mapblock.h"
 #include "map.h"
@@ -231,10 +231,10 @@ bool step_rel_block_pos(direction dir, relative_v3 &rel_pos,
 }
 
 /*
- * Terra Firma: step_rel_block_pos, over a planet face's edge if the step
- * crosses one: the neighbour is the next face's node (Map::next), and `dir`
- * becomes the way the step goes in that face's grid (so light doesn't turn
- * back on its source there). Returns whether the block changed.
+ * Terra Firma: step_rel_block_pos, across an atlas's seam if the step
+ * crosses one: the neighbour is the next grid's node (Map::next), and `dir`
+ * becomes the way the step goes in that grid (so light doesn't turn back
+ * on its source there). Returns whether the block changed.
  */
 static bool step_on_planet(Map *map, direction &dir, relative_v3 &rel_pos,
 	mapblock_v3 &block_pos)
@@ -249,25 +249,14 @@ static bool step_on_planet(Map *map, direction &dir, relative_v3 &rel_pos,
 		block_pos = getNodeBlockPos(next.pos);
 		rel_pos = next.pos - block_pos * MAP_BLOCKSIZE;
 		if (dir != 1 && dir != 4) {
-			const auto way = planet::Planet::turned(neighbor_dirs[dir].X, neighbor_dirs[dir].Z, next.turn);
+			const auto way = planet::Atlas::turned<int>(neighbor_dirs[dir].X, neighbor_dirs[dir].Z, next.turn);
 			for (direction d = 0; d < 6; d++)
 				if (neighbor_dirs[d] == v3s16(way[0], 0, way[1]))
 					dir = d;
 		}
 		return true;
 	}
-	if (!crossed || !map->getPlanet() || dir == 1 || dir == 4)
-		return crossed;
-	const Map::Next next = map->next(from, neighbor_dirs[dir]);
-	if (next.pos == from + neighbor_dirs[dir])
-		return crossed;
-	block_pos = getNodeBlockPos(next.pos);
-	rel_pos = next.pos - block_pos * MAP_BLOCKSIZE;
-	const auto way = planet::Planet::turned(neighbor_dirs[dir].X, neighbor_dirs[dir].Z, next.turn);
-	for (direction d = 0; d < 6; d++)
-		if (neighbor_dirs[d] == v3s16(way[0], 0, way[1]))
-			dir = d;
-	return true;
+	return crossed;
 }
 
 /*

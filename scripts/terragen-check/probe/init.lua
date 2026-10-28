@@ -12,9 +12,12 @@ local remaining = #points
 local WATER = { ["tf_world:water_source"] = true, ["tf_world:water_flowing"] = true, ["tf_world:ice"] = true,
 	["tf_world:lava_source"] = true, ["tf_world:lava_flowing"] = true }
 
+-- from the atlas's top layer down (above it is seam)
+local TOP = (core.planet.atlas() or error("terragen check: the world isn't a planet")).top - 1
+
 local function column(p)
 	local water = -9999
-	for y = 260, -120, -1 do
+	for y = TOP, -120, -1 do
 		local name = core.get_node({ x = p.x, y = y, z = p.z }).name
 		if WATER[name] then
 			if water == -9999 then water = y end
@@ -26,30 +29,17 @@ local function column(p)
 end
 
 -- On a planet the world model's column (x, z) is somewhere on the sphere:
--- the map node nearest it (round where its latitude and longitude put it).
+-- the surface node at its latitude and longitude (core.planet.atlas_node).
 -- Toward the poles the world's columns stretch over several nodes and not
 -- every column is some node's, so what's probed is the column that node
 -- actually is (core.terra.world_column): logged as MAP, and the prediction
 -- is made for it (predict --columns).
 local function onMap(p)
-	if not core.planet.enabled() then
-		return { x = p.x, z = p.z, wx = p.x, wz = p.z }
-	end
 	local size = core.terra.world().size
-	local b = core.terra.block(p.z / size * math.pi, p.x / size * 2 * math.pi)
-	local cx, cz = math.floor(b.x + 0.5), math.floor(b.z + 0.5)
-	local best, bestd
-	for dz = -3, 3 do
-		for dx = -3, 3 do
-			local n = { x = cx + dx, y = 0, z = cz + dz }
-			local c = core.terra.world_column(n)
-			local ddx = math.abs(c.x - p.x)
-			ddx = math.min(ddx, size - ddx)
-			local d = ddx * ddx + (c.z - p.z) ^ 2
-			if not bestd or d < bestd then best, bestd = { x = n.x, z = n.z, wx = c.x, wz = c.z }, d end
-		end
-	end
-	return best
+	local n = core.planet.atlas_node(p.z / size * math.pi, p.x / size * 2 * math.pi, 0)
+		or error("terragen check: no surface node at world column " .. p.x .. " " .. p.z)
+	local c = core.terra.world_column(n)
+	return { x = n.x, z = n.z, wx = c.x, wz = c.z }
 end
 
 core.register_on_mods_loaded(function()

@@ -22,7 +22,6 @@
 #include "scripting_server.h"
 #include "server.h"
 #include "servermap.h"
-#include "planet/planet.h" // Terra Firma
 #include "util/numeric.h"
 #include "util/basic_macros.h"
 #include "util/pointedthing.h"
@@ -83,42 +82,12 @@ static void fillViewConeBlock(v3s16 p0,
 	}
 }
 
-// Terra Firma: the flat cone can reject a nearby block before it is carried
-// across a face edge. Judge the carried block where the player sees it.
-static void fillPlanetViewConeBlock(v3s16 p0, s16 r, v3f camera_pos,
-		v3f camera_dir, float camera_fov, const planet::Planet &planet,
-		int face, std::set<v3s16> &list)
-{
-	const planet::Lens<double> lens(planet, camera_pos.X / BS,
-		camera_pos.Y / BS, camera_pos.Z / BS);
-	const double middle = MAP_BLOCKSIZE / 2 - 0.5;
-	const double range = r * MAP_BLOCKSIZE;
-	const double radius = MAP_BLOCKSIZE * 0.87; // half a block's diagonal
-	const double cone = std::cos(std::min(camera_fov * 0.55f, core::PI * 0.5f));
-	for (int x = p0.X - r; x <= p0.X + r; x++)
-	for (int y = p0.Y - r; y <= p0.Y + r; y++)
-	for (int z = p0.Z - r; z <= p0.Z + r; z++) {
-		const auto at = planet.wrap(face, x * MAP_BLOCKSIZE + middle,
-			z * MAP_BLOCKSIZE + middle);
-		const auto v = lens.at(at[0] - camera_pos.X / BS,
-			y * MAP_BLOCKSIZE + middle, at[1] - camera_pos.Z / BS);
-		const double far = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-		if (far > range + radius)
-			continue;
-		if (far > radius &&
-			(v.x * camera_dir.X + v.y * camera_dir.Y + v.z * camera_dir.Z) / far < cone - radius / far)
-			continue;
-		list.emplace(x, y, z); // mapped by onto() with the near blocks
-	}
-}
-
 void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 	s16 active_block_range,
 	s16 active_object_range,
 	std::set<v3s16> &blocks_removed,
 	std::set<v3s16> &blocks_added,
-	std::set<v3s16> &extra_blocks_added,
-	const planet::Planet *planet)
+	std::set<v3s16> &extra_blocks_added)
 {
 	/*
 		Create the new list
@@ -127,10 +96,7 @@ void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 	std::set<v3s16> extralist;
 	for (const PlayerSAO *playersao : active_players) {
 		v3s16 pos = getNodeBlockPos(floatToInt(playersao->getBasePosition(), BS));
-		const v3f at = playersao->getBasePosition() / BS;
-		const int face = planet ? planet->nearest(at.X, at.Z) : 0;
-		std::set<v3s16> near, seen; // Terra Firma: wrapped onto the planet below
-		fillRadiusBlock(pos, active_block_range, near);
+		fillRadiusBlock(pos, active_block_range, newlist);
 
 		s16 player_ao_range = std::min(active_object_range, playersao->getWantedRange());
 		// only do this if this would add blocks
@@ -140,30 +106,10 @@ void ActiveBlockList::update(std::vector<PlayerSAO*> &active_players,
 			camera_dir.rotateXZBy(playersao->getRotation().Y);
 			if (playersao->getCameraInverted())
 				camera_dir = -camera_dir;
-			if (planet)
-				fillPlanetViewConeBlock(pos, player_ao_range,
+			fillViewConeBlock(pos, player_ao_range,
 					playersao->getEyePosition(), camera_dir,
-					playersao->getFov(), *planet, face, seen);
-			else
-				fillViewConeBlock(pos, player_ao_range,
-					playersao->getEyePosition(), camera_dir,
-					playersao->getFov(), seen);
+					playersao->getFov(), extralist);
 		}
-		// Terra Firma: on a planet, round the player's face's grid carried
-		// over its edges onto the faces the planet has there (Planet::wrap)
-		const auto onto = [&](const std::set<v3s16> &from, std::set<v3s16> &to) {
-			for (v3s16 b : from) {
-				if (planet) {
-					const double middle = MAP_BLOCKSIZE / 2 - 0.5;
-					const auto w = planet->wrap(face, b.X * MAP_BLOCKSIZE + middle, b.Z * MAP_BLOCKSIZE + middle);
-					b.X = getContainerPos(w[0], MAP_BLOCKSIZE);
-					b.Z = getContainerPos(w[1], MAP_BLOCKSIZE);
-				}
-				to.insert(b);
-			}
-		};
-		onto(near, newlist);
-		onto(seen, extralist);
 	}
 
 	m_abm_list = newlist;
@@ -962,7 +908,7 @@ void ServerEnvironment::step(float dtime)
 		std::set<v3s16> blocks_added;
 		std::set<v3s16> extra_blocks_added;
 		m_active_blocks.update(players, active_block_range, active_object_range,
-			blocks_removed, blocks_added, extra_blocks_added, m_server->planet());
+			blocks_removed, blocks_added, extra_blocks_added);
 
 		/*
 			Handle removed blocks

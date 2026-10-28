@@ -5,7 +5,6 @@
 
 #include "far/globe.h"
 #include "planet/atlas.h"
-#include "planet/planet.h"
 #include <optional>
 
 #include "mapgen/terra_column.h"
@@ -96,9 +95,8 @@ struct Tile
 class Generator
 {
 public:
-	// `planet`: the world's, if it's one: columns are the world model's at
-	// their latitude and longitude (terra::Columns)
-	Generator(const Horizon &horizon, const std::optional<planet::Planet> &planet);
+	// A flat world's (the Lab's): columns are the world model's, block for block
+	explicit Generator(const Horizon &horizon);
 	// An atlas planet's: its tiles are a globe's (far/globe.h), each cell
 	// the column the atlas's generator builds at that latitude and longitude
 	Generator(const Horizon &horizon, const planet::Atlas &atlas);
@@ -128,7 +126,6 @@ private:
 	terragen::Cover coverAt(s32 x, s32 z, const terragen::Ground &ground) const;
 
 	std::unique_ptr<terragen::World> m_world;
-	std::optional<planet::Planet> m_planet;
 	std::optional<planet::Atlas> m_atlas;
 	std::optional<Globe> m_globe; // an atlas's tiles
 	std::unique_ptr<terra::Columns> m_columns;

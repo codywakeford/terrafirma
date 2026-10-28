@@ -22,7 +22,7 @@
 #include "util/numeric.h" // for forEachNodeInArea
 
 class MapSector;
-namespace planet { class Planet; class Atlas; } // Terra Firma
+namespace planet { class Atlas; } // Terra Firma
 class NodeMetadata;
 class NodeTimer;
 class IGameDef;
@@ -281,23 +281,18 @@ public:
 	}
 	bool isBlockOccluded(v3s16 pos_relative, v3s16 cam_pos_nodes, bool dense = false);
 
-	/*
-		Terra Firma: the planet this map is the faces of, if it is one
-		(src/planet/planet.h). Set once, before anything reads the map.
-	*/
-	void setPlanet(const planet::Planet *planet) { m_planet = planet; }
-	const planet::Planet *getPlanet() const { return m_planet; }
-	// Or an atlas planet (src/planet/atlas.h): its regions are the map's.
-	// Never both.
+	// Terra Firma: the planet this map stores, if it is one
+	// (src/planet/atlas.h): its regions are the map's. Set once, before
+	// anything reads the map.
 	void setAtlas(const planet::Atlas *atlas) { m_atlas = atlas; }
 	const planet::Atlas *getAtlas() const { return m_atlas; }
 
 	/*
 		Terra Firma: the node next to `p` along `dir` (one axis, ±1). On a
-		flat world, p + dir. On a planet, a step off a face's edge lands on
-		the neighbour face, and `turn` is the quarter turns the grid took
-		(east toward north; 0 within a face, and up and down). Whatever
-		asks "what's next to this node" asks this, so it holds across edges.
+		flat world, p + dir. On a planet, a step across a seam lands in the
+		next grid (planet::Atlas::step), and `turn` is the quarter turns the
+		grid took (east toward north). Whatever asks "what's next to this
+		node" asks this, so it holds across seams.
 	*/
 	struct Next
 	{
@@ -310,12 +305,12 @@ public:
 	Next next(v3s16 p, v3s16 dir) const;
 
 	/*
-		Terra Firma: what's at `p` as seen from `from`'s face. On a planet,
-		past the edge of the face `from` is on, the face's grid carries on
-		onto the neighbour face (Planet::halo): `pos` is the node the map
-		keeps there and `turn` the grid's turn between. Elsewhere (a flat
-		world, round a corner, from a gap) it's p itself. Whatever looks at
-		an area round something (collision, meshes, rays) looks through this.
+		Terra Firma: what's at `p` as seen from `from`'s grid. On a planet,
+		past a seam `from`'s grid carries on into the next one
+		(planet::Atlas::see): `pos` is the node the map keeps there and `turn`
+		the grid's turn between. Elsewhere (a flat world, inside a grid, from
+		seam) it's p itself. Whatever looks at an area round something
+		(collision, meshes, rays) looks through this.
 	*/
 	Next see(v3s16 from, v3s16 p) const;
 	// Terra Firma: every node `p`'s cell of `from`'s grid overlaps (an atlas
@@ -324,16 +319,16 @@ public:
 	std::vector<Next> seeAll(v3s16 from, v3s16 p) const;
 
 	// Terra Firma: how far apart two positions are (BS units): on a planet,
-	// through the planet (Planet::distance); straight across the map if not.
+	// straight through it, each where it is on the planet (infinite for one
+	// past the atlas's top); straight across the map if not.
 	f32 distance(v3f a, v3f b) const;
-	// The node at `p` seen from `from`'s face, turned into that face's grid.
+	// The node at `p` seen from `from`'s grid, turned into that grid.
 	MapNode getNodeSeen(v3s16 from, v3s16 p, bool *is_valid_position = nullptr);
 	// Terra Firma: the node at p, from a grid `turn` quarter turns from its own
 	MapNode getNodeTurned(v3s16 p, int turn);
 
 protected:
 	IGameDef *m_gamedef;
-	const planet::Planet *m_planet = nullptr; // Terra Firma
 	const planet::Atlas *m_atlas = nullptr;   // Terra Firma
 
 	std::set<MapEventReceiver*> m_event_receivers;

@@ -102,15 +102,32 @@ static Calendar today(Server *server, const World &w)
 	return calendar(w.code().year, server->getEnv().getDayCount(), hourNow(server));
 }
 
-// The world model's column for a position: its block, z held inside the
-// world (beyond the polar edge the sky and climate are the edge's); on a
-// planet, the column at its latitude and longitude (Planet::equirect).
+// The world model's column for a position (nodes): its block, z held inside
+// the world (beyond the polar edge the sky and climate are the edge's); on a
+// planet, the column at its latitude and longitude, wherever it stands (in
+// the core too). None for a node that stores no cell (seam): no place.
+static std::optional<std::array<int32_t, 2>> placeColumn(Server *server, const World &w, const v3f &pos)
+{
+	if (const planet::Atlas *atlas = server->atlas()) {
+		const std::optional<terragen::Atlas::Vec> p =
+				atlas->point(planet::Atlas::moverNode(pos.X, pos.Y, pos.Z), pos.X, pos.Y, pos.Z);
+		if (!p)
+			return std::nullopt;
+		const std::array<s16, 2> c = terra::equirect(std::atan2(p->y, std::hypot(p->x, p->z)),
+				std::atan2(p->z, p->x), w.code().size);
+		return std::array<int32_t, 2>{ c[0], c[1] };
+	}
+	int32_t half = w.code().size / 2;
+	return std::array<int32_t, 2>{ (int32_t)std::floor(pos.X + 0.5f),
+		std::clamp<int32_t>((int32_t)std::floor(pos.Z + 0.5f), 1 - half, half) };
+}
+
+// The same where there must be one (a player, a sky): seam is an error.
 static std::array<int32_t, 2> worldColumn(Server *server, const World &w, const v3f &pos)
 {
-	if (const planet::Planet *planet = server->planet())
-		return planet->equirect(pos.X, pos.Z, w.code().size);
-	int32_t half = w.code().size / 2;
-	return { (int32_t)std::floor(pos.X + 0.5f), std::clamp<int32_t>((int32_t)std::floor(pos.Z + 0.5f), 1 - half, half) };
+	if (const std::optional<std::array<int32_t, 2>> c = placeColumn(server, w, pos))
+		return *c;
+	throw LuaError("core.terra: the position is seam: on no column of the planet");
 }
 
 // core.terra.enabled() → whether terra generated this world (the Lab, for
@@ -268,14 +285,24 @@ int ModApiTerra::l_cover(lua_State *L)
 	}
 	int n = 1;
 	int32_t half = w.code().size / 2;
-	const planet::Planet *planet = getServer(L)->planet();
+	const planet::Atlas *atlas = getServer(L)->atlas();
 	for (int32_t mz = a.Z; mz <= b.Z; mz++) {
 		for (int32_t mx = a.X; mx <= b.X; mx++, n++) {
-			// the world model's column (on a planet, at its latitude and longitude)
-			const std::array<int32_t, 2> col = planet ? planet->equirect(mx, mz, w.code().size)
-				: std::array<int32_t, 2>{ mx, mz };
-			const int32_t x = col[0], z = col[1];
-			const bool beyond = z >= half || z <= -half;
+			// the world model's column (on a planet, the storage column's
+			// place at its surface layer; seam and the core are no column:
+			// nothing grows)
+			int32_t x = mx, z = mz;
+			bool column = true;
+			if (atlas) {
+				const std::optional<std::array<double, 2>> at = atlas->place({ mx, 0, mz });
+				column = at.has_value();
+				if (at) {
+					const std::array<s16, 2> c = terra::equirect((*at)[0], (*at)[1], w.code().size);
+					x = c[0];
+					z = c[1];
+				}
+			}
+			const bool beyond = !column || z >= half || z <= -half;
 			const fix sun = beyond ? 0 : w.sunlight(w.v(z), std::nullopt);
 			Cover c{ 0, 0, 0, false, false, 0 };
 			fix heat = 0, wet = 0, season = 0, elevation = 0;
@@ -408,7 +435,10 @@ int ModApiTerra::l_species(lua_State *L)
 	const std::vector<terra::Species> &species = server->terra().resolve(ndef);
 
 	// the world model's column (on a planet, at its latitude and longitude)
-	const auto [x, z] = worldColumn(server, w, v3f(p.X, p.Y, p.Z));
+	const std::optional<std::array<int32_t, 2>> column = placeColumn(server, w, v3f(p.X, p.Y, p.Z));
+	if (!column)
+		return 0; // seam: no place, nothing grows
+	const auto [x, z] = *column;
 	int32_t half = w.code().size / 2;
 	if (z >= half || z <= -half)
 		return 0; // beyond the polar edge: nothing grows
@@ -432,8 +462,8 @@ static const far::Generator &surfaceGenerator(Server *server)
 		h.water_level = params->water_level;
 		h.blocks = terraBlocks(server->getEmergeManager()->getBiomeManager(), server->getNodeDefManager());
 		h.species = t.resolve(server->getNodeDefManager());
-		const planet::Planet *planet = server->planet();
-		t.surface = std::make_unique<far::Generator>(h, planet ? std::optional<planet::Planet>(*planet) : std::nullopt);
+		const planet::Atlas *atlas = server->atlas();
+		t.surface = atlas ? std::make_unique<far::Generator>(h, *atlas) : std::make_unique<far::Generator>(h);
 	}
 	return *t.surface;
 }
@@ -442,26 +472,37 @@ static const far::Generator &surfaceGenerator(Server *server)
 // column at pos as the generator makes it, without generating it. ground is
 // the top solid block's y and top its name; water and liquid the surface of
 // any water or lava over it; trunk and canopy, if a tree stands there,
-// { low, high, name } (its blocks low to high). What the far view draws.
+// { low, high, name } (its blocks low to high; none on a planet). What the
+// far view draws.
 int ModApiTerra::l_surface(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
 	Server *server = getServer(L);
 	const far::Generator &g = surfaceGenerator(server);
 	v3s16 p = check_v3s16(L, 1);
-	// one level-0 tile around the column: its trees are grown exactly
-	far::TileKey key{ 0, (s32)std::floor(p.X / (double)far::TILE), (s32)std::floor(p.Z / (double)far::TILE) };
-	// neighbouring columns share tiles: keep the last few
-	std::deque<far::Tile> &tiles = server->terra().tiles;
-	auto it = std::find_if(tiles.begin(), tiles.end(), [&](const far::Tile &t) { return t.key == key; });
-	if (it == tiles.end()) {
-		tiles.push_front(g.build(key));
-		if (tiles.size() > 16)
-			tiles.pop_back();
-		it = tiles.begin();
+	far::Cell column;
+	if (const planet::Atlas *atlas = server->atlas()) {
+		// a storage column of a region is one place on the planet: the
+		// column the generator builds there (its y the layer). No trees: they
+		// are planted per map chunk, which a place's column isn't.
+		if (!atlas->place({ p.X, 0, p.Z }))
+			throw LuaError("core.terra.surface: the column is seam: no place on the planet");
+		column = g.column(p.X, p.Z);
+	} else {
+		// one level-0 tile around the column: its trees are grown exactly
+		far::TileKey key{ 0, (s32)std::floor(p.X / (double)far::TILE), (s32)std::floor(p.Z / (double)far::TILE) };
+		// neighbouring columns share tiles: keep the last few
+		std::deque<far::Tile> &tiles = server->terra().tiles;
+		auto it = std::find_if(tiles.begin(), tiles.end(), [&](const far::Tile &t) { return t.key == key; });
+		if (it == tiles.end()) {
+			tiles.push_front(g.build(key));
+			if (tiles.size() > 16)
+				tiles.pop_back();
+			it = tiles.begin();
+		}
+		column = it->at(p.X - key.x * far::TILE, p.Z - key.z * far::TILE);
 	}
-	const far::Tile &tile = *it;
-	const far::Cell &c = tile.at(p.X - key.x * far::TILE, p.Z - key.z * far::TILE);
+	const far::Cell &c = column;
 	const NodeDefManager *ndef = server->getNodeDefManager();
 	lua_createtable(L, 0, 6);
 	setNumber(L, "ground", c.ground);
@@ -542,71 +583,6 @@ int ModApiTerra::l_soil_points(lua_State *L)
 	return 1;
 }
 
-// core.terra.globe(pos) → { latitude, longitude }: where a point of the map
-// (x and z, fractional) is on the planet it wraps, radians north and east.
-int ModApiTerra::l_globe(lua_State *L)
-{
-	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_getfield(L, 1, "x");
-	lua_getfield(L, 1, "z");
-	double x = luaL_checknumber(L, -2), z = luaL_checknumber(L, -1);
-	lua_pop(L, 2);
-	lua_createtable(L, 0, 2);
-	if (const planet::Planet *planet = getServer(L)->planet()) { // the sphere's own
-		const terragen::Sphere::Place p = planet->place(planet->nearest(x, z), x, z);
-		setNumber(L, "latitude", planet->sphere().latitude(p));
-		setNumber(L, "longitude", planet->sphere().longitude(p));
-		return 1;
-	}
-	setNumber(L, "latitude", w.map().latitudeAt(z));
-	setNumber(L, "longitude", w.map().longitudeAt(x));
-	return 1;
-}
-
-// core.terra.block(latitude, longitude) → { x, z }: the point of the map at a
-// place on the planet (radians), fractional.
-int ModApiTerra::l_block(lua_State *L)
-{
-	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	double lat = luaL_checknumber(L, 1), lon = luaL_checknumber(L, 2);
-	lua_createtable(L, 0, 2);
-	if (const planet::Planet *planet = getServer(L)->planet()) { // the sphere's own
-		const terragen::Sphere::Vec d{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
-		const std::array<double, 2> m = planet->at(planet->sphere().place(d));
-		setNumber(L, "x", m[0]);
-		setNumber(L, "z", m[1]);
-		return 1;
-	}
-	setNumber(L, "x", w.map().xAt(lon));
-	setNumber(L, "z", w.map().zAt(lat));
-	return 1;
-}
-
-// core.terra.across(altitude, z) → { east, north }: metres of planet a block
-// spans at that height (m above the sea) and row z (terragen::Map::across). Flight
-// over the blocks moves by it.
-int ModApiTerra::l_across(lua_State *L)
-{
-	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	if (const planet::Planet *planet = getServer(L)->planet()) {
-		// on the sphere a block is a metre on the ground, columns widening with height
-		const double grown = (planet->sphere().radius() + luaL_checknumber(L, 1)) / planet->sphere().radius();
-		lua_createtable(L, 0, 2);
-		setNumber(L, "east", grown);
-		setNumber(L, "north", grown);
-		return 1;
-	}
-	terragen::Map::Across a = w.map().across(luaL_checknumber(L, 1), w.map().latitudeAt(luaL_checknumber(L, 2)));
-	lua_createtable(L, 0, 2);
-	setNumber(L, "east", a.east);
-	setNumber(L, "north", a.north);
-	return 1;
-}
-
 // core.terra.world_column(pos) → { x, z }: the world model's column a
 // position is (on a planet, the one at its latitude and longitude).
 int ModApiTerra::l_world_column(lua_State *L)
@@ -637,9 +613,6 @@ void ModApiTerra::Initialize(lua_State *L, int top)
 		{ "surface", l_surface },
 		{ "weather", l_weather },
 		{ "soil_points", l_soil_points },
-		{ "globe", l_globe },
-		{ "block", l_block },
-		{ "across", l_across },
 		{ "world_column", l_world_column },
 	};
 	for (const luaL_Reg &f : functions) {

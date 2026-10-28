@@ -225,21 +225,7 @@ static int subtract(Span s, Span cover, Span out[2])
 
 } // namespace
 
-// The pieces of [low, high] (map nodes) on a planet's faces, along x or z:
-// three columns of faces, or two rows.
-static std::vector<Span> onFaces(const planet::Planet &planet, Span s, int count)
-{
-	std::vector<Span> out;
-	const float pitch = (float)(planet.width() + planet::Planet::GAP);
-	for (int i = 0; i < count; i++) {
-		float lo = (float)planet::Planet::ORIGIN + i * pitch - 0.5f, hi = lo + (float)planet.width();
-		if (std::max(lo, s.low) < std::min(hi, s.high))
-			out.push_back({ std::max(lo, s.low), std::min(hi, s.high) });
-	}
-	return out;
-}
-
-Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::Planet> &planet)
+Mesh mesh(const Tile &tile, const Colours &colours)
 {
 	Builder b;
 	const s32 cell = tile.key.cell();
@@ -265,13 +251,10 @@ Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::
 				continue;
 			const float cx0 = (float)(i * cell) - 0.5f, cx1 = cx0 + (float)cell;
 			const bool wet = c.water > c.ground;
-			auto draw = [&](float x0, float x1, float z0, float z1, bool whole) {
-			// a whole cell's top goes in its row's strips; a cut one alone
+			auto draw = [&](float x0, float x1, float z0, float z1) {
+			// a cell's top goes in its row's strips
 			auto put = [&](Row &row, float y, video::SColorf colour, Layer layer) {
-				if (whole)
-					row.add(x0, x1, y, colour, layer);
-				else
-					b.flat(x0, x1, z0, z1, y, UP, colour, layer);
+				row.add(x0, x1, y, colour, layer);
 			};
 
 			if (!wet) {
@@ -342,19 +325,7 @@ Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::
 			}
 			};
 
-			if (!planet) {
-				draw(cx0, cx1, z0, z1, true);
-				continue;
-			}
-			// on a planet: the cell's pieces on each face (tile-local ↔ map nodes)
-			const float ox = (float)(tile.key.x * tile.key.span()), oz = (float)(tile.key.z * tile.key.span());
-			const std::vector<Span> xs = onFaces(*planet, { cx0 + ox, cx1 + ox }, 3);
-			const std::vector<Span> zs = onFaces(*planet, { z0 + oz, z1 + oz }, 2);
-			for (const Span &zp : zs)
-			for (const Span &xp : xs) {
-				const bool whole = xp.low == cx0 + ox && xp.high == cx1 + ox && zp.low == z0 + oz && zp.high == z1 + oz;
-				draw(xp.low - ox, xp.high - ox, zp.low - oz, zp.high - oz, whole);
-			}
+			draw(cx0, cx1, z0, z1);
 		}
 	}
 	return std::move(b.mesh);

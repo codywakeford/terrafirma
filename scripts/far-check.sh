@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # The far view against the world: generate areas of a terra world headless
 # and check, column by column, that core.terra.surface (what the far view
-# draws) is what the generator made: the ground's block and height, the
-# water over it, and the top of each tree. Builds the engine first.
+# draws) is what the generator made: the ground's block and height and the
+# water over it, in the middle of regions of an atlas planet. (Trees are
+# planted per map chunk, which a place's column isn't: surface has none on
+# a planet.) Builds the engine first.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,8 +15,9 @@ world="$work/world"
 mkdir -p "$world/worldmods"
 cp -r "$root/scripts/far-check/probe" "$world/worldmods/far_probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-# a planet (every terra world is), the world laid on it block for block (8 × 1024 = 8192 round)
-printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nplanet_half = 1024\n[end_of_params]\n' > "$world/map_meta.txt"
+# TF5.dGVycmE: the default size, 8192 round: an atlas of radius 8192 / 2π, the standard layout
+atlas="atlas-v2 radius=1303.7972938088067 segments=24 capLatitude=85 core=325.94932345220167 rounding=0.95 height=256"
+printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nchunksize = 1\nplanet_atlas = %s\n[end_of_params]\n' "$atlas" > "$world/map_meta.txt"
 
 port=$((30700 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
@@ -29,12 +32,7 @@ f = line.split()
 n = dict(zip(f[1::2], f[2::2]))
 columns = int(n["columns"])
 ok = True
-# Exact but for one thing no generator can know: the order the server
-# generated chunks in. A tree at a chunk's edge grows into the next chunk if
-# that isn't generated yet (and keeps its blocks there), and where crowns
-# from two chunks overlap the first planted wins. Within a chunk the far view
-# plants in the game's order, so it's exact there.
-for what, need in (("ground", 0.9999), ("water", 0.9999), ("tree", 0.99), ("height", 0.99)):
+for what, need in (("ground", 0.9999), ("water", 0.9999)):
     share = int(n[what]) / columns
     print(f"far check: {what} {int(n[what])} of {columns} columns, {share:.3%} (need {need:.2%})")
     ok &= share >= need

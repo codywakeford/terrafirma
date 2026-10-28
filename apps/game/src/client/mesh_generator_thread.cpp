@@ -46,15 +46,15 @@ void QueuedMeshUpdate::retrieveBlocks(Map *map, u16 cell_size)
 		i++;
 	}
 
-	// Terra Firma: the border past a planet face's edge, read now (this is
-	// the main thread; meshes are made on others)
+	// Terra Firma: the border past an atlas's seams, read now (this is the
+	// main thread; meshes are made on others)
 	halo.clear();
 	read.clear();
 	atlas = map->getAtlas();
 	const s16 n = cell_size * MAP_BLOCKSIZE;
 	const v3s16 low = p * MAP_BLOCKSIZE;
 	if (atlas) {
-		// an atlas: every node the mesh reads that isn't a cell (seam: over
+		// every node the mesh reads that isn't a cell (seam: over
 		// a seam, or the gap between shells, which can lie inside a block)
 		// is what lies across (Atlas::rim). Grids don't line up over a seam:
 		// a face is hidden only by what covers it whole. Across, every node
@@ -78,20 +78,6 @@ void QueuedMeshUpdate::retrieveBlocks(Map *map, u16 cell_size)
 			}
 			halo.emplace_back(v3s16(r.at.x, r.at.y, r.at.z), mixed ? open : first);
 		}
-		return;
-	}
-	if (!map->getPlanet())
-		return;
-	const v3s16 from = low + v3s16(n / 2);
-	if (!map->getPlanet()->face(from.X, from.Z))
-		return; // the seam's own blocks
-	for (s16 z = low.Z - 1; z <= low.Z + n; z++)
-	for (s16 x = low.X - 1; x <= low.X + n; x++) {
-		const v3s16 column(x, 0, z);
-		if (map->see(from, column).pos == column)
-			continue; // on the face, or beyond the planet neighbourhood
-		for (s16 y = low.Y - 1; y <= low.Y + n; y++)
-			halo.emplace_back(v3s16(x, y, z), map->getNodeSeen(from, v3s16(x, y, z)));
 	}
 }
 

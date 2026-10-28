@@ -18,8 +18,9 @@ mkdir -p "$world/worldmods"
 "$work/predict" "$code" "$world/points.txt" > "$work/predicted.txt"
 cp -r "$root/scripts/terragen-check/probe" "$world/worldmods/probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-# a planet (every terra world is), the world laid on it block for block (8 × 1024 = 8192 round)
-printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\nplanet_half = 1024\n[end_of_params]\n' "$code" > "$world/map_meta.txt"
+# TF5.dGVycmE: the default size, 8192 round: an atlas of radius 8192 / 2π, the standard layout
+atlas="atlas-v2 radius=1303.7972938088067 segments=24 capLatitude=85 core=325.94932345220167 rounding=0.95 height=256"
+printf 'mg_name = terra\nmgterra_code = %s\nseed = 1\nchunksize = 1\nplanet_atlas = %s\n[end_of_params]\n' "$code" "$atlas" > "$world/map_meta.txt"
 
 port=$((30200 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it

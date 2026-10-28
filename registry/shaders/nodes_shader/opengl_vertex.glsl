@@ -196,9 +196,9 @@ void main(void)
 #endif
 
 	worldPosition = (mWorld * pos).xyz;
-	gl_Position = sphereClip(pos, mWorld);
+	gl_Position = mWorldViewProj * pos;
 
-	eyeVec = sphereEyeVec(pos, mWorld, -(mWorldView * pos).xyz);
+	eyeVec = -(mWorldView * pos).xyz;
 #ifdef SECONDSTAGE
 	normalPass = normalize((inVertexNormal+1)/2);
 #endif

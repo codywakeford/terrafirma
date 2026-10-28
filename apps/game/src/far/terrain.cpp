@@ -37,12 +37,10 @@ terragen::Cover Generator::coverAt(s32 x, s32 z, const terragen::Ground &ground)
 	return m_world->cover(w[0], w[1], ground);
 }
 
-Generator::Generator(const Horizon &horizon, const std::optional<planet::Planet> &planet) :
+Generator::Generator(const Horizon &horizon) :
 	m_horizon(horizon),
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
-	m_planet(planet),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level,
-			m_planet ? &*m_planet : nullptr))
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, nullptr))
 {
 	growCrowns();
 }
@@ -52,7 +50,7 @@ Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas) :
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
 	m_atlas(atlas),
 	m_globe(Globe(atlas.atlas().params().radius)),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, nullptr, &*m_atlas))
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, &*m_atlas))
 {
 	growCrowns();
 }

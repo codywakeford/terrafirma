@@ -5,7 +5,7 @@
 #include "camera.h"
 #include "client.h"
 #include "clientmap.h"     // MapDrawControl
-#include "planet/planet.h" // Terra Firma
+#include "planet/atlas.h" // Terra Firma
 #include "localplayer.h"
 #include "player.h"
 #include <cmath>
@@ -588,10 +588,10 @@ void Camera::updateViewingRange()
 
 	m_draw_control.wanted_range = std::fmin(adjustDist(viewing_range, getFovMax()), 6000);
 	f32 far_blocks = m_draw_control.range_all ? 10000 : std::fmax(2000, m_draw_control.wanted_range);
-	if (const planet::Planet *planet = m_client->getPlanet()) {
+	if (const planet::Atlas *atlas = m_client->getAtlas()) {
 		// Far terrain, near blocks and clouds share one depth buffer. It must
 		// reach the visible planet, including when the camera climbs into orbit.
-		const f32 radius = planet->sphere().radius();
+		const f32 radius = atlas->atlas().params().radius;
 		const f32 altitude = std::max(0.0f, m_camera_position.Y / BS);
 		far_blocks = std::max(far_blocks, 2.0f * radius + altitude + 512.0f);
 	}
@@ -780,7 +780,3 @@ void Camera::updateWieldedTool()
 	m_wieldnode->setLightColorAndAnimation(m_player_light_color, m_client->getAnimationTime());
 }
 
-bool Camera::isCurved() const
-{
-	return m_client->getPlanet() != nullptr;
-}

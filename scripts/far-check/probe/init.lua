@@ -1,16 +1,20 @@
 -- The far view draws each column as core.terra.surface says the generator
 -- makes it. Generate some areas for real and compare, column by column:
--- the ground (its block and height), any water over it, and the top of any
--- tree. Prints FAR lines; scripts/far-check.sh reads them.
+-- the ground (its block and height) and any water over it. Prints FAR
+-- lines; scripts/far-check.sh reads them.
 
--- one area on each of the planet's faces: three in the middle, three by an edge
-local AREAS = {}
-for face = 0, 5 do
-	local sq = core.planet.square(face)
-	local at = face < 3 and 0.5 or 0.03
-	AREAS[#AREAS + 1] = { sq.x + math.floor(sq.width * at), sq.z + math.floor(sq.width * 0.4) }
-end
+-- one area in the middle of each of six regions: segments round the
+-- equator, and a cap (in storage a region's grid is columns of the planet:
+-- x east, y the layer, z north)
 local SIZE = 96
+local AREAS = {}
+local atlas = core.planet.atlas() or error("far check: the world isn't a planet")
+for _, r in ipairs(atlas.regions) do
+	if #AREAS < 6 and r.width > SIZE and r.depth > SIZE and (r.kind == "cap" or r.index % 5 == 0) then
+		AREAS[#AREAS + 1] = { r.x + math.floor((r.width - SIZE) / 2), r.z + math.floor((r.depth - SIZE) / 2) }
+	end
+end
+assert(#AREAS == 6, "far check: only " .. #AREAS .. " regions to probe")
 
 local function kind(name)
 	local def = core.registered_nodes[name]
@@ -18,7 +22,7 @@ local function kind(name)
 	local g = def.groups or {}
 	if (g.tree or 0) > 0 or (g.leaves or 0) > 0 then return "tree" end
 	if def.drawtype == "plantlike" or def.drawtype == "nodebox" then return "plant" end -- planted after: tufts, cacti
-	if def.liquidtype ~= "none" then return "liquid" end
+	if def.liquidtype ~= "none" or name == "tf_world:ice" then return "liquid" end -- a frozen sea's top is its water
 	return "solid"
 end
 
@@ -35,7 +39,7 @@ local function real(data, area, x, z, top, bottom)
 	return out
 end
 
-local totals = { columns = 0, ground = 0, water = 0, tree = 0, trees = 0, height = 0 }
+local totals = { columns = 0, ground = 0, water = 0, rooted = 0 }
 local shown = 0
 local function miss(what, x, z, want, got)
 	if shown < 12 then
@@ -59,27 +63,35 @@ core.after(0, function()
 				for x = minp.x + 12, maxp.x - 12 do
 					local s = core.terra.surface({ x = x, y = 0, z = z })
 					local r = real(data, area, x, z, maxp.y, minp.y)
+					-- a tree's trunk stands in its column's top block: on a planet
+					-- surface plants no trees, so that column can't be told
+					local rooted = kind(core.get_name_from_content_id(data[area:index(x, s.ground, z)])) == "tree"
+					if rooted then
+						totals.rooted = totals.rooted + 1
+					else
 					totals.columns = totals.columns + 1
 					if r.ground and r.ground.y == s.ground and r.ground.name == s.top then
 						totals.ground = totals.ground + 1
 					else
-						miss("ground", x, z, s.ground .. " " .. s.top, r.ground and (r.ground.y .. " " .. r.ground.name) or "none")
+						local around = {}
+						for y = s.ground + 2, s.ground - 1, -1 do
+							around[#around + 1] = y .. "=" .. core.get_name_from_content_id(data[area:index(x, y, z)])
+						end
+						miss("ground", x, z, s.ground .. " " .. s.top, (r.ground and (r.ground.y .. " " .. r.ground.name) or "none")
+							.. " [" .. table.concat(around, " ") .. "]")
 					end
 					local sw = s.water and (s.water .. " " .. s.liquid) or "none"
 					local rw = r.water and (r.water.y .. " " .. r.water.name) or "none"
-					if sw == rw then totals.water = totals.water + 1 else miss("water", x, z, sw, rw) end
-					local st = s.canopy and (s.canopy.high .. " " .. s.canopy.name) or "none"
-					local rt = r.tree and (r.tree.y .. " " .. r.tree.name) or "none"
-					if st == rt then totals.tree = totals.tree + 1 else miss("tree", x, z, st, rt) end
-					if r.tree then totals.trees = totals.trees + 1 end
-					-- the crown's height alone: where crowns overlap, which tree's blocks win depends on planting order
-					if (s.canopy and s.canopy.high) == (r.tree and r.tree.y) then totals.height = totals.height + 1 end
+					-- water that has flowed since it was generated is the world's doing, not the generator's
+					if r.water and r.water.name:find("_flowing$") then
+						totals.water = totals.water + 1
+					elseif sw == rw then totals.water = totals.water + 1 else miss("water", x, z, sw, rw) end
+					end
 				end
 			end
 			pending = pending - 1
 			if pending == 0 then
-				print(("FAR columns %d ground %d water %d tree %d height %d trees %d"):format(
-					totals.columns, totals.ground, totals.water, totals.tree, totals.height, totals.trees))
+				print(("FAR columns %d ground %d water %d rooted %d"):format(totals.columns, totals.ground, totals.water, totals.rooted))
 				core.request_shutdown()
 			end
 		end)

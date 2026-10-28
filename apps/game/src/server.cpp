@@ -523,24 +523,13 @@ void Server::init()
 
 	// Terra Firma: whether the world is a planet is the world's (map_meta.txt,
 	// or the settings a new world starts from), known before any mod runs:
-	// core.planet answers while mods load.
-	if (std::string half; startup_server_map->settings_mgr.getMapSetting("planet_half", &half) && stoi(half) != 0) {
-		std::string mapping;
-		startup_server_map->settings_mgr.getMapSetting("planet_mapping", &mapping);
-		terragen::Sphere::Mapping geometry = terragen::Sphere::Mapping::Equiangular;
-		if (mapping == "cobe-v1")
-			geometry = terragen::Sphere::Mapping::Cobe;
-		else if (!mapping.empty() && mapping != "equiangular-v1")
-			throw ServerError("Unsupported planet_mapping '" + mapping + "'");
-		m_planet.emplace(stoi(half), geometry); // throws on a size the map can't hold
-		startup_server_map->setPlanet(&*m_planet);
-	}
-	// An atlas planet (planet/atlas.h): its mapping code is the world's. Its
-	// seams aren't stepped across yet (sprint 30, phase 3): the map holds it
-	// as plain regions, walled by seam.
+	// core.planet answers while mods load. One made on the cube-sphere net
+	// (planet_half), before the atlas, is refused.
+	if (std::string half; startup_server_map->settings_mgr.getMapSetting("planet_half", &half) && stoi(half) != 0)
+		throw ServerError("This world was made on the old cube planet, and can't be played any more. "
+			"Make a new world: planets are laid out by the atlas now.");
+	// The world's atlas (planet/atlas.h): its mapping code is the world's.
 	if (std::string code; startup_server_map->settings_mgr.getMapSetting("planet_atlas", &code) && !code.empty()) {
-		if (m_planet)
-			throw ServerError("This world names both a cube planet (planet_half) and an atlas (planet_atlas)");
 		try {
 			m_atlas.emplace(terragen::Atlas::parse(code));
 			startup_server_map->setAtlas(&*m_atlas);
@@ -548,7 +537,7 @@ void Server::init()
 			throw ServerError(std::string("This world's planet_atlas can't be used: ") + e.what());
 		}
 	}
-	const double radius = m_planet ? m_planet->sphere().radius() : m_atlas ? m_atlas->atlas().params().radius : 0;
+	const double radius = m_atlas ? m_atlas->atlas().params().radius : 0;
 	m_flight = std::make_unique<orbit::Flight>(radius > 0 ? terragen::sphere(radius) : terragen::home());
 
 	// Initialize scripting
@@ -607,13 +596,9 @@ void Server::init()
 	m_emerge->initMapgens(servermap.getMapgenParams());
 	// every terra world is a planet; one made before planets were is refused,
 	// not played flat (only the Lab's worlds are flat)
-	if (m_emerge->mgparams->mgtype == MAPGEN_TERRA && !m_planet && !m_atlas)
+	if (m_emerge->mgparams->mgtype == MAPGEN_TERRA && !m_atlas)
 		throw ServerError("This world was made before worlds were planets, and can't be played any more. "
 			"Make a new world: every world is a planet now.");
-	if (m_emerge->mgparams->planet_half != (m_planet ? m_planet->half() : 0))
-		throw ServerError("planet_half changed while mods loaded: the planet is the world's, not a mod's");
-	if (m_planet && m_emerge->mgparams->planet_mapping != (u8)m_planet->sphere().mapping())
-		throw ServerError("planet_mapping changed while mods loaded: the mapping is the world's, not a mod's");
 	// the same planet, however the code was written
 	const std::string &mgAtlas = m_emerge->mgparams->planet_atlas;
 	if (mgAtlas.empty() != !m_atlas ||
@@ -625,13 +610,6 @@ void Server::init()
 		for (const planet::Atlas::Region &region : m_atlas->regions())
 			if (const planet::Atlas::Rect &r = region.rect; r.x < emin.X || r.z < emin.Z || r.x + r.width - 1 > emax.X || r.z + r.depth - 1 > emax.Z)
 				throw ServerError("the atlas's regions reach past what the map generator makes (chunksize, mapgen_limit)");
-	}
-	if (m_planet) {
-		// every node of the net must be one the generator can make
-		const auto [emin, emax] = get_mapgen_edges(m_emerge->mgparams->mapgen_limit, m_emerge->mgparams->chunksize);
-		const planet::Planet::Square low = m_planet->square(0), high = m_planet->square(5);
-		if (low.x < emin.X || low.z < emin.Z || high.x + m_planet->width() - 1 > emax.X || high.z + m_planet->width() - 1 > emax.Z)
-			throw ServerError("the planet's faces reach past what the map generator makes (chunksize, mapgen_limit)");
 	}
 
 	if (g_settings->getBool("enable_rollback_recording")) {
@@ -4714,20 +4692,13 @@ void Server::SendHorizon(session_t peer_id)
 	Send(&pkt);
 }
 
-// Terra Firma: the planet's size, so the client draws the faces as one
+// Terra Firma: the planet's atlas, so the client stores and draws it as the server does
 void Server::SendPlanet(session_t peer_id)
 {
-	if (m_atlas) {
-		NetworkPacket pkt(TOCLIENT_ATLAS, 0, peer_id);
-		pkt << m_atlas->atlas().code();
-		Send(&pkt);
+	if (!m_atlas)
 		return;
-	}
-	if (!m_planet)
-		return;
-	NetworkPacket pkt(TOCLIENT_PLANET, 5, peer_id);
-	pkt << (s32)m_planet->half();
-	pkt << (u8)m_planet->sphere().mapping();
+	NetworkPacket pkt(TOCLIENT_ATLAS, 0, peer_id);
+	pkt << m_atlas->atlas().code();
 	Send(&pkt);
 }
 

@@ -129,20 +129,11 @@ public:
 	// Returns a lambda that when called with an object's position and bounding-sphere
 	// radius (both in BS space) returns true if, and only if the object should be
 	// frustum-culled.
-	// Terra Firma: whether the world is drawn curved (a planet: the sphere lens)
-	bool isCurved() const;
-
 	auto getFrustumCuller() const
 	{
-		// Terra Firma: on a planet the world is drawn curved (the sphere
-		// lens), so where a block is flat says nothing about whether it's in
-		// view: nothing is culled.
 		return [planes = getFrustumCullPlanes(),
-				camera_offset = intToFloat(m_camera_offset, BS),
-				curved = isCurved()
+				camera_offset = intToFloat(m_camera_offset, BS)
 				](v3f position, f32 radius) {
-			if (curved)
-				return false;
 			v3f pos_camspace = position - camera_offset;
 			for (auto &plane : planes) {
 				if (plane.getDistanceTo(pos_camspace) > radius)

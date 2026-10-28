@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "planet/planet.h"
 #include <optional>
 
 #include "far/terrain.h"
@@ -65,9 +64,7 @@ struct Mesh
 	std::vector<Part> parts;
 };
 
-// A tile's mesh. On a planet (src/planet/planet.h) no cell crosses from one
-// face onto another: a cell over a face's edge is cut there, each piece
-// drawn on its own face, and nothing is drawn in the gaps between them.
-Mesh mesh(const Tile &tile, const Colours &colours, const std::optional<planet::Planet> &planet);
+// A tile's mesh, flat: in the tile's own cells (a layout bends it onto its planet).
+Mesh mesh(const Tile &tile, const Colours &colours);
 
 } // namespace far

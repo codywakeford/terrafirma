@@ -4,7 +4,6 @@
 #include "test.h"
 
 #include "planet/atlas.h"
-#include "planet/planet.h"
 #include <algorithm>
 #include <cmath>
 #include <random>
@@ -390,7 +389,7 @@ void TestPlanetAtlas::testCarryKeepsThePoint()
 }
 
 // Into a cap from a segment, all round the cap's circle: a step north turns
-// by the longitude, and Planet::turned with the turn given is the direction
+// by the longitude, and Atlas::turned with the turn given is the direction
 // in the cap's grid nearest the segment's north on the ground (within 45°).
 void TestPlanetAtlas::testTurnsFollowTheGround()
 {
@@ -418,7 +417,7 @@ void TestPlanetAtlas::testTurnsFollowTheGround()
 			const auto c = atlas.corners(segment), k = atlas.corners(cap);
 			const V north = unit(sub(c[2], c[0]));
 			const V capEast = unit(sub(k[1], k[0])), capNorth = unit(sub(k[2], k[0]));
-			const std::array<int, 2> d = planet::Planet::turned(0, 1, step->turn);
+			const std::array<int, 2> d = planet::Atlas::turned<int>(0, 1, step->turn);
 			const V way = unit({ d[0] * capEast.x + d[1] * capNorth.x, d[0] * capEast.y + d[1] * capNorth.y,
 				d[0] * capEast.z + d[1] * capNorth.z });
 			const double agree = north.x * way.x + north.y * way.y + north.z * way.z;

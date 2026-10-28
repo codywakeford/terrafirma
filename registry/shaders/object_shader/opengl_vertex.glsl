@@ -122,11 +122,11 @@ void main(void)
 #endif
 	varTexCoord = (mTexture * vec4(inTexCoord0.xy, 1.0, 1.0)).st;
 
-	gl_Position = sphereClip(skinPos, mWorld);
+	gl_Position = mWorldViewProj * skinPos;
 
 	vNormal = (mWorld * vec4(skinNormal, 0.0)).xyz;
 	worldPosition = (mWorld * skinPos).xyz;
-	eyeVec = sphereEyeVec(skinPos, mWorld, -(mWorldView * skinPos).xyz);
+	eyeVec = -(mWorldView * skinPos).xyz;
 
 #if (MATERIAL_TYPE == TILE_MATERIAL_PLAIN) || (MATERIAL_TYPE == TILE_MATERIAL_PLAIN_ALPHA)
 	vIDiff = 1.0;

@@ -5,7 +5,6 @@
 #include "client/renderingengine.h"
 #include "client/shader.h"
 #include "clouds.h"
-#include "planet/planet.h" // Terra Firma
 #include "constants.h"
 #include "util/numeric.h"
 #include "irrlicht_changes/printing.h"
@@ -80,75 +79,6 @@ void Clouds::OnRegisterSceneNode()
 	ISceneNode::OnRegisterSceneNode();
 }
 
-// A cloud cell starts in the camera face's grid. Split it until all of its
-// corners belong to the same cube face; a triangle must never bridge a gap
-// in the unfolded map. The two pieces of an edge use the same sphere points.
-static void appendPlanetCloudQuad(video::S3DVertex (&quad)[4],
-		const planet::Planet &planet, int source_face, int depth,
-		std::vector<video::S3DVertex> &out)
-{
-	const terragen::Sphere &sphere = planet.sphere();
-	for (const video::S3DVertex &v : quad) {
-		const auto p = planet.place(source_face, v.Pos.X / BS, v.Pos.Z / BS);
-		if (std::abs(p.x) >= 1.9 * planet.half() || std::abs(p.z) >= 1.9 * planet.half())
-			return; // the source chart approaches its tangent singularity
-	}
-	const video::S3DVertex centre = quad[0].getInterpolated(quad[2], 0.5f);
-	const auto direction = [&](const video::S3DVertex &v) {
-		return sphere.direction(planet.place(source_face, v.Pos.X / BS, v.Pos.Z / BS));
-	};
-	const auto at = direction(centre);
-	const int face = sphere.place(at).face;
-	bool one_face = true;
-	for (video::S3DVertex v : quad) {
-		// A point exactly on an edge is owned by either face. Sample just
-		// inside the piece to decide whether its interior crosses an edge.
-		video::S3DVertex inside = v.getInterpolated(centre, 0.999f);
-		if (sphere.place(direction(inside)).face != face) {
-			one_face = false;
-			break;
-		}
-	}
-	if (!one_face) {
-		if (depth >= 6)
-			return; // metre-scale corner sliver; never stretch it over the globe
-		auto mid = [](video::S3DVertex a, const video::S3DVertex &b) {
-			return a.getInterpolated(b, 0.5f);
-		};
-		video::S3DVertex a = mid(quad[0], quad[1]), b = mid(quad[1], quad[2]);
-		video::S3DVertex c = mid(quad[2], quad[3]), d = mid(quad[3], quad[0]);
-		video::S3DVertex pieces[4][4] = {
-			{ quad[0], a, centre, d }, { a, quad[1], b, centre },
-			{ centre, b, quad[2], c }, { d, centre, c, quad[3] }
-		};
-		for (auto &piece : pieces)
-			appendPlanetCloudQuad(piece, planet, source_face, depth + 1, out);
-		return;
-	}
-	if (out.size() + 4 > std::numeric_limits<u16>::max())
-		return;
-	const terragen::Sphere::Axes &axes = terragen::Sphere::axes(face);
-	const auto dot = [](terragen::Sphere::Vec a, terragen::Sphere::Vec b) {
-		return a.x * b.x + a.y * b.y + a.z * b.z;
-	};
-	const double angle = M_PI / (4.0 * planet.half());
-	video::S3DVertex mapped_quad[4];
-	for (int i = 0; i < 4; i++) {
-		video::S3DVertex v = quad[i];
-		const auto dir = direction(v);
-		const double out_axis = dot(dir, axes.out);
-		if (out_axis <= 0)
-			return;
-		const terragen::Sphere::Place place{ face,
-			std::atan(dot(dir, axes.east) / out_axis) / angle,
-			std::atan(dot(dir, axes.north) / out_axis) / angle };
-		const auto mapped = planet.at(place);
-		v.Pos.X = mapped[0] * BS;
-		v.Pos.Z = mapped[1] * BS;
-		mapped_quad[i] = v;
-	}
-	out.insert(out.end(), std::begin(mapped_quad), std::end(mapped_quad));
-}
 
 void Clouds::updateMesh()
 {
@@ -251,7 +181,6 @@ void Clouds::updateMesh()
 	((x) >= -(radius) && (x) < (radius) && (z) >= -(radius) && (z) < (radius))
 
 	vertices.clear();
-	const int source_face = m_planet ? m_planet->nearest(m_camera_pos.X / BS, m_camera_pos.Z / BS) : 0;
 	for (s16 zi0= -m_cloud_radius_i; zi0 < m_cloud_radius_i; zi0++)
 	for (s16 xi0= -m_cloud_radius_i; xi0 < m_cloud_radius_i; xi0++)
 	{
@@ -405,10 +334,7 @@ void Clouds::updateMesh()
 
 			for (video::S3DVertex &vertex : v)
 				vertex.Pos += pos;
-			if (m_planet)
-				appendPlanetCloudQuad(v, *m_planet, source_face, 0, vertices);
-			else
-				vertices.insert(vertices.end(), std::begin(v), std::end(v));
+			vertices.insert(vertices.end(), std::begin(v), std::end(v));
 		}
 	}
 	mb->setDirty(scene::EBT_VERTEX);

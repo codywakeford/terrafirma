@@ -1847,38 +1847,18 @@ void Client::addUpdateMeshTask(v3s16 p, bool ack_to_server, bool urgent)
 void Client::addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server, bool urgent)
 {
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, true);
-	// Terra Firma: an atlas: and the meshes that read it over a seam or a
-	// shell floor (made before it came, they read nothing there)
-	if (getAtlas()) {
-		for (const v3s16 &reader : m_mesh_update_manager->readersOf(blockpos))
-			if (reader != blockpos)
-				addUpdateMeshTask(reader, false, urgent);
-		return;
-	}
-	// Terra Firma: and the blocks across a planet face's edge, which show it
-	const v3s16 low = blockpos * MAP_BLOCKSIZE;
-	for (s16 i = 0; i < MAP_BLOCKSIZE; i++) {
-		addUpdateMeshTaskAcross(low + v3s16(0, 0, i), urgent);
-		addUpdateMeshTaskAcross(low + v3s16(MAP_BLOCKSIZE - 1, 0, i), urgent);
-		addUpdateMeshTaskAcross(low + v3s16(i, 0, 0), urgent);
-		addUpdateMeshTaskAcross(low + v3s16(i, 0, MAP_BLOCKSIZE - 1), urgent);
-	}
+	updateMeshReaders(blockpos, urgent); // Terra Firma
 }
 
-void Client::addUpdateMeshTaskAcross(v3s16 nodepos, bool urgent)
+// Terra Firma, an atlas: the meshes that read a block over a seam (made
+// before it came or changed, they show what it was)
+void Client::updateMeshReaders(v3s16 blockpos, bool urgent)
 {
-	const planet::Planet *planet = getPlanet();
-	if (!planet)
+	if (!getAtlas())
 		return;
-	const std::optional<int> face = planet->face(nodepos.X, nodepos.Z);
-	if (!face)
-		return;
-	static const v3s16 DIRS[4] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
-	for (const v3s16 &d : DIRS) {
-		const v3s16 there = m_env.getMap().next(nodepos, d).pos;
-		if (planet->face(there.X, there.Z) != face)
-			addUpdateMeshTask(getNodeBlockPos(there), false, urgent);
-	}
+	for (const v3s16 &reader : m_mesh_update_manager->readersOf(blockpos))
+		if (reader != blockpos)
+			addUpdateMeshTask(reader, false, urgent);
 }
 
 void Client::addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server, bool urgent)
@@ -1895,7 +1875,7 @@ void Client::addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server, bool ur
 		addUpdateMeshTask(blockpos + v3s16(0, -1, 0), false, urgent);
 	if (nodepos.Z == blockpos_relative.Z)
 		addUpdateMeshTask(blockpos + v3s16(0, 0, -1), false, urgent);
-	addUpdateMeshTaskAcross(nodepos, urgent); // Terra Firma
+	updateMeshReaders(blockpos, urgent); // Terra Firma
 }
 
 ClientEvent *Client::getClientEvent()

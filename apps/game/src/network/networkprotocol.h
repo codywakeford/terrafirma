@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 61;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 62;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 61;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 62;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -730,18 +730,13 @@ enum ToClientCommand : u16
 		(terra::Blocks), and the tree species (terra::Species).
 	*/
 
-	TOCLIENT_PLANET = 0x68,
-	/*
-		Terra Firma: this world is a planet (src/planet/planet.h). Sent once,
-		on join. s32 half: blocks from a face's centre to its edge.
-	*/
-
 	// 0x67: Terra Firma's TOCLIENT_ALOFT (space bubbles), gone in protocol 60
+	// 0x68: Terra Firma's TOCLIENT_PLANET (the cube-sphere net), gone in protocol 62
 
 	TOCLIENT_ATLAS = 0x69,
 	/*
-		Terra Firma: this world is an atlas planet (src/planet/atlas.h). Sent
-		once, on join, instead of TOCLIENT_PLANET.
+		Terra Firma: this world is a planet (src/planet/atlas.h). Sent once,
+		on join.
 		std::string code: the mapping (terragen::Atlas::code)
 	*/
 

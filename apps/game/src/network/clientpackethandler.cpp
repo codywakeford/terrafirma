@@ -1947,8 +1947,6 @@ void Client::handleCommand_Atlas(NetworkPacket *pkt)
 {
 	std::string code;
 	*pkt >> code;
-	if (m_planet)
-		throw SerializationError("TOCLIENT_ATLAS: this world is already a cube planet");
 	try {
 		m_atlas.emplace(terragen::Atlas::parse(code));
 	} catch (const std::invalid_argument &e) {
@@ -1958,17 +1956,5 @@ void Client::handleCommand_Atlas(NetworkPacket *pkt)
 	// a block's mesh is drawn with its region's transform: meshes of several
 	// blocks (client_mesh_chunk) could span two regions
 	m_mesh_grid = { 1 };
-}
-
-void Client::handleCommand_Planet(NetworkPacket *pkt)
-{
-	s32 half;
-	u8 mapping;
-	*pkt >> half >> mapping;
-	if (mapping < (u8)terragen::Sphere::Mapping::Equiangular ||
-			mapping > (u8)terragen::Sphere::Mapping::Cobe)
-		throw SerializationError("TOCLIENT_PLANET: unknown mapping");
-	m_planet.emplace(half, static_cast<terragen::Sphere::Mapping>(mapping));
-	m_env.getMap().setPlanet(&*m_planet);
 }
 

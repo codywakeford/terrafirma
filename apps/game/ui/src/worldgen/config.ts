@@ -41,7 +41,7 @@ export function star(id: StarId) {
 export const SIZES = [2048, 4096, 8192, 16384] as const
 
 export const DEFAULTS: Omit<WorldConfig, "seed"> = {
-    size: 16384, // a planet 2048 blocks from a face's middle to its edge (planet_half = size / 8)
+    size: 16384, // blocks round the planet's equator: an atlas of radius size / 2π
     continents: 4,
     land: 0.4,
     coast: 0.5,

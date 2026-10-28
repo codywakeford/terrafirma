@@ -5,7 +5,6 @@
 #include "collision.h"
 #include <algorithm>
 #include "planet/atlas.h"
-#include "planet/planet.h"
 #include <cmath>
 #include "irr_aabb3d.h"
 #include "mapblock.h"
@@ -236,14 +235,14 @@ static std::optional<aabb3f> solidPart(const planet::Atlas &atlas, const Map::Ne
 	const std::optional<planet::Atlas::Extent> e = atlas.extent({ seen.pos.X, seen.pos.Y, seen.pos.Z });
 	if (!e)
 		return std::nullopt;
-	const auto a = planet::Planet::turned(e->low[0], e->low[2], seen.turn);
-	const auto b = planet::Planet::turned(e->high[0], e->high[2], seen.turn);
+	const auto a = planet::Atlas::turned<double>(e->low[0], e->low[2], seen.turn);
+	const auto b = planet::Atlas::turned<double>(e->high[0], e->high[2], seen.turn);
 	return aabb3f(v3f(std::min(a[0], b[0]), e->low[1], std::min(a[1], b[1])) * BS,
 			v3f(std::max(a[0], b[0]), e->high[1], std::max(a[1], b[1])) * BS);
 }
 
-// `from`: where the mover is. Terra Firma: on a planet, past the edge of
-// its face the nodes are the neighbour face's, seen from here (Map::see).
+// `from`: where the mover is. Terra Firma: on a planet, past a seam the
+// nodes are the next grid's, seen from here (Map::seeAll).
 static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IGameDef *gamedef,
 		Environment *env, std::vector<NearbyCollisionInfo> &cinfo)
 {
@@ -317,27 +316,6 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 				}
 				continue;
 			}
-		} else if (map->getPlanet() && map->see(from, p).pos != p) {
-			// past the mover's face: the neighbour face's node, turned to this grid
-			bool valid;
-			const MapNode n = map->getNodeSeen(from, p, &valid);
-			const ContentFeatures &f = nodedef->get(n);
-			if (!valid || n.getContent() == CONTENT_IGNORE) {
-				cinfo.emplace_back(true, 0, p, getNodeBox(p, BS)); // not loaded: solid, as below
-				continue;
-			}
-			any_position_valid = true;
-			if (!f.walkable)
-				continue;
-			nodeboxes.clear();
-			n.getCollisionBoxes(nodedef, &nodeboxes, 0);
-			const v3f posf = intToFloat(p, BS);
-			for (auto box : nodeboxes) {
-				box.MinEdge += posf;
-				box.MaxEdge += posf;
-				cinfo.emplace_back(false, abs(itemgroup_get(f.groups, "bouncy")), p, box);
-			}
-			continue;
 		}
 		v3s16 bp, relp;
 		getNodeBlockPosWithOffset(p, bp, relp);

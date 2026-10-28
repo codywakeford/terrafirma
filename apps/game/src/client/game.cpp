@@ -12,7 +12,6 @@
 #include "client/keys.h"
 #include "client/mapblock_mesh.h"
 #include "client/sound.h"
-#include "client/sphere_lens.h"
 #include "clientmap.h"
 #include "clientmedia.h" // For clientMediaUpdateCacheCopy
 #include "config.h"
@@ -930,7 +929,6 @@ bool Game::createClient(const GameStartData &start_data)
 
 	shader_src->addShaderUniformSetterFactory(
 		std::make_unique<FogShaderUniformSetterFactory>());
-	shader_src->addShaderUniformSetterFactory(std::make_unique<SphereLensFactory>(client));
 
 	ShadowRenderer::preInit(shader_src);
 
@@ -3541,11 +3539,10 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	// Terra Firma: the far view, once the server says this is a terra world.
 	// Created after the sky, so it draws right after it. The fog moves out to
 	// what it reaches (from high up, the planet's horizon).
-	// The planet comes before the horizon (Server::SendPlanet): its kind says the far view's layout.
-	if (!far_view && client->getHorizon() && (client->getPlanet() || client->getAtlas())) // a terra world: a planet
+	// The planet comes before the horizon (Server::SendPlanet).
+	if (!far_view && client->getHorizon() && client->getAtlas()) // a terra world: a planet
 		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(), *client->getHorizon(),
-				client->getAtlas() ? far::globeLayout(*client->getAtlas(), client->getHorizon()->water_level)
-						: far::netLayout(*client->getPlanet(), client->getHorizon()->water_level));
+				*client->getAtlas());
 	if (far_view) {
 		std::optional<float> fog_limit;
 		if (sky->getFogDistance() >= 0)
@@ -3709,7 +3706,6 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 
 void Game::updateClouds(float dtime)
 {
-	clouds->setPlanet(client->getPlanet()); // Terra Firma: cloud quads follow the planet's faces
 	if (this->sky->getCloudsVisible()) {
 		this->clouds->setVisible(true);
 		this->clouds->step(dtime);

@@ -235,7 +235,7 @@ region boundary is special.
 - The existing seam stepping (`Planet::step` / `halo` / `turn`) generalizes
   to `neighbours` that are not 1:1.
 - Each region is meshed in its own frame and placed by its transform.
-  `sphere_lens` goes away (done for atlas worlds).
+  `sphere_lens` goes away (done: removed with the cube net, 2026-10-28).
 - Sky, weather and clouds are being replaced regardless. Orbit physics stays
   in its own double-precision space.
 - A saved world's mapping is versioned. Old saves stay on the cube-sphere

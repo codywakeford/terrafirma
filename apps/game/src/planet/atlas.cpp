@@ -152,8 +152,8 @@ double Atlas::turning(const Cell &from, const Cell &to) const
 	return std::atan2(dot(cross(near, far), up), dot(near, far));
 }
 
-// As planet::Planet's turn: a direction (dx, dz) of `from`'s grid is
-// Planet::turned(dx, dz, turn) in `to`'s.
+// Quarter turns, east toward north: a direction (dx, dz) of `from`'s grid
+// is turned(dx, dz, turn) in `to`'s.
 int Atlas::quarters(const Cell &from, const Cell &to) const
 {
 	return (int)std::lround(turning(from, to) / (TAU / 4));

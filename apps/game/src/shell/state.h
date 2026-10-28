@@ -4,6 +4,7 @@
 #pragma once
 
 #include <json/json.h>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
@@ -46,7 +47,9 @@ public:
 
 private:
 	Json::Value player(LocalPlayer &player) const;
-	Json::Value mapPose(LocalPlayer &player) const;
+	// Where the player is on the planet's map, and which way they face; none
+	// past the atlas's top
+	std::optional<Json::Value> mapPose(LocalPlayer &player) const;
 	Json::Value hud(LocalPlayer &player, const HudView &view) const;
 	Json::Value hotbar(LocalPlayer &player) const;
 	Json::Value inventory(LocalPlayer &player);

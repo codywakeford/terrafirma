@@ -4,7 +4,7 @@
 #pragma once
 
 #include "planet/atlas.h"
-#include "planet/planet.h"
+#include "planet/atlas.h"
 #include <optional>
 
 #include "mapgen.h"
@@ -58,8 +58,7 @@ private:
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
 
 	terragen::World m_world;
-	std::optional<planet::Planet> m_planet; // the world's, if it's one (planet_half)
-	std::optional<planet::Atlas> m_atlas;   // or the world's atlas (planet_atlas)
+	std::optional<planet::Atlas> m_atlas;   // the world's, if it's a planet (planet_atlas)
 	content_t c_seam = CONTENT_IGNORE;      // an atlas's storage that is no cell
 	std::optional<terra::Column> m_atlasColumn; // the last atlas node's column, and its place
 	std::array<double, 2> m_atlasPlace{};

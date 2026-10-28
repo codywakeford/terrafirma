@@ -610,13 +610,15 @@ gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 **Built (sprint 21, `planning/sprint-21-flight.md`):** flight. One
 planet card (`terragen/planet.h`: a tenth of Earth's size, ten times its
 spin, Earth's pull and air) read by climate, weather and flight; the world's
-blocks are a map of it (`core.terra.globe/block`). `src/orbit` flies
+blocks are a map of it. `src/orbit` flies
 anything under gravity, air and thrust (`core.orbit`). Space is a place:
 above the 30 km boundary everything rides in bubbles, cells of the map past
 the polar wall (`World::spaceFrom`) each falling on an orbit, where you
 float, build stations and meet other bubbles (`tf_flight/space.lua`); the
-creative flight pack flies over the blocks and in space. The wiki's
-Flight section is Newton's cannon (`orbit.coast`). `bun check:flight`.
+creative flight pack flew over the blocks and in space. The wiki's
+Flight section is Newton's cannon (`orbit.coast`). The pack and
+`check:flight` went with the cube net (2026-10-28, sprint 31); flight
+returns on the system's orbits.
 
 **Built (sprint 19, `planning/sprint-19-families.md`):** material
 families. A block is a family plus a composition in its `param2`, coloured

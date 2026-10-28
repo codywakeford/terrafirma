@@ -4,7 +4,7 @@
 #pragma once
 
 #include <array>
-namespace planet { class Planet; class Atlas; }
+namespace planet { class Atlas; }
 
 #include "irrlichttypes.h"
 #include "mapnode.h"
@@ -59,15 +59,18 @@ struct Column
 	s32 ice_end;
 };
 
+// The world model's block at a latitude and longitude (radians): its map is
+// equirectangular, x longitude from 0, z latitude, poles at ±size/2.
+std::array<s16, 2> equirect(double latitude, double longitude, int32_t size);
+
 class Columns
 {
 public:
-	// `planet` or `atlas` (never both): the world's planet, if it's one
-	// (src/planet/planet.h, src/planet/atlas.h). Then a column of the map is
-	// the world model's column at its latitude and longitude on the planet:
-	// the whole world, poles and all, on the sphere.
+	// `atlas`: the world's planet, if it's one (src/planet/atlas.h). Then a
+	// column of the map is the world model's column at its latitude and
+	// longitude on the planet: the whole world, poles and all, on the sphere.
 	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level,
-			const planet::Planet *planet, const planet::Atlas *atlas = nullptr);
+			const planet::Atlas *atlas);
 
 	const Blocks &blocks() const { return m_blocks; }
 	s16 waterLevel() const { return m_water_level; }
@@ -98,7 +101,6 @@ private:
 	Column nothing() const; // a column of no world: air, for storage that isn't a place
 
 	const terragen::World &m_world;
-	const planet::Planet *m_planet;
 	const planet::Atlas *m_atlas;
 	Blocks m_blocks;
 	s16 m_water_level;

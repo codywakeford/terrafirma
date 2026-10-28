@@ -78,8 +78,8 @@ struct MeshAnimationInfo {
 class GenericCAO : public ClientActiveObject
 {
 private:
-	// Terra Firma: on a planet, moved off its face from `was`: put on the face
-	// it's moved onto, velocity, acceleration and yaw turned. Whether it was.
+	// Terra Firma: on an atlas, moved over a seam from `was`: put in the grid
+	// it's moved into, velocity, acceleration and yaw turned. Whether it was.
 	bool carry(const v3f &was);
 
 

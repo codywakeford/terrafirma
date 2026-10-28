@@ -69,7 +69,6 @@ struct SkyboxParams;
 struct SoundSpec;
 struct StarParams;
 struct ServerTerra; // Terra Firma
-#include "planet/planet.h" // Terra Firma
 #include "planet/atlas.h" // Terra Firma
 #include "orbit/flight.h" // Terra Firma
 struct SunParams;
@@ -423,8 +422,7 @@ public:
 
 	// Terra Firma: what core.terra keeps for this server.
 	ServerTerra &terra() { return *m_terra; }
-	// Terra Firma: the planet this world is, if it is one (planet/planet.h)
-	const planet::Planet *planet() const { return m_planet ? &*m_planet : nullptr; }
+	// Terra Firma: the planet this world is, if it is one (planet/atlas.h)
 	const planet::Atlas *atlas() const { return m_atlas ? &*m_atlas : nullptr; }
 	// Terra Firma: flight on the world's planet (core.orbit): its gravity and
 	// air, sized to the planet if the world is one (terragen::sphere)
@@ -843,8 +841,7 @@ private:
 	// ModChannel manager
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
 	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
-	std::optional<planet::Planet> m_planet; // Terra Firma: from the world's planet_half
-	std::optional<planet::Atlas> m_atlas; // Terra Firma: from the world's planet_atlas (never both)
+	std::optional<planet::Atlas> m_atlas; // Terra Firma: from the world's planet_atlas
 	std::unique_ptr<orbit::Flight> m_flight; // Terra Firma: core.orbit's
 	std::unique_ptr<online::Gate> m_gate; // Terra Firma: null unless hosted for friends
 

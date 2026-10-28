@@ -11,7 +11,7 @@
 #include "convert_json.h"
 #include "hud_element.h"
 #include "inventory.h"
-#include "planet/planet.h"
+#include "planet/atlas.h"
 #include <cmath>
 
 namespace shell {
@@ -26,8 +26,9 @@ void State::update(const HudView &view)
 
 	send("hud", hud(*player, view));
 	send("player", this->player(*player));
-	if (m_opts.client->getPlanet() && m_opts.client->getCamera())
-		send("mapPose", mapPose(*player));
+	if (m_opts.client->getAtlas() && m_opts.client->getCamera())
+		if (std::optional<Json::Value> pose = mapPose(*player))
+			send("mapPose", *pose);
 	send("hotbar", hotbar(*player));
 	Json::Value inv = inventory(*player);
 	sendNewItems(); // before the inventory that references them
@@ -52,10 +53,9 @@ Json::Value State::player(LocalPlayer &player) const
 	return out;
 }
 
-Json::Value State::mapPose(LocalPlayer &player) const
+std::optional<Json::Value> State::mapPose(LocalPlayer &player) const
 {
-	const planet::Planet &planet = *m_opts.client->getPlanet();
-	const terragen::Sphere &sphere = planet.sphere();
+	const planet::Atlas &atlas = *m_opts.client->getAtlas();
 	const v3f pos = player.getPosition() / BS;
 	// The camera supplies the view vector directly. Its yaw convention is not
 	// the same as the map's east-clockwise heading convention.
@@ -64,20 +64,24 @@ Json::Value State::mapPose(LocalPlayer &player) const
 	const double yaw = player.getYaw() * M_PI / 180.0;
 	const double dx = flat_length > 0.0001 ? view.X / flat_length : -std::sin(yaw);
 	const double dz = flat_length > 0.0001 ? view.Z / flat_length : -std::cos(yaw);
-	const auto place = planet.place(planet.nearest(pos.X, pos.Z), pos.X, pos.Z);
-	const auto ahead = planet.place(planet.nearest(pos.X + dx, pos.Z + dz),
-			pos.X + dx, pos.Z + dz);
-	const double lon = sphere.longitude(place);
-	const double lat = sphere.latitude(place);
-	const double next_lon = sphere.longitude(ahead);
-	const double next_lat = sphere.latitude(ahead);
-	const double east = std::remainder(next_lon - lon, 2 * M_PI) * std::cos(lat);
-	const double north = next_lat - lat;
+	// where the player is on the planet, and a block ahead in their own grid
+	// carried on (over a seam too)
+	const planet::Atlas::Node node = planet::Atlas::moverNode(pos.X, pos.Y, pos.Z);
+	const std::optional<terragen::Atlas::Vec> here = atlas.point(node, pos.X, pos.Y, pos.Z);
+	const std::optional<terragen::Atlas::Vec> ahead = atlas.point(node, pos.X + dx, pos.Y, pos.Z + dz);
+	if (!here || !ahead)
+		return std::nullopt; // past the atlas's top: on no place of the planet
+	const auto latitude = [](const terragen::Atlas::Vec &p) { return std::atan2(p.y, std::hypot(p.x, p.z)); };
+	const auto longitude = [](const terragen::Atlas::Vec &p) { return std::atan2(p.z, p.x); };
+	const double lat = latitude(*here), lon = longitude(*here);
+	const double east = std::remainder(longitude(*ahead) - lon, 2 * M_PI) * std::cos(lat);
+	const double north = latitude(*ahead) - lat;
+	const double radius = atlas.atlas().params().radius;
 	Json::Value out;
 	out["u"] = lon / (2 * M_PI) + 0.5;
 	out["v"] = 0.5 - lat / M_PI;
 	out["heading"] = std::atan2(east, north) * 180.0 / M_PI;
-	out["height"] = pos.Y;
+	out["height"] = std::sqrt(here->x * here->x + here->y * here->y + here->z * here->z) - radius;
 	return out;
 }
 

@@ -17,7 +17,6 @@
 #include "util/string.h" // StringMap
 #include "far/terrain.h" // Terra Firma: far::Horizon
 #include "planet/atlas.h" // Terra Firma
-#include "planet/planet.h" // Terra Firma
 
 #include <map>
 #include <memory>
@@ -198,7 +197,6 @@ public:
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Horizon(NetworkPacket *pkt);
-	void handleCommand_Planet(NetworkPacket *pkt);
 	void handleCommand_Atlas(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
@@ -255,7 +253,6 @@ public:
 	// Terra Firma: set once the server says this is a terra world (the far view's input).
 	const std::optional<far::Horizon> &getHorizon() const { return m_horizon; }
 	// Terra Firma: the planet the world is, if it is one
-	const planet::Planet *getPlanet() const { return m_planet ? &*m_planet : nullptr; }
 	const planet::Atlas *getAtlas() const { return m_atlas ? &*m_atlas : nullptr; }
 	// Where the server says the player is over the planet, carried forward
 	// to now; none while that's where they stand.
@@ -326,9 +323,10 @@ public:
 	// Including blocks at appropriate edges
 	void addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server=false, bool urgent=false);
 	void addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server=false, bool urgent=false);
+	// Terra Firma: and the meshes that read the block over an atlas's seam
+	void updateMeshReaders(v3s16 blockpos, bool urgent);
 	// Terra Firma: the meshes across a planet face's edge from a node on it,
 	// which show it in their border (QueuedMeshUpdate::halo)
-	void addUpdateMeshTaskAcross(v3s16 nodepos, bool urgent);
 
 	bool hasClientEvents() const { return !m_client_event_queue.empty(); }
 	// Get event from queue. If queue is empty, it triggers an assertion failure.
@@ -488,7 +486,6 @@ public:
 private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
-	std::optional<planet::Planet> m_planet;
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 
 	struct PendingMediaDownload {

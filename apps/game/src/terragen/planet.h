@@ -35,7 +35,7 @@ struct Planet
 // as Earth's (low orbit is ~2.3 km/s instead of 7.8).
 Planet home();
 
-// The planet a cube-sphere world is (src/planet/planet.h), at its radius:
+// The planet a world is (src/planet/atlas.h), at its radius:
 // Earth's pull and air at the ground; turning so its equator moves at the
 // share of orbital speed Earth's does (keep Earth's own 465 m/s and a planet
 // of a few km flings everything off); its air thinning over a tenth of the

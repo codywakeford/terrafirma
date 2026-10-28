@@ -4,7 +4,6 @@
 #include "terra_column.h"
 #include "mapgen.h" // MAX_MAP_GENERATION_LIMIT
 #include "planet/atlas.h"
-#include "planet/planet.h"
 #include <stdexcept>
 #include <algorithm>
 #include <cmath>
@@ -13,18 +12,12 @@ using namespace terragen;
 
 namespace terra {
 
-Columns::Columns(const World &world, const Blocks &blocks, s16 water_level,
-		const planet::Planet *planet, const planet::Atlas *atlas) :
-	m_world(world), m_planet(planet), m_atlas(atlas), m_blocks(blocks), m_water_level(water_level)
+Columns::Columns(const World &world, const Blocks &blocks, s16 water_level, const planet::Atlas *atlas) :
+	m_world(world), m_atlas(atlas), m_blocks(blocks), m_water_level(water_level)
 {
-	if (planet && atlas)
-		throw std::invalid_argument("terra::Columns: a world is a cube planet or an atlas, not both");
 }
 
-// The world model's block at a latitude and longitude (radians): its map is
-// equirectangular, x longitude from 0, z latitude, poles at ±size/2 (as
-// planet::Planet::equirect).
-static std::array<s16, 2> equirect(double lat, double lon, int32_t size)
+std::array<s16, 2> equirect(double lat, double lon, int32_t size)
 {
 	const double half = size / 2.0;
 	double wx = std::round(lon / (2 * M_PI) * size);
@@ -43,17 +36,8 @@ std::array<s16, 2> Columns::onWorld(s16 x, s16 z) const
 					std::to_string(z) + ") is no place in the atlas's surface shell");
 		return equirect((*at)[0], (*at)[1], m_world.code().size);
 	}
-	if (!m_planet)
-		return { x, z };
-	const std::array<int32_t, 2> w = m_planet->equirect(x, z, m_world.code().size);
-	return { (s16)w[0], (s16)w[1] };
+	return { x, z };
 }
-
-// The corner landmarks (a planet's 8 corners, where three faces meet): a bare
-// stone peak over each, so the corner point is inside a mountain, never open
-// ground.
-static constexpr double LANDMARK_RADIUS = 32; // m
-static constexpr double LANDMARK_HEIGHT = 72; // m above the sea, at the corner
 
 Column Columns::at(s16 x, s16 z, fix sun) const
 {
@@ -63,22 +47,7 @@ Column Columns::at(s16 x, s16 z, fix sun) const
 		const std::array<s16, 2> w = onWorld(x, z);
 		return column(w[0], w[1], sunlight(w[1]));
 	}
-	if (!m_planet)
-		return column(x, z, sun);
-	const std::array<s16, 2> w = onWorld(x, z);
-	Column c = column(w[0], w[1], sunlight(w[1]));
-	const double d = m_planet->corner(x, z);
-	if (d < LANDMARK_RADIUS) {
-		const s32 peak = m_water_level + (s32)std::lround(LANDMARK_HEIGHT * (1 - d / LANDMARK_RADIUS));
-		if (peak > c.height) {
-			c.height = c.water = peak;
-			c.water_above = c.lava = false;
-			c.top = m_blocks.stone;
-			c.soil = 0;
-			c.top_end = c.filler_end = c.height;
-		}
-	}
-	return c;
+	return column(x, z, sun);
 }
 
 Column Columns::atPlace(double latitude, double longitude) const

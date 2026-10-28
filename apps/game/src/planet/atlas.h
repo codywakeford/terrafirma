@@ -78,8 +78,8 @@ public:
 		terragen::Atlas::at), so "one step east of here", "two over and one
 		up", and "where this mover now is" mean something across any seam.
 		Positions are in storage axes (x, y, z; a node's centre is its integer
-		position), and `turn` is as planet::Planet's: a direction (dx, dz) of
-		the near grid is Planet::turned(dx, dz, turn) in the far one (for node
+		position), and `turn` is in quarter turns, east toward north: a
+		direction (dx, dz) of the near grid is turned(dx, dz, turn) in the far one (for node
 		rotation and light); `angle` is the same turn, exact, in radians (for
 		velocities: rotate (x, z) by it, x toward z).
 	*/
@@ -88,6 +88,18 @@ public:
 		Node node;
 		int turn;
 	};
+	// A direction along the ground turned by `turn` quarter turns, east
+	// toward north: (dx, dz) of one grid in the next one's.
+	template <typename T>
+	static std::array<T, 2> turned(T dx, T dz, int turn)
+	{
+		for (int i = 0; i < ((turn % 4) + 4) % 4; i++) {
+			const T t = dx;
+			dx = -dz;
+			dz = t;
+		}
+		return { dx, dz };
+	}
 	// The node across a seam one step along a storage axis (0 x, 1 y, 2 z):
 	// the cell straight through the face's middle (of perhaps several across
 	// a T-junction). None when the plain step is honest (the same grid, or

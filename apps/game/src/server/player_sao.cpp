@@ -5,7 +5,6 @@
 
 #include "player_sao.h"
 #include "planet/atlas.h" // Terra Firma
-#include "planet/planet.h" // Terra Firma
 #include "nodedef.h"
 #include "remoteplayer.h"
 #include "scripting_server.h"
@@ -713,13 +712,7 @@ bool PlayerSAO::checkMovementCheat()
 	float d_vert = diff.Y;
 	diff.Y = 0;
 	float d_horiz = diff.getLength();
-	// Terra Firma: on a planet, along the ground over the planet: a step over
-	// a face's edge is a step, wherever the net puts the next face
-	if (const planet::Planet *planet = m_env->getServer()->planet()) {
-		const v3f a = m_last_good_position / BS, b = getBasePosition() / BS;
-		d_horiz = (float)planet->distance(a.X, 0, a.Z, b.X, 0, b.Z) * BS;
-	}
-	// on an atlas, on the planet: up is the change in radius, along the rest
+	// Terra Firma: on an atlas, on the planet: up is the change in radius, along the rest
 	// (a step over a seam is a step, wherever the regions are stored)
 	if (const planet::Atlas *atlas = m_env->getServer()->atlas()) {
 		const v3f a = m_last_good_position / BS, b = getBasePosition() / BS;

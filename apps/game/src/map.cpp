@@ -5,7 +5,6 @@
 #include "map.h"
 #include "planet/atlas.h" // Terra Firma
 #include <algorithm>
-#include "planet/planet.h" // Terra Firma
 #include "mapsector.h"
 #include "mapblock.h"
 #include "voxel.h"
@@ -19,6 +18,7 @@
 #include "rollback_interface.h"
 #include "environment.h"
 #include <queue>
+#include <limits>
 
 /*
 	Map
@@ -42,16 +42,11 @@ Map::Next Map::next(v3s16 p, v3s16 dir) const
 			return { p + dir, 0 }; // the same grid, or seam
 		return { v3s16(s->node.x, s->node.y, s->node.z), s->turn };
 	}
-	if (!m_planet || dir.Y != 0)
-		return { p + dir, 0 };
-	if (!m_planet->face(p.X, p.Z))
-		return { p + dir, 0 }; // in a gap: there's only seam here
-	const planet::Planet::Step s = m_planet->step(p.X, p.Z, dir.X, dir.Z);
-	return { v3s16(s.x, p.Y, s.z), s.turn };
+	return { p + dir, 0 };
 }
 
-// A node from a face whose grid is `turn` quarter turns (east toward north)
-// from this one's, turned into this one's: rotateAlongYAxis turns +Z toward
+// A node from a grid `turn` quarter turns (east toward north) from this
+// one's, turned into this one's: rotateAlongYAxis turns +Z toward
 // +X, the other way round. (TestPlanetMap holds a stair to it.)
 static Rotation planetRotation(int turn)
 {
@@ -71,15 +66,7 @@ Map::Next Map::see(v3s16 from, v3s16 p) const
 		const std::optional<planet::Atlas::Seen> s = m_atlas->see({ from.X, from.Y, from.Z }, { p.X, p.Y, p.Z });
 		return s ? nextOf(*s, p) : Next{ p, 0 };
 	}
-	if (!m_planet)
-		return { p, 0 };
-	const std::optional<int> face = m_planet->face(from.X, from.Z);
-	if (!face)
-		return { p, 0 };
-	const std::optional<planet::Planet::Step> h = m_planet->halo(*face, p.X, p.Z);
-	if (!h)
-		return { p, 0 }; // beyond the planet neighbourhood: the seam
-	return { v3s16(h->x, p.Y, h->z), h->turn };
+	return { p, 0 };
 }
 
 std::vector<Map::Next> Map::seeAll(v3s16 from, v3s16 p) const
@@ -106,9 +93,18 @@ std::vector<Map::Next> Map::seeAll(v3s16 from, v3s16 p) const
 
 f32 Map::distance(v3f a, v3f b) const
 {
-	if (!m_planet)
+	if (!m_atlas)
 		return a.getDistanceFrom(b);
-	return (f32)m_planet->distance(a.X / BS, a.Y / BS, a.Z / BS, b.X / BS, b.Y / BS, b.Z / BS) * BS;
+	// each where it is on the planet, in its own grid; a position in seam
+	// (past the atlas's top) is nowhere on it, so out of every reach
+	const auto on = [&](v3f v) {
+		v /= BS;
+		return m_atlas->point(planet::Atlas::moverNode(v.X, v.Y, v.Z), v.X, v.Y, v.Z);
+	};
+	const std::optional<terragen::Atlas::Vec> pa = on(a), pb = on(b);
+	if (!pa || !pb)
+		return std::numeric_limits<f32>::infinity();
+	return (f32)(std::sqrt(std::pow(pb->x - pa->x, 2) + std::pow(pb->y - pa->y, 2) + std::pow(pb->z - pa->z, 2)) * BS);
 }
 
 MapNode Map::getNodeSeen(v3s16 from, v3s16 p, bool *is_valid_position)

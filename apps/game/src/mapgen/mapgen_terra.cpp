@@ -76,12 +76,9 @@ terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef)
 MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 	MapgenBasic(MAPGEN_TERRA, params, emerge),
 	m_world(decodeOrFail(params->code)),
-	m_planet(params->planet_half ? std::optional<planet::Planet>(std::in_place, params->planet_half,
-			static_cast<terragen::Sphere::Mapping>(params->planet_mapping)) : std::nullopt),
 	m_atlas(params->planet_atlas.empty() ? std::nullopt : std::optional<planet::Atlas>(std::in_place,
 			terragen::Atlas::parse(params->planet_atlas))),
-	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_planet ? &*m_planet : nullptr,
-			m_atlas ? &*m_atlas : nullptr)
+	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_atlas ? &*m_atlas : nullptr)
 {
 	if (m_atlas) {
 		c_seam = ndef->getId("mapgen_seam");
