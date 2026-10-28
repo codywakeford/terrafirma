@@ -33,6 +33,26 @@ local gravity = tonumber(core.settings:get("movement_gravity")) or 9.81
 -- Falling stuff
 --
 
+-- Terra Firma: where node `bcp` is from position `pos`, along pos's grid's
+-- axes. On an atlas planet the node may be across a seam, stored in another
+-- grid far off: measured on the planet (core.planet.atlas_point) instead.
+local function apart(pos, bcp)
+	local from = core.planet.atlas_point(pos)
+	if not from then
+		return vector.subtract(bcp, pos) -- not an atlas: one grid
+	end
+	local to = core.planet.atlas_point(bcp)
+	local d = vector.subtract(to, from)
+	local h = 0.01
+	local function along(axis)
+		local q = vector.copy(pos)
+		q[axis] = q[axis] + h
+		local e = vector.divide(vector.subtract(core.planet.atlas_point(q), from), h)
+		return vector.dot(d, e) / vector.dot(e, e)
+	end
+	return vector.new(along("x"), along("y"), along("z"))
+end
+
 core.register_entity(":__builtin:falling_node", {
 	initial_properties = {
 		visual = "node",
@@ -297,7 +317,7 @@ core.register_entity(":__builtin:falling_node", {
 		local failure = false
 
 		local pos = self.object:get_pos()
-		local distance = vector.apply(vector.subtract(pos, bcp), math.abs)
+		local distance = vector.apply(apart(pos, bcp), math.abs)
 		if distance.x >= 1 or distance.z >= 1 then
 			-- We're colliding with some part of a node that's sticking out
 			-- Since we don't want to visually teleport, drop as item

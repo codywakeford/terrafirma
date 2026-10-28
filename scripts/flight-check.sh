@@ -6,17 +6,22 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cmake --build "$root/.output/build" -j > /dev/null
+luajit "$root/scripts/flight-check/trajectory.lua" "$root/apps/game/game/mods/tf_flight"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 world="$work/world"
 mkdir -p "$world/worldmods"
 cp -r "$root/scripts/flight-check/probe" "$world/worldmods/probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nplanet_half = 2048\n[end_of_params]\n' > "$world/map_meta.txt"
+printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nplanet_half = 2048\nplanet_mapping = cobe-v1\n[end_of_params]\n' > "$world/map_meta.txt"
 port=$((31200 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it
 timeout 300 "$root/.output/bin/luanti" --server --config /dev/null --world "$world" --port "$port" 2>&1 | tee "$work/server.txt" | grep -oE 'FLIGHT .*' > "$work/log.txt" || true
 cat "$work/log.txt"
+if [ ! -s "$work/log.txt" ]; then
+	echo "flight check: server produced no probe output; startup errors:"
+	grep -E 'ERROR|Error|error|WARNING' "$work/server.txt" | head -30 || true
+fi
 python3 -I - "$work" <<'PY'
 import sys, re
 work = sys.argv[1]

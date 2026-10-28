@@ -19,6 +19,31 @@ function core.is_creative_enabled(name)
 	return original_is_creative_enabled(name)
 end
 
+-- In creative the hand breaks anything at once (the player's "hand" list
+-- overrides the hand item, and the client times digging by it too).
+local DIG = { "crumbly", "choppy", "cracky", "snappy", "oddly_breakable_by_hand", "dig_immediate" }
+local instant = {}
+for _, group in ipairs(DIG) do
+	instant[group] = { times = { [1] = 0, [2] = 0, [3] = 0 }, uses = 0, maxlevel = 3 }
+end
+core.register_item("tf_player:creative_hand", {
+	type = "none",
+	wield_image = "blank.png",
+	groups = { not_in_creative_inventory = 1 },
+	tool_capabilities = {
+		full_punch_interval = 0.9,
+		max_drop_level = 3,
+		groupcaps = instant,
+		damage_groups = { fleshy = 1 },
+	},
+})
+
+local function set_hand(player, enabled)
+	local inv = player:get_inventory()
+	inv:set_size("hand", 1)
+	inv:set_stack("hand", 1, enabled and "tf_player:creative_hand" or "")
+end
+
 local function set_mode(player, enabled, switched)
 	local name = player:get_player_name()
 	modes[name] = enabled
@@ -47,6 +72,7 @@ local function set_mode(player, enabled, switched)
 		meta:set_string("tf_survival_armor", "")
 	end
 	player:hud_set_flags({ healthbar = damage and not enabled, breathbar = damage and not enabled })
+	set_hand(player, enabled)
 end
 
 -- Match the player inventory's nine-column layout. Existing worlds may have

@@ -77,6 +77,7 @@ Json::Value State::mapPose(LocalPlayer &player) const
 	out["u"] = lon / (2 * M_PI) + 0.5;
 	out["v"] = 0.5 - lat / M_PI;
 	out["heading"] = std::atan2(east, north) * 180.0 / M_PI;
+	out["height"] = pos.Y;
 	return out;
 }
 

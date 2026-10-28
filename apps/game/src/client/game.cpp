@@ -570,9 +570,9 @@ void Game::run()
 
 		processUserInput(dtime);
 		// Terra Firma: carried over a planet's edge, the view turns with the ground
-		if (const int turn = client->getEnv().getLocalPlayer()->takePlanetTurn()) {
-			cam_view_target.camera_yaw += 90.0f * turn;
-			cam_view.camera_yaw += 90.0f * turn;
+		if (const f32 turn = client->getEnv().getLocalPlayer()->takePlanetTurn()) {
+			cam_view_target.camera_yaw += turn;
+			cam_view.camera_yaw += turn;
 		}
 		// Update camera before player movement to avoid camera lag of one frame
 		updateCameraDirection(&cam_view_target, dtime);
@@ -3541,9 +3541,11 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	// Terra Firma: the far view, once the server says this is a terra world.
 	// Created after the sky, so it draws right after it. The fog moves out to
 	// what it reaches (from high up, the planet's horizon).
-	if (!far_view && client->getHorizon() && client->getPlanet()) // a terra world: a planet
-		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(),
-				*client->getHorizon(), client->getPlanet()); // the planet comes first (Server::SendPlanet)
+	// The planet comes before the horizon (Server::SendPlanet): its kind says the far view's layout.
+	if (!far_view && client->getHorizon() && (client->getPlanet() || client->getAtlas())) // a terra world: a planet
+		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(), *client->getHorizon(),
+				client->getAtlas() ? far::globeLayout(*client->getAtlas(), client->getHorizon()->water_level)
+						: far::netLayout(*client->getPlanet(), client->getHorizon()->water_level));
 	if (far_view) {
 		std::optional<float> fog_limit;
 		if (sky->getFogDistance() >= 0)
@@ -3707,6 +3709,7 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 
 void Game::updateClouds(float dtime)
 {
+	clouds->setPlanet(client->getPlanet()); // Terra Firma: cloud quads follow the planet's faces
 	if (this->sky->getCloudsVisible()) {
 		this->clouds->setVisible(true);
 		this->clouds->step(dtime);

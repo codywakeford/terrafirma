@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "localplayer.h"
+#include "planet/atlas.h" // Terra Firma
 #include "planet/planet.h" // Terra Firma
 #include <cmath>
 #include "mtevent.h"
@@ -1254,12 +1255,26 @@ void LocalPlayer::handleAutojump(f32 dtime, Environment *env,
 
 void LocalPlayer::carry(v3f &position)
 {
+	if (const planet::Atlas *atlas = m_client->getAtlas()) {
+		// over an atlas's seam: into the grid it's in now, the motion and
+		// the view turned with the ground (Atlas::carry)
+		const v3f was = getPosition() / BS, now = position / BS;
+		const std::optional<planet::Atlas::Carried> c = atlas->carry(was.X, was.Y, was.Z, now.X, now.Y, now.Z);
+		if (!c)
+			return;
+		position = v3f(c->x, c->y, c->z) * BS;
+		const f32 cs = std::cos(c->angle), sn = std::sin(c->angle);
+		m_speed = v3f(m_speed.X * cs - m_speed.Z * sn, m_speed.Y, m_speed.X * sn + m_speed.Z * cs);
+		m_planet_turn += (f32)(c->angle * 180 / M_PI);
+		return;
+	}
 	const planet::Planet *planet = m_client->getPlanet();
 	if (!planet)
 		return;
 	const v3f was = getPosition() / BS;
 	const int face = planet->nearest(was.X, was.Z);
-	const std::optional<planet::Planet::Carried> c = planet->carry(face, position.X / BS, position.Z / BS);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, was.X, was.Z,
+			position.X / BS, position.Z / BS);
 	if (!c)
 		return;
 	position.X = c->x * BS;
@@ -1267,5 +1282,5 @@ void LocalPlayer::carry(v3f &position)
 	const std::array<double, 2> speed = planet::Planet::turned(m_speed.X, m_speed.Z, c->turn);
 	m_speed.X = speed[0];
 	m_speed.Z = speed[1];
-	m_planet_turn += c->turn;
+	m_planet_turn += 90.0f * c->turn;
 }

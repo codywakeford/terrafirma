@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "planet/planet.h"
+#include "far/layout.h"
 #include "far/terrain.h"
 #include "terragen/map.h"
 #include "irr_ptr.h"
@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 class Camera;
@@ -27,20 +28,6 @@ namespace video { class ITexture; }
 namespace far {
 
 class Colours;
-
-// The span of a map-block column's surface: from its lowest ground to the
-// top of its highest water or tree, in blocks; from a tile at `level`.
-struct Surface
-{
-	s16 bx, bz;
-	s32 low, high;
-	u8 level;
-};
-
-inline u32 columnKey(s32 bx, s32 bz)
-{
-	return ((u32)(u16)bx << 16) | (u16)bz;
-}
 
 class Workers;
 struct DrawState;
@@ -57,20 +44,20 @@ class Uniforms;
 	small mask of the columns the near world has meshes for (and draws) is
 	read by the far shader, so the seam is exactly the near world's edge.
 
-	Drawn right after the sky with a projection of its own (kilometres of it
-	don't cost the near world depth precision), then the depth buffer is
-	cleared. The planet's curve is applied as it's drawn, never stored.
+	Drawn right after the sky with the camera's depth projection. Its depth
+	remains for near blocks and clouds, so a cloud behind distant terrain is
+	occluded. The planet's curve is applied as it's drawn, never stored.
 
-	The world is a planet (planet::Planet): the shader draws each tile
-	through the sphere lens (client/shaders/sphere/lens.glsl), as the near
-	world is drawn, so the two are one surface; up through the air the haze
-	gives way to the whole planet.
+	The world is a planet, of one kind or another: its layout (far/layout.h)
+	says where tiles are and how they're built and drawn, so the far view and
+	the near world are one surface; up through the air the haze gives way to
+	the whole planet.
 */
 class View : public scene::ISceneNode
 {
 public:
 	View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc,
-			const NodeDefManager *ndef, const Horizon &horizon, const planet::Planet *planet);
+			const NodeDefManager *ndef, const Horizon &horizon, std::unique_ptr<Layout> layout);
 	~View();
 
 	// Once a frame, before drawing. `near_range`: how far the map blocks are
@@ -93,12 +80,16 @@ public:
 private:
 	struct Key
 	{
-		s32 level, x, z;
+		s32 level = 0, x = 0, z = 0, face = 0;
+		Key() = default;
+		Key(const TileKey &k) : level(k.level), x(k.x), z(k.z), face(k.face) {}
+		Key(s32 level, s32 x, s32 z, s32 face) : level(level), x(x), z(z), face(face) {}
 		bool operator<(const Key &o) const
 		{
-			return level != o.level ? level < o.level : x != o.x ? x < o.x : z < o.z;
+			return std::tie(level, face, x, z) < std::tie(o.level, o.face, o.x, o.z);
 		}
-		TileKey tile() const { return { level, x, z }; }
+		TileKey tile() const { return { level, x, z, face }; }
+		Key child(s32 c) const { return { level - 1, x * 2 + (c & 1), z * 2 + (c >> 1), face }; }
 	};
 	struct Entry
 	{
@@ -110,16 +101,13 @@ private:
 	};
 
 	// the quadtree for this frame: which tiles to draw, falling back to what's ready
-	bool choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want);
-	float distance(const Key &key, v2f eye) const;
+	bool choose(const Key &key, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want);
 	void install();
-	void updateMask(ClientMap &map, v3f eye);
+	void updateMask(ClientMap &map, v3f origin);
 	void evict();
-	// whether the near world draws every map-block column the tile covers
-	bool covered(const Key &key) const;
 
 	Horizon m_horizon;
-	const std::optional<planet::Planet> m_planet; // the world's, if it's a planet
+	std::unique_ptr<Layout> m_layout; // the planet's
 	std::unique_ptr<Colours> m_colours;
 	std::unique_ptr<Workers> m_workers;
 	std::shared_ptr<DrawState> m_state;
@@ -142,10 +130,8 @@ private:
 	bool m_showing = false;
 	float m_altitude = 0;         // m above the sea
 	float m_share = 0;            // 0 in the air's haze .. 1 above the air
-	terragen::Sphere::Vec m_eye_point{};          // on a planet: the eye over the sea, m from the centre
 	float m_lift = 0;             // m: the height that counts toward a tile's distance
 	v3s16 m_camera_offset;
-	v3s16 m_mask_centre; // map block the mask is centred on
 	std::vector<u8> m_near; // the mask's r on this side: the near world draws all of the column
 	ClientMap *m_map = nullptr; // the near world, as of the last update()
 	v3f m_eye;                  // where it's drawn from then, in blocks

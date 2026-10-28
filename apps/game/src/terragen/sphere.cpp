@@ -34,6 +34,51 @@ double dot(Vec a, Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 double length(Vec a) { return std::sqrt(dot(a, a)); }
 Vec unit(Vec a) { return (1 / length(a)) * a; }
 
+struct CobeCoefficients
+{
+	double lambda, g10, g01, g20, g11, g02;
+};
+
+constexpr CobeCoefficients COBE_FORWARD{ 0.7240, -0.0941, 0.0276, -0.0623, 0.0409, 0.0342 };
+constexpr CobeCoefficients COBE_INVERSE{ 1.3774, -0.2129, -0.1178, 0.0694, 0.0941, 0.0108 };
+
+double cobe(double a, double b, const CobeCoefficients &c)
+{
+	const double a2 = a * a;
+	const double b2 = b * b;
+	const double correction = c.g10 * a2 + c.g01 * b2 + c.g20 * a2 * a2 +
+			c.g11 * a2 * b2 + c.g02 * b2 * b2;
+	return c.lambda * a + (1 - c.lambda) * a * a2 + (1 - a2) * a * correction;
+}
+
+std::array<double, 2> cobeInverse(double u, double v)
+{
+	double a = cobe(u, v, COBE_INVERSE);
+	double b = cobe(v, u, COBE_INVERSE);
+	for (int iteration = 0; iteration < 4; iteration++) {
+		const auto derivatives = [](double x, double y) {
+			const double x2 = x * x, y2 = y * y, x3 = x2 * x, y3 = y2 * y;
+			const auto &c = COBE_FORWARD;
+			const double s = c.g10 * x2 + c.g01 * y2 + c.g20 * x2 * x2 +
+					c.g11 * x2 * y2 + c.g02 * y2 * y2;
+			const double dx = 2 * c.g10 * x + 4 * c.g20 * x3 + 2 * c.g11 * x * y2;
+			const double dy = 2 * c.g01 * y + 2 * c.g11 * x2 * y + 4 * c.g02 * y3;
+			return std::array<double, 2>{ c.lambda + 3 * (1 - c.lambda) * x2 +
+					(1 - 3 * x2) * s + (x - x3) * dx, (x - x3) * dy };
+		};
+		const auto du = derivatives(a, b);
+		const auto dv = derivatives(b, a);
+		const double fu = cobe(a, b, COBE_FORWARD) - u;
+		const double fv = cobe(b, a, COBE_FORWARD) - v;
+		const double determinant = du[0] * dv[0] - du[1] * dv[1];
+		if (std::abs(determinant) < 1e-12)
+			break;
+		a -= (fu * dv[0] - fv * du[1]) / determinant;
+		b -= (fv * du[0] - fu * dv[1]) / determinant;
+	}
+	return { std::clamp(a, -1.0, 1.0), std::clamp(b, -1.0, 1.0) };
+}
+
 } // namespace
 
 const Sphere::Axes &Sphere::axes(int face)
@@ -41,7 +86,7 @@ const Sphere::Axes &Sphere::axes(int face)
 	return FACES.at(face);
 }
 
-Sphere::Sphere(int32_t half) : m_half(half), m_radius(4 * half / M_PI)
+Sphere::Sphere(int32_t half, Mapping mapping) : m_half(half), m_radius(4 * half / M_PI), m_mapping(mapping)
 {
 	if (half <= 0)
 		throw std::invalid_argument("Sphere: a face needs blocks");
@@ -55,6 +100,11 @@ double Sphere::angle(double blocks) const
 Vec Sphere::direction(const Place &p) const
 {
 	const Axes &f = FACES.at(p.face);
+	if (m_mapping == Mapping::Cobe) {
+		const double a = p.x / m_half, b = p.z / m_half;
+		const double u = cobe(a, b, COBE_FORWARD), v = cobe(b, a, COBE_FORWARD);
+		return unit(f.out + u * f.east + v * f.north);
+	}
 	return unit(f.out + std::tan(angle(p.x)) * f.east + std::tan(angle(p.z)) * f.north);
 }
 
@@ -73,6 +123,10 @@ Sphere::Place Sphere::place(const Vec &d) const
 			face = i;
 	const Axes &f = FACES[face];
 	const double out = dot(d, f.out);
+	if (m_mapping == Mapping::Cobe) {
+		const auto p = cobeInverse(dot(d, f.east) / out, dot(d, f.north) / out);
+		return { face, p[0] * m_half, p[1] * m_half };
+	}
 	return { face, std::atan(dot(d, f.east) / out) / QUARTER * m_half,
 		std::atan(dot(d, f.north) / out) / QUARTER * m_half };
 }
@@ -128,17 +182,46 @@ std::array<double, 2> Sphere::cellSides() const
 */
 template <typename T>
 Sphere::Lens<T>::Lens(const Sphere &s, const Place &eye, double height) :
-	angleEast(T(s.angle(eye.x))), angleNorth(T(s.angle(eye.z))), eyeHeight(T(height)),
-	radius(T(s.radius())), step(T(QUARTER / s.half()))
+	angleEast(T(s.mapping() == Mapping::Cobe ? eye.x / s.half() : s.angle(eye.x))),
+	angleNorth(T(s.mapping() == Mapping::Cobe ? eye.z / s.half() : s.angle(eye.z))),
+	eyeHeight(T(height)), radius(T(s.radius())),
+	step(T((s.mapping() == Mapping::Cobe ? 1.0 : QUARTER) / s.half())), mapping(T(s.mapping()))
 {
 	// The grid at the eye, in the face's axes: a block east, a metre up, a block north.
-	const double a = s.angle(eye.x), b = s.angle(eye.z), r = s.radius() + height;
-	const Vec t{ std::tan(a), 1, std::tan(b) };
+	const double a = angleEast, b = angleNorth, r = s.radius() + height;
+	double u, v, ux, uz, vx, vz;
+	if (s.mapping() == Mapping::Cobe) {
+		u = cobe(a, b, COBE_FORWARD);
+		v = cobe(b, a, COBE_FORWARD);
+		const auto derivatives = [](double x, double y) {
+			const double x2 = x * x, y2 = y * y, x3 = x2 * x, y3 = y2 * y;
+			const auto &c = COBE_FORWARD;
+			const double q = c.g10 * x2 + c.g01 * y2 + c.g20 * x2 * x2 +
+					c.g11 * x2 * y2 + c.g02 * y2 * y2;
+			const double dx = 2 * c.g10 * x + 4 * c.g20 * x3 + 2 * c.g11 * x * y2;
+			const double dy = 2 * c.g01 * y + 2 * c.g11 * x2 * y + 4 * c.g02 * y3;
+			return std::array<double, 2>{ c.lambda + 3 * (1 - c.lambda) * x2 +
+					(1 - 3 * x2) * q + (x - x3) * dx, (x - x3) * dy };
+		};
+		const auto du = derivatives(a, b), dv = derivatives(b, a);
+		ux = du[0] / s.half();
+		uz = du[1] / s.half();
+		vx = dv[1] / s.half();
+		vz = dv[0] / s.half();
+	} else {
+		u = std::tan(a);
+		v = std::tan(b);
+		ux = QUARTER / s.half() / (std::cos(a) * std::cos(a));
+		uz = 0;
+		vx = 0;
+		vz = QUARTER / s.half() / (std::cos(b) * std::cos(b));
+	}
+	const Vec t{ u, 1, v };
 	const double n = length(t);
 	const Vec d = (1 / n) * t;
-	const auto turned = [&](Vec dt) { return (r * QUARTER / s.half() / n) * (dt - dot(d, dt) * d); };
-	const Vec east = turned({ 1 / (std::cos(a) * std::cos(a)), 0, 0 });
-	const Vec north = turned({ 0, 0, 1 / (std::cos(b) * std::cos(b)) });
+	const auto turned = [&](Vec dt) { return (r / n) * (dt - dot(d, dt) * d); };
+	const Vec east = turned({ ux, 0, vx });
+	const Vec north = turned({ uz, 0, vz });
 	// Its inverse, by cofactors: columns east, up, north.
 	const Vec c[3] = { east, d, north };
 	const double det = dot(c[0], Vec{ c[1].y * c[2].z - c[1].z * c[2].y, c[1].z * c[2].x - c[1].x * c[2].z,
@@ -150,10 +233,34 @@ Sphere::Lens<T>::Lens(const Sphere &s, const Place &eye, double height) :
 		const Vec row{ (p.y * q.z - p.z * q.y) / det, (p.z * q.x - p.x * q.z) / det, (p.x * q.y - p.y * q.x) / det };
 		rows[i] = { T(row.x), T(row.y), T(row.z) };
 	}
+	const Vec physicalEast = unit(east);
+	const Vec physicalNorth = unit(north - dot(north, physicalEast) * physicalEast);
+	physicalRows[0] = { T(physicalEast.x), T(physicalEast.y), T(physicalEast.z) };
+	physicalRows[1] = { T(d.x), T(d.y), T(d.z) };
+	physicalRows[2] = { T(physicalNorth.x), T(physicalNorth.y), T(physicalNorth.z) };
 }
 
 template <typename T>
 typename Sphere::Lens<T>::V3 Sphere::Lens<T>::at(T east, T north, T height) const
+{
+	return inRows(faceAt(east, north, height), rows);
+}
+
+template <typename T>
+typename Sphere::Lens<T>::V3 Sphere::Lens<T>::atPhysical(T east, T north, T height) const
+{
+	return inRows(faceAt(east, north, height), physicalRows);
+}
+
+template <typename T>
+typename Sphere::Lens<T>::V3 Sphere::Lens<T>::inRows(const V3 &p, const std::array<V3, 3> &rows)
+{
+	const auto row = [&](const V3 &w) { return w.x * p.x + w.y * p.y + w.z * p.z; };
+	return { row(rows[0]), row(rows[1]), row(rows[2]) };
+}
+
+template <typename T>
+typename Sphere::Lens<T>::V3 Sphere::Lens<T>::faceAt(T east, T north, T height) const
 {
 	using std::cos;
 	using std::sin;
@@ -161,14 +268,34 @@ typename Sphere::Lens<T>::V3 Sphere::Lens<T>::at(T east, T north, T height) cons
 	using std::tan;
 	const T da = east * step, db = north * step;
 	const T a = angleEast + da, b = angleNorth + db;
-	const T ea = tan(angleEast), eb = tan(angleNorth), ta = tan(a), tb = tan(b);
-	const T ga = sin(da) / (cos(a) * cos(angleEast)), gb = sin(db) / (cos(b) * cos(angleNorth));
+	T ea, eb, ta, tb, ga, gb;
+	if (mapping == T(Mapping::Cobe)) {
+		const auto mapped = [](T x, T y) {
+			const T x2 = x * x, y2 = y * y;
+			const T q = T(0.7240) * x + T(0.2760) * x * x2;
+			const T c = T(-0.0941) * x2 + T(0.0276) * y2 - T(0.0623) * x2 * x2 +
+					T(0.0409) * x2 * y2 + T(0.0342) * y2 * y2;
+			return q + (T(1) - x2) * x * c;
+		};
+		ea = mapped(angleEast, angleNorth);
+		eb = mapped(angleNorth, angleEast);
+		ta = mapped(a, b);
+		tb = mapped(b, a);
+		ga = ta - ea;
+		gb = tb - eb;
+	} else {
+		ea = tan(angleEast);
+		eb = tan(angleNorth);
+		ta = tan(a);
+		tb = tan(b);
+		ga = sin(da) / (cos(a) * cos(angleEast));
+		gb = sin(db) / (cos(b) * cos(angleNorth));
+	}
 	const T n = sqrt(ta * ta + 1 + tb * tb), en = sqrt(ea * ea + 1 + eb * eb);
 	const T grow = -(ga * (ea + ta) + gb * (eb + tb)) / (n * en * (n + en));
 	const T r = radius + height, rise = height - eyeHeight;
-	const V3 p{ r * (ga / n + ea * grow) + rise * ea / en, r * grow + rise / en, r * (gb / n + eb * grow) + rise * eb / en };
-	const auto row = [&](const V3 &w) { return w.x * p.x + w.y * p.y + w.z * p.z; };
-	return { row(rows[0]), row(rows[1]), row(rows[2]) };
+	return { r * (ga / n + ea * grow) + rise * ea / en, r * grow + rise / en,
+		r * (gb / n + eb * grow) + rise * eb / en };
 }
 
 template class Sphere::Lens<double>;

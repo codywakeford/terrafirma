@@ -2049,6 +2049,10 @@ void MapblockMeshGenerator::generate()
 		content_t c = cur_node.n.getContent();
 		if (c == CONTENT_AIR)
 			continue;
+		const s32 side = data->m_side_length; // Terra Firma: read, not drawn
+		if (!data->m_hidden.empty() &&
+				data->m_hidden[(cur_node.p.Z * side + cur_node.p.Y) * side + cur_node.p.X])
+			continue;
 		cur_node.f = &nodedef->get(cur_node.n);
 		drawNode();
 	}

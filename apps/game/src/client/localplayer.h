@@ -120,12 +120,12 @@ public:
 	void setPitch(f32 pitch) { m_pitch = pitch; }
 	f32 getPitch() const { return m_pitch; }
 
-	// Terra Firma: quarter turns the ground has made under the player since
-	// last asked (carried over a planet's edge), east toward north; the
-	// camera turns with it. Asking clears it.
-	int takePlanetTurn()
+	// Terra Firma: degrees the ground has turned under the player since
+	// last asked (carried over a planet's edge or an atlas's seam), east
+	// toward north; the camera turns with it. Asking clears it.
+	f32 takePlanetTurn()
 	{
-		const int t = m_planet_turn;
+		const f32 t = m_planet_turn;
 		m_planet_turn = 0;
 		return t;
 	}
@@ -173,7 +173,7 @@ private:
 	// Terra Firma: on a planet, a position that has left the player's face
 	// is put on the face it's moved onto, the speed turned with the grid.
 	void carry(v3f &position);
-	int m_planet_turn = 0;
+	f32 m_planet_turn = 0; // degrees
 
 	void accelerate(const v3f &target_speed, const f32 max_increase_H,
 		const f32 max_increase_V, const bool use_pitch);

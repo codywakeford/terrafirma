@@ -9,6 +9,7 @@ uniform mat3 u_rotation;
 uniform float u_relief;
 uniform float u_scale;
 uniform float u_aspect; // height over width: the sphere stays round on any canvas
+uniform float u_depth;
 out vec2 v_uv;
 out vec3 v_pos;
 void main() {
@@ -19,7 +20,7 @@ void main() {
     v_uv = a_uv;
     v_pos = p;
     // y down on screen matches the map's rows; +z faces the viewer
-    gl_Position = vec4(p.x * u_scale * u_aspect, -p.y * u_scale, -p.z * 0.4, 1.0);
+    gl_Position = vec4(p.x * u_scale * u_aspect, -p.y * u_scale, -p.z * 0.4 / u_depth, 1.0);
 }`
 
 const FRAGMENT = `#version 300 es
@@ -51,16 +52,69 @@ in vec3 a_position;
 in vec3 a_color;
 uniform float u_scale;
 uniform float u_aspect;
+uniform float u_depth;
 out vec3 v_color;
 void main() {
     v_color = a_color;
-    gl_Position = vec4(a_position.x * u_scale * u_aspect, -a_position.y * u_scale, -a_position.z * 0.4, 1.0);
+    gl_Position = vec4(a_position.x * u_scale * u_aspect, -a_position.y * u_scale, -a_position.z * 0.4 / u_depth, 1.0);
 }`
 const CUT_FRAGMENT = `#version 300 es
 precision highp float;
 in vec3 v_color;
 out vec4 o_color;
 void main() { o_color = vec4(v_color, 1.0); }`
+
+// A path is a ribbon expanded in screen pixels after the same world rotation
+// as the terrain. Its depth remains the real 3D point, so the planet hides it.
+const PATH_VERTEX = `#version 300 es
+in vec3 a_position;
+in vec3 a_tangent;
+in float a_side;
+uniform mat3 u_rotation;
+uniform float u_scale;
+uniform float u_aspect;
+uniform float u_depth;
+uniform vec2 u_viewport;
+uniform float u_width;
+void main() {
+    vec3 p = u_rotation * a_position;
+    vec3 t = u_rotation * a_tangent;
+    vec2 tangent = normalize(vec2(t.x * u_aspect, -t.y) + vec2(0.000001));
+    vec2 normal = vec2(-tangent.y, tangent.x);
+    vec2 clip = vec2(p.x * u_aspect, -p.y) * u_scale;
+    clip += normal * a_side * u_width * 2.0 / u_viewport;
+    gl_Position = vec4(clip, -p.z * 0.4 / u_depth, 1.0);
+}`
+const PATH_FRAGMENT = `#version 300 es
+precision highp float;
+uniform vec4 u_color;
+out vec4 o_color;
+void main() { o_color = u_color; }`
+
+const MARKER_VERTEX = `#version 300 es
+in vec3 a_position;
+uniform mat3 u_rotation;
+uniform float u_scale;
+uniform float u_aspect;
+uniform float u_depth;
+uniform float u_size;
+void main() {
+    vec3 p = u_rotation * a_position;
+    gl_Position = vec4(p.x * u_scale * u_aspect, -p.y * u_scale, -p.z * 0.4 / u_depth, 1.0);
+    gl_PointSize = u_size;
+}`
+const MARKER_FRAGMENT = `#version 300 es
+precision highp float;
+out vec4 o_color;
+void main() {
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    if (d > 0.38) o_color = vec4(0.03, 0.08, 0.11, 1.0);
+    else if (d > 0.27) o_color = vec4(0.92, 0.98, 1.0, 1.0);
+    else o_color = vec4(0.08, 0.75, 0.98, 1.0);
+}`
+
+export type GlobePoint = readonly [u: number, v: number, altitude: number]
 
 type Layer = BodyCard["layers"][number]
 const LAYER_COLORS: Record<Layer["name"], { solid: readonly [number, number, number]; molten: readonly [number, number, number] }> = {
@@ -140,6 +194,58 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
     let cavityColor: readonly [number, number, number] = [38, 31, 29]
     const cutScale = gl.getUniformLocation(cutProgram, "u_scale")
     const cutAspect = gl.getUniformLocation(cutProgram, "u_aspect")
+    const cutDepth = gl.getUniformLocation(cutProgram, "u_depth")
+
+    const overlayProgram = (vertex: string, fragment: string) => {
+        const p = gl.createProgram()!
+        gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vertex))
+        gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fragment))
+        gl.linkProgram(p)
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`globe overlay: ${gl.getProgramInfoLog(p)}`)
+        return p
+    }
+    const pathProgram = overlayProgram(PATH_VERTEX, PATH_FRAGMENT)
+    const pathVao = gl.createVertexArray()!
+    const pathBuffer = gl.createBuffer()!
+    const pathIndices = gl.createBuffer()!
+    gl.bindVertexArray(pathVao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, pathBuffer)
+    const pathPosition = gl.getAttribLocation(pathProgram, "a_position")
+    const pathTangent = gl.getAttribLocation(pathProgram, "a_tangent")
+    const pathSide = gl.getAttribLocation(pathProgram, "a_side")
+    gl.enableVertexAttribArray(pathPosition)
+    gl.vertexAttribPointer(pathPosition, 3, gl.FLOAT, false, 28, 0)
+    gl.enableVertexAttribArray(pathTangent)
+    gl.vertexAttribPointer(pathTangent, 3, gl.FLOAT, false, 28, 12)
+    gl.enableVertexAttribArray(pathSide)
+    gl.vertexAttribPointer(pathSide, 1, gl.FLOAT, false, 28, 24)
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pathIndices)
+    let pathIndexCount = 0
+
+    const markerProgram = overlayProgram(MARKER_VERTEX, MARKER_FRAGMENT)
+    const markerVao = gl.createVertexArray()!
+    const markerBuffer = gl.createBuffer()!
+    gl.bindVertexArray(markerVao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, markerBuffer)
+    const markerPosition = gl.getAttribLocation(markerProgram, "a_position")
+    gl.enableVertexAttribArray(markerPosition)
+    gl.vertexAttribPointer(markerPosition, 3, gl.FLOAT, false, 0, 0)
+    let hasMarker = false
+    let markerExtent = 1
+    let pathExtent = 1
+
+    let terrainElevation: Float32Array | null = null
+    let terrainSize = 0
+    const radial = (point: GlobePoint) => {
+        const [u, v, altitude] = point
+        const lon = u * 2 * Math.PI, lat = (v - 0.5) * Math.PI
+        const x = Math.max(0, Math.min(terrainSize - 1, Math.floor(((u % 1 + 1) % 1) * terrainSize)))
+        const y = Math.max(0, Math.min(terrainSize - 1, Math.floor(v * terrainSize)))
+        const rise = terrainElevation?.[y * terrainSize + x] ?? 0
+        const surface = 1 + Math.max(0, Math.min(1, rise)) * 0.08
+        const r = Math.max(1 + altitude, surface + 0.009)
+        return [r * Math.cos(lat) * Math.sin(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.cos(lon)] as const
+    }
 
     const LAT = 128 * (opts.detail ?? 1)
     const LON = 256 * (opts.detail ?? 1)
@@ -187,7 +293,7 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
 
     const u = (name: string) => gl!.getUniformLocation(program, name)
     const uniforms = {
-        rotation: u("u_rotation"), relief: u("u_relief"), scale: u("u_scale"), aspect: u("u_aspect"),
+        rotation: u("u_rotation"), relief: u("u_relief"), scale: u("u_scale"), aspect: u("u_aspect"), depth: u("u_depth"),
         color: u("u_color"), height: u("u_height"), light: u("u_light"), sunColor: u("u_sun_color"), cutaway: u("u_cutaway"), cavityColor: u("u_cavity_color"),
     }
 
@@ -202,6 +308,8 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
         },
         /** New terrain: colour image plus row-major height (-1..1, sea at 0) of the same size. */
         terrain(image: ImageData, elevation: Float32Array) {
+            terrainElevation = elevation
+            terrainSize = image.width
             gl.activeTexture(gl.TEXTURE0)
             gl.bindTexture(gl.TEXTURE_2D, colorTex)
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
@@ -211,6 +319,38 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
             gl.bindTexture(gl.TEXTURE_2D, heightTex)
             gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, image.width, image.height, 0, gl.RED, gl.UNSIGNED_BYTE, height)
+        },
+        marker(point: GlobePoint | null) {
+            hasMarker = point !== null
+            if (!point) { markerExtent = 1; return }
+            const p = radial(point)
+            markerExtent = Math.hypot(...p)
+            gl.bindBuffer(gl.ARRAY_BUFFER, markerBuffer)
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(p), gl.DYNAMIC_DRAW)
+        },
+        trajectory(points: readonly GlobePoint[] | null) {
+            pathIndexCount = 0
+            pathExtent = 1
+            if (!points || points.length < 2) return
+            const positions = points.map(radial)
+            const vertices = new Float32Array(positions.length * 2 * 7)
+            const indices = new Uint16Array((positions.length - 1) * 6)
+            for (let i = 0; i < positions.length; i++) {
+                const p = positions[i]!
+                const before = positions[Math.max(0, i - 1)]!
+                const after = positions[Math.min(positions.length - 1, i + 1)]!
+                pathExtent = Math.max(pathExtent, Math.hypot(...p))
+                for (let side = 0; side < 2; side++)
+                    vertices.set([...p, after[0] - before[0], after[1] - before[1], after[2] - before[2], side ? 1 : -1], (i * 2 + side) * 7)
+                if (i === positions.length - 1) continue
+                indices.set([i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2], i * 6)
+            }
+            gl.bindVertexArray(pathVao)
+            gl.bindBuffer(gl.ARRAY_BUFFER, pathBuffer)
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW)
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pathIndices)
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW)
+            pathIndexCount = indices.length
         },
         /**
          * spin: the view (lon spins the planet, tilt tips it toward you).
@@ -236,6 +376,7 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
             // tilt (about x) after spin (about y); column-major
             const m = [cy, sx * sy, -cx * sy, 0, cx, sx, sy, -sx * cy, cx * cy] // column-major
             gl.uniformMatrix3fv(uniforms.rotation, false, m)
+            const depth = Math.max(1, markerExtent, pathExtent)
             // The sun in the planet's frame: overhead at its declination (north
             // is -y here), at a longitude that cancels the spin so it holds still
             // just left of the viewer.
@@ -249,6 +390,7 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
             gl.uniform1f(uniforms.relief, relief)
 			gl.uniform1f(uniforms.scale, 0.92 * zoom / (1 + relief))
             gl.uniform1f(uniforms.aspect, h / w)
+            gl.uniform1f(uniforms.depth, depth)
             gl.uniform1i(uniforms.cutaway, cutVertices > 0 ? 1 : 0)
             gl.uniform3f(uniforms.cavityColor, cavityColor[0] / 255 * 0.34, cavityColor[1] / 255 * 0.34, cavityColor[2] / 255 * 0.34)
             gl.uniform1i(uniforms.color, 0)
@@ -259,7 +401,38 @@ export function GlobeRenderer(opts: { canvas: HTMLCanvasElement; detail?: 1 | 2 
                 gl.bindVertexArray(cutVao)
 				gl.uniform1f(cutScale, 0.92 * zoom / (1 + relief))
                 gl.uniform1f(cutAspect, h / w)
+                gl.uniform1f(cutDepth, depth)
                 gl.drawArrays(gl.TRIANGLES, 0, cutVertices)
+            }
+            if (pathIndexCount) {
+                gl.useProgram(pathProgram)
+                gl.bindVertexArray(pathVao)
+                gl.uniformMatrix3fv(gl.getUniformLocation(pathProgram, "u_rotation"), false, m)
+                gl.uniform1f(gl.getUniformLocation(pathProgram, "u_scale"), 0.92 * zoom / (1 + relief))
+                gl.uniform1f(gl.getUniformLocation(pathProgram, "u_aspect"), h / w)
+                gl.uniform1f(gl.getUniformLocation(pathProgram, "u_depth"), depth)
+                gl.uniform2f(gl.getUniformLocation(pathProgram, "u_viewport"), w, h)
+                gl.enable(gl.BLEND)
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+                gl.depthMask(false)
+                gl.uniform1f(gl.getUniformLocation(pathProgram, "u_width"), 3.5 * dpr)
+                gl.uniform4f(gl.getUniformLocation(pathProgram, "u_color"), 0.01, 0.05, 0.07, 0.9)
+                gl.drawElements(gl.TRIANGLES, pathIndexCount, gl.UNSIGNED_SHORT, 0)
+                gl.uniform1f(gl.getUniformLocation(pathProgram, "u_width"), 1.3 * dpr)
+                gl.uniform4f(gl.getUniformLocation(pathProgram, "u_color"), 0.17, 0.82, 1, 0.95)
+                gl.drawElements(gl.TRIANGLES, pathIndexCount, gl.UNSIGNED_SHORT, 0)
+                gl.depthMask(true)
+                gl.disable(gl.BLEND)
+            }
+            if (hasMarker) {
+                gl.useProgram(markerProgram)
+                gl.bindVertexArray(markerVao)
+                gl.uniformMatrix3fv(gl.getUniformLocation(markerProgram, "u_rotation"), false, m)
+                gl.uniform1f(gl.getUniformLocation(markerProgram, "u_scale"), 0.92 * zoom / (1 + relief))
+                gl.uniform1f(gl.getUniformLocation(markerProgram, "u_aspect"), h / w)
+                gl.uniform1f(gl.getUniformLocation(markerProgram, "u_depth"), depth)
+                gl.uniform1f(gl.getUniformLocation(markerProgram, "u_size"), 18 * dpr)
+                gl.drawArrays(gl.POINTS, 0, 1)
             }
         },
     }

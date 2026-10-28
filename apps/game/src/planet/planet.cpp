@@ -12,7 +12,7 @@ namespace planet {
 
 using Place = terragen::Sphere::Place;
 
-Planet::Planet(int32_t half) : m_sphere(half)
+Planet::Planet(int32_t half, terragen::Sphere::Mapping mapping) : m_sphere(half, mapping)
 {
 	if (half % 8 != 0 || half > MAX_HALF)
 		throw std::invalid_argument("Planet: a face is whole map blocks, at most "
@@ -70,8 +70,19 @@ std::optional<Planet::Step> Planet::halo(int face, int32_t x, int32_t z) const
 	const int32_t oz = z < s.z ? -1 : z >= s.z + w ? 1 : 0;
 	if (ox == 0 && oz == 0)
 		return Step{ x, z, face, 0 };
-	if (ox != 0 && oz != 0)
-		return std::nullopt; // round a corner
+	if (x < s.x - w || x >= s.x + 2 * w || z < s.z - w || z >= s.z + 2 * w)
+		return std::nullopt;
+	if (ox != 0 && oz != 0) {
+		// There is no fourth corner cell, but there is also no hole. Follow
+		// the source grid from its centre; carry resolves the two crossings
+		// in a stable order and lands on one of the other incident faces.
+		const double cx = s.x + half() - 0.5;
+		const double cz = s.z + half() - 0.5;
+		const std::optional<Carried> c = carry(face, cx, cz, x, z);
+		if (!c)
+			return std::nullopt;
+		return Step{ (int32_t)std::lround(c->x), (int32_t)std::lround(c->z), c->face, c->turn };
+	}
 	// the node on the edge it's past, the step across, then on
 	const int32_t ex = ox == 0 ? x : ox > 0 ? s.x + w - 1 : s.x;
 	const int32_t ez = oz == 0 ? z : oz > 0 ? s.z + w - 1 : s.z;
@@ -95,6 +106,76 @@ std::optional<Planet::Carried> Planet::carry(int face, double x, double z) const
 	return Carried{ h->x + in[0], h->z + in[1], h->face, h->turn };
 }
 
+std::optional<Planet::Carried> Planet::carry(int face, double from_x, double from_z,
+		double to_x, double to_z) const
+{
+	double x = from_x, z = from_z;
+	double dx = to_x - from_x, dz = to_z - from_z;
+	int current_face = face;
+	int total_turn = 0;
+	bool crossed = false;
+	constexpr double EPSILON = 1e-7;
+
+	// A straight update cannot legitimately need this many crossings within
+	// the engine's coordinate range. The bound makes corrupt inputs harmless.
+	for (int crossing = 0; crossing < 64; crossing++) {
+		const Square s = square(current_face);
+		const double low_x = s.x - 0.5, high_x = s.x + width() - 0.5;
+		const double low_z = s.z - 0.5, high_z = s.z + width() - 0.5;
+		double tx = INFINITY, tz = INFINITY;
+		int sx = 0, sz = 0;
+		if (dx > 0) {
+			tx = (high_x - x) / dx;
+			sx = 1;
+		} else if (dx < 0) {
+			tx = (low_x - x) / dx;
+			sx = -1;
+		}
+		if (dz > 0) {
+			tz = (high_z - z) / dz;
+			sz = 1;
+		} else if (dz < 0) {
+			tz = (low_z - z) / dz;
+			sz = -1;
+		}
+		const double t = std::min(tx, tz);
+		if (!(t >= 0 && t < 1)) {
+			x += dx;
+			z += dz;
+			return crossed ? std::optional<Carried>(Carried{ x, z, current_face, total_turn }) : std::nullopt;
+		}
+
+		// At an exact corner there is no fourth cell. Resolve x first, then
+		// the remaining movement immediately enters the third incident face.
+		const bool across_x = tx <= tz;
+		x += dx * t;
+		z += dz * t;
+		dx *= 1 - t;
+		dz *= 1 - t;
+		const int ox = across_x ? sx : 0;
+		const int oz = across_x ? 0 : sz;
+		const int32_t edge_x = ox > 0 ? s.x + width() - 1 : ox < 0 ? s.x :
+				std::clamp<int32_t>((int32_t)std::lround(x), s.x, s.x + width() - 1);
+		const int32_t edge_z = oz > 0 ? s.z + width() - 1 : oz < 0 ? s.z :
+				std::clamp<int32_t>((int32_t)std::lround(z), s.z, s.z + width() - 1);
+		const Step edge = step(edge_x, edge_z, ox, oz);
+
+		Place p = place(current_face, x, z);
+		p.x += ox * EPSILON;
+		p.z += oz * EPSILON;
+		const std::array<double, 2> mapped = at(m_sphere.settle(p));
+		x = mapped[0];
+		z = mapped[1];
+		const std::array<double, 2> remaining = turned(dx, dz, edge.turn);
+		dx = remaining[0];
+		dz = remaining[1];
+		current_face = edge.face;
+		total_turn = (total_turn + edge.turn) % 4;
+		crossed = true;
+	}
+	throw std::logic_error("Planet::carry: movement crosses too many faces");
+}
+
 std::array<double, 2> Planet::turned(double dx, double dz, int turn)
 {
 	for (int i = 0; i < ((turn % 4) + 4) % 4; i++) {
@@ -107,9 +188,12 @@ std::array<double, 2> Planet::turned(double dx, double dz, int turn)
 
 std::array<int32_t, 2> Planet::wrap(int face, double x, double z) const
 {
-	const Square s = square(face);
-	if (x >= s.x - 0.5 && x < s.x + width() - 0.5 && z >= s.z - 0.5 && z < s.z + width() - 0.5)
-		return { (int32_t)std::lround(x), (int32_t)std::lround(z) };
+	// A nearby grid carried over one edge has an exact, block-for-block
+	// correspondence. Use it before the spherical projection below, which
+	// is only an approximation once the source grid goes beyond its face.
+	const int32_t nx = (int32_t)std::lround(x), nz = (int32_t)std::lround(z);
+	if (const std::optional<Step> h = halo(face, nx, nz))
+		return { h->x, h->z };
 	const Place q = m_sphere.settle(place(face, x, z));
 	const std::array<double, 2> m = at(q);
 	// on the face, never in a gap: its nearest node
@@ -233,6 +317,21 @@ typename Lens<T>::V3 Lens<T>::at(T east, T height, T north) const
 	using std::tan;
 	using std::sqrt;
 	using std::clamp;
+	const auto mapped = [&](T x, T z) {
+		if (near.mapping != T(terragen::Sphere::Mapping::Cobe))
+			return tan(x);
+		const T x2 = x * x, z2 = z * z;
+		const T correction = T(-0.0941) * x2 + T(0.0276) * z2 - T(0.0623) * x2 * x2 +
+				T(0.0409) * x2 * z2 + T(0.0342) * z2 * z2;
+		return T(0.7240) * x + T(0.2760) * x * x2 + (T(1) - x2) * x * correction;
+	};
+	const auto finish = [&](V3 grid, V3 physical) {
+		const T distance = sqrt(physical.x * physical.x + physical.y * physical.y + physical.z * physical.z);
+		T t = clamp((distance - T(16)) / T(112), T(0), T(1));
+		t = t * t * (T(3) - T(2) * t);
+		return V3{ grid.x + t * (physical.x - grid.x), grid.y + t * (physical.y - grid.y),
+			grid.z + t * (physical.z - grid.z) };
+	};
 	// the face nearest the point (Planet::nearest), and where it is on it (Planet::place)
 	const T qx = m_x + east, qz = m_z + north;
 	const T ix = floor((qx - m_origin + T(0.5) + T(Planet::GAP) / 2) / m_pitch);
@@ -240,8 +339,8 @@ typename Lens<T>::V3 Lens<T>::at(T east, T height, T north) const
 	const T col = clamp(ix, T(0), T(2)), row = clamp(iz, T(0), T(1));
 	const int f = int(row * 3 + col);
 	if (f == face) {
-		const auto p = near.at(east, north, height);
-		return { p.x, p.y, p.z };
+		const auto g = near.at(east, north, height), p = near.atPhysical(east, north, height);
+		return finish({ g.x, g.y, g.z }, { p.x, p.y, p.z });
 	}
 	// another face: its point on the planet, seen from the eye
 	const T lx = qx - (m_origin + col * m_pitch + m_half - T(0.5));
@@ -253,16 +352,19 @@ typename Lens<T>::V3 Lens<T>::at(T east, T height, T north) const
 		return V3{ o.x + s * p.x + t * q.x, o.y + s * p.y + t * q.y, o.z + s * p.z + t * q.z };
 	};
 	const auto dot = [](V3 p, V3 q) { return p.x * q.x + p.y * q.y + p.z * q.z; };
-	const V3 d = unit(sum(v(a.out), tan(lx * near.step), v(a.east), tan(lz * near.step), v(a.north)));
-	const V3 de = unit(sum(v(e.out), tan(near.angleEast), v(e.east), tan(near.angleNorth), v(e.north)));
+	const V3 d = unit(sum(v(a.out), mapped(lx * near.step, lz * near.step), v(a.east),
+			mapped(lz * near.step, lx * near.step), v(a.north)));
+	const V3 de = unit(sum(v(e.out), mapped(near.angleEast, near.angleNorth), v(e.east),
+			mapped(near.angleNorth, near.angleEast), v(e.north)));
 	const T r = near.radius + height, rise = height - near.eyeHeight;
 	const V3 p{ r * (d.x - de.x) + rise * de.x, r * (d.y - de.y) + rise * de.y, r * (d.z - de.z) + rise * de.z };
 	const V3 local{ dot(p, v(e.east)), dot(p, v(e.out)), dot(p, v(e.north)) };
-	const auto rowOf = [&](int i) {
-		const auto &w = near.rows[i];
+	const auto rowOf = [&](const auto &rows, int i) {
+		const auto &w = rows[i];
 		return w.x * local.x + w.y * local.y + w.z * local.z;
 	};
-	return { rowOf(0), rowOf(1), rowOf(2) };
+	return finish({ rowOf(near.rows, 0), rowOf(near.rows, 1), rowOf(near.rows, 2) },
+		{ rowOf(near.physicalRows, 0), rowOf(near.physicalRows, 1), rowOf(near.physicalRows, 2) });
 }
 
 template class Lens<double>;

@@ -4,6 +4,7 @@
 #include "test.h"
 
 #include "terragen/sphere.h"
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <tuple>
@@ -18,11 +19,16 @@ public:
 	void runTests(IGameDef *gamedef);
 
 	void testRoundTrip();
+	void testCobeRoundTrip();
 	void testEdgesLineUp();
+	void testCobeEdgesLineUp();
 	void testEightCorners();
 	void testCellSides();
+	void testCellQuality();
+	void testCobeCellQuality();
 	void testFrame();
 	void testLensIsTheGridAtTheEye();
+	void testCobeLens();
 	void testLensCurves();
 	void testLensInFloats();
 };
@@ -32,11 +38,16 @@ static TestSphere g_test_instance;
 void TestSphere::runTests(IGameDef *gamedef)
 {
 	TEST(testRoundTrip);
+	TEST(testCobeRoundTrip);
 	TEST(testEdgesLineUp);
+	TEST(testCobeEdgesLineUp);
 	TEST(testEightCorners);
 	TEST(testCellSides);
+	TEST(testCellQuality);
+	TEST(testCobeCellQuality);
 	TEST(testFrame);
 	TEST(testLensIsTheGridAtTheEye);
+	TEST(testCobeLens);
 	TEST(testLensCurves);
 	TEST(testLensInFloats);
 }
@@ -61,6 +72,19 @@ void TestSphere::testRoundTrip()
 	}
 }
 
+void TestSphere::testCobeRoundTrip()
+{
+	const Sphere sphere(2048, Sphere::Mapping::Cobe);
+	const int32_t h = sphere.half();
+	for (int face = 0; face < 6; face++)
+	for (double x : { -h + 0.5, -1234.25, 0.0, 777.5, h - 0.5 })
+	for (double z : { -h + 0.5, -40.0, 0.0, 1001.75, h - 0.5 }) {
+		const Sphere::Place p = sphere.place(sphere.direction({ face, x, z }));
+		UASSERTEQ(int, p.face, face);
+		UASSERT(near(p.x, x, 1e-8) && near(p.z, z, 1e-8));
+	}
+}
+
 // Two faces meet block for block: the middle of a block's outer side is the
 // middle of a block's outer side on the neighbour face, and its corners
 // are corners there. (A face's own grid carried on past its edge is not
@@ -79,6 +103,26 @@ void TestSphere::testEdgesLineUp()
 			UASSERT(acrossX || near(std::abs(there.z), h, 1e-5));
 			const double other = acrossX ? there.z : there.x;
 			UASSERT(near(std::abs(other), std::abs(along), 1e-5));
+		}
+	}
+}
+
+void TestSphere::testCobeEdgesLineUp()
+{
+	const Sphere sphere(2048, Sphere::Mapping::Cobe);
+	const double h = sphere.half(), edge = h + 1e-7;
+	for (int face = 0; face < 6; face++)
+	for (double along = -h; along <= h; along += 128) {
+		for(const Sphere::Place &past : std::initializer_list<Sphere::Place>{
+				{ face, edge, along }, { face, -edge, along },
+				{ face, along, edge }, { face, along, -edge } }) {
+			const Sphere::Vec onThis = sphere.direction({ past.face,
+					std::clamp(past.x, -h, h), std::clamp(past.z, -h, h) });
+			const Sphere::Place there = sphere.settle(past);
+			const Sphere::Vec onOther = sphere.direction(there);
+			UASSERT(there.face != face);
+			UASSERT(std::hypot(onThis.x - onOther.x, onThis.y - onOther.y,
+					onThis.z - onOther.z) < 1e-7);
 		}
 	}
 }
@@ -107,6 +151,47 @@ void TestSphere::testCellSides()
 	// and never much less anywhere: what makes the corners livable
 	const std::array<double, 2> sides = PLANET.cellSides();
 	UASSERT(sides[0] > 0.7 && sides[1] < 1.0001);
+}
+
+// A globe cannot have a perfectly square quad grid. Pin the current mapping's
+// safe envelope so a smoother candidate may redistribute distortion without
+// folding cells or concentrating it beyond the accepted corner singularity.
+void TestSphere::testCellQuality()
+{
+	const auto sub = [](Sphere::Vec a, Sphere::Vec b) { return Sphere::Vec{ a.x - b.x, a.y - b.y, a.z - b.z }; };
+	const auto dot = [](Sphere::Vec a, Sphere::Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+	const auto cross = [](Sphere::Vec a, Sphere::Vec b) {
+		return Sphere::Vec{ a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x };
+	};
+	const auto length = [&](Sphere::Vec a) { return std::sqrt(dot(a, a)); };
+	for (int half : { 256, 512, 1024, 2048 }) {
+		const Sphere sphere(half);
+		double lowAngle = 180, highAngle = 0, lowJacobian = INFINITY;
+		for (int z = -half; z < half; z += std::max(1, half / 64))
+		for (int x = -half; x < half; x += std::max(1, half / 64)) {
+			const Sphere::Vec a = sphere.point({ 0, double(x), double(z) }, 0);
+			const Sphere::Vec e = sub(sphere.point({ 0, double(x+1), double(z) }, 0),a);
+			const Sphere::Vec n = sub(sphere.point({ 0, double(x), double(z+1) }, 0),a);
+			const double angle = std::acos(std::clamp(dot(e, n) / (length(e) * length(n)),
+					-1.0, 1.0)) * 180 / M_PI;
+			const Sphere::Vec up = sphere.direction({ 0, x+0.5, z+0.5 });
+			lowAngle = std::min(lowAngle,angle);
+			highAngle = std::max(highAngle,angle);
+			lowJacobian = std::min(lowJacobian,-dot(cross(e,n),up));
+		}
+		UASSERT(lowAngle > 59.9 && highAngle < 120.1);
+		UASSERT(lowJacobian > 0.70);
+	}
+}
+
+void TestSphere::testCobeCellQuality()
+{
+	for (int half : { 256, 512, 1024, 2048 }) {
+		const Sphere sphere(half, Sphere::Mapping::Cobe);
+		const auto sides = sphere.cellSides();
+		UASSERT(sides[0] > 0.70 && sides[1] < 1.19);
+	}
 }
 
 void TestSphere::testFrame()
@@ -141,6 +226,44 @@ void TestSphere::testLensIsTheGridAtTheEye()
 		// straight down a column is straight down
 		const auto down = at(0, 0, height - 50);
 		UASSERT(near(down.x, 0, 1e-6) && near(down.y, -50, 1e-6) && near(down.z, 0, 1e-6));
+	}
+}
+
+void TestSphere::testCobeLens()
+{
+	const Sphere sphere(16384, Sphere::Mapping::Cobe);
+	for (const Sphere::Place &eye : std::initializer_list<Sphere::Place>{
+			{ 0, 0, 0 }, { 0, 12000.5, -14000.25 }, { 4, -15000, 15000 } })
+	for (double height : { 0.0, 300.0, 12000.0 }) {
+		const Sphere::Lens<double> lens(sphere, eye, height);
+		const Sphere::Vec origin = sphere.point(eye, height);
+		const Sphere::Axes &axes = Sphere::axes(eye.face);
+		for (double east : { -800.0, -1.0, 0.0, 17.5, 900.0 })
+		for (double north : { -700.0, -2.0, 0.0, 31.0, 650.0 }) {
+			const double h = 40;
+			const Sphere::Vec point = sphere.point({ eye.face, eye.x + east, eye.z + north }, h);
+			const Sphere::Vec delta{ point.x - origin.x, point.y - origin.y, point.z - origin.z };
+			const Sphere::Vec local{
+				delta.x * axes.east.x + delta.y * axes.east.y + delta.z * axes.east.z,
+				delta.x * axes.out.x + delta.y * axes.out.y + delta.z * axes.out.z,
+				delta.x * axes.north.x + delta.y * axes.north.y + delta.z * axes.north.z,
+			};
+			const auto project = [&](int row) {
+				const auto &r = lens.physicalRows[row];
+				return r.x * local.x + r.y * local.y + r.z * local.z;
+			};
+			const auto p = lens.atPhysical(east, north, h);
+			UASSERT(near(p.x, project(0), 1e-6));
+			UASSERT(near(p.y, project(1), 1e-6));
+			UASSERT(near(p.z, project(2), 1e-6));
+		}
+		const Sphere::Lens<float> floats(sphere, eye, height);
+		for (double east : { -800.0, -1.0, 17.5, 900.0 })
+		for (double north : { -700.0, -2.0, 31.0, 650.0 }) {
+			const auto a = lens.at(east, north, 40);
+			const auto b = floats.at(float(east), float(north), 40.0f);
+			UASSERT(near(a.x, b.x, 4e-3) && near(a.y, b.y, 4e-3) && near(a.z, b.z, 4e-3));
+		}
 	}
 }
 

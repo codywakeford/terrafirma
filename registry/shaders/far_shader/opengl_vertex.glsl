@@ -17,7 +17,8 @@ VARYING_ highp vec3 eyeVec;
 VARYING_ highp float varAltitude; // m above the sea
 VARYING_ lowp vec3 varDay;        // the daylight, for the air
 // (sphere/lens.glsl) behind the planet; on another face than the eye's; how far off it's seen
-VARYING_ lowp float varHidden;
+VARYING_ highp vec3 planetVec;
+VARYING_ highp vec2 planetEye;
 VARYING_ lowp float varOff;
 VARYING_ highp float varSeen;
 
@@ -27,15 +28,17 @@ void main(void)
 {
 	vec3 world = (mWorld * inVertexPosition).xyz;
 	float height = (world.y - farSea) / BS;
-	vec4 pos = vec4(sphereLens(world) - mWorld[3].xyz, 1.0);
+	vec3 curved = sphereLens(world);
+	vec4 pos = vec4(curved - mWorld[3].xyz, 1.0);
 
 	flatPos = world.xz;
 	varAltitude = height;
 	varDay = dayLight;
 	gl_Position = mWorldViewProj * pos;
-	varHidden = sphereHidden(world) ? 1.0 : 0.0;
+	planetVec = (curved - sphereCamera) / BS;
+	planetEye = sphereEye.zw;
 	varOff = sphereOffFace(world) ? 1.0 : 0.0;
-	varSeen = length(sphereLens(world) - sphereCamera);
+	varSeen = length(curved - sphereCamera);
 	eyeVec = -(mWorldView * pos).xyz;
 
 	// as nodes_shader lights a block in full sun

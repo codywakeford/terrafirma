@@ -31,6 +31,12 @@ g++ -std=c++17 -I"$root/apps/game/src" "$root/scripts/sphere-check/axes.cpp" "$r
 glslangValidator "$work/lens.vert" > /dev/null || { echo "sphere check: lens.glsl doesn't compile"; exit 1; }
 echo "sphere check: lens.glsl compiles"
 
+# Agent-safe proof of the geometry and shared shader contract. The full check
+# below launches a client and is reserved for the user-run visual gate.
+if [ "${1:-}" = "--compile-only" ]; then
+	exit 0
+fi
+
 tree="$work/tree"
 mkdir -p "$tree/bin"
 for d in builtin client fonts games locale matter textures misc ui; do

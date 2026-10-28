@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "far/globe.h"
+#include "planet/atlas.h"
 #include "planet/planet.h"
 #include <optional>
 
@@ -68,9 +70,10 @@ constexpr s32 TILE = 32;
 struct TileKey
 {
 	s32 level, x, z; // tile coordinates at its level
+	s32 face = 0;    // on a globe (far/globe.h), the cube's face it's on
 	s32 cell() const { return 1 << level; }
 	s32 span() const { return TILE << level; }
-	bool operator==(const TileKey &o) const { return level == o.level && x == o.x && z == o.z; }
+	bool operator==(const TileKey &o) const { return level == o.level && x == o.x && z == o.z && face == o.face; }
 };
 
 struct Tile
@@ -96,6 +99,9 @@ public:
 	// `planet`: the world's, if it's one: columns are the world model's at
 	// their latitude and longitude (terra::Columns)
 	Generator(const Horizon &horizon, const std::optional<planet::Planet> &planet);
+	// An atlas planet's: its tiles are a globe's (far/globe.h), each cell
+	// the column the atlas's generator builds at that latitude and longitude
+	Generator(const Horizon &horizon, const planet::Atlas &atlas);
 	~Generator();
 
 	const Horizon &horizon() const { return m_horizon; }
@@ -112,6 +118,8 @@ private:
 		s32 low, high; // above the ground, typical
 	};
 
+	void growCrowns();
+	Tile buildOnGlobe(const TileKey &key) const;
 	void growExact(Tile &tile) const;
 	void growCoarse(Tile &tile) const;
 	const terra::Species *speciesAt(const terra::Column &c, s32 x, s32 z) const;
@@ -121,6 +129,8 @@ private:
 
 	std::unique_ptr<terragen::World> m_world;
 	std::optional<planet::Planet> m_planet;
+	std::optional<planet::Atlas> m_atlas;
+	std::optional<Globe> m_globe; // an atlas's tiles
 	std::unique_ptr<terra::Columns> m_columns;
 	std::vector<Crown> m_crowns; // per species
 };

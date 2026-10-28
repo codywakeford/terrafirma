@@ -11,6 +11,27 @@ TerraFirma has been forked from (Luanti)[https://github.com/luanti-org/luanti], 
 
 Weve rebuilt the engine to make worlds spherical. Adding a whole new layer for content, world generation and physics to be added to the game.
 
+## Key Mechanics
+
+- Spherical worlds
+- realistic geology
+- realistic weather
+- visitable solar system
+- newtonian physics
+- First class modding
+- view distance always to horizon with lod.
+- full planet creation controls
+- elements and compounds
+- chemical reactions
+- first class agent support for research usecases
+
+## Spherical Worlds
+
+As we know mapping cubical voxels to a shephe without distortion is impossible. So with some clever math we can hide these distortions as much as possible.
+
+TerraFirm worlds are cube spheres
+
+
 Table of Contents
 ------------------
 

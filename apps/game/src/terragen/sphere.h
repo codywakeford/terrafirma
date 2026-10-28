@@ -33,6 +33,12 @@ namespace terragen {
 class Sphere
 {
 public:
+	enum class Mapping : uint8_t
+	{
+		Equiangular = 1,
+		Cobe = 2,
+	};
+
 	struct Vec
 	{
 		double x, y, z;
@@ -62,9 +68,10 @@ public:
 	};
 	static const Axes &axes(int face);
 
-	explicit Sphere(int32_t half);
+	explicit Sphere(int32_t half, Mapping mapping = Mapping::Equiangular);
 
 	int32_t half() const { return m_half; }
+	Mapping mapping() const { return m_mapping; }
 	double radius() const { return m_radius; } // m: a block is a metre along the centre lines
 
 	Vec direction(const Place &p) const; // unit, from the centre
@@ -105,11 +112,19 @@ public:
 
 		V3 at(T east, T north, T height) const;
 
-		// What a shader needs to do the same: the eye's angles and height,
-		// the radius, radians per block, and the frame's inverse (rows, in
-		// the face's own axes: east, out, north).
-		T angleEast, angleNorth, eyeHeight, radius, step;
+		// What a shader needs to do the same: the eye's face coordinates and
+		// height, radius, coordinate step per block, mapping version, and the
+		// frame's inverse (rows, in the face's axes: east, out, north).
+		T angleEast, angleNorth, eyeHeight, radius, step, mapping;
 		std::array<V3, 3> rows;
+		// A perpendicular, metre-scale camera frame. `rows` above is the
+		// inverse of the local block grid and can be skewed or scaled.
+		std::array<V3, 3> physicalRows;
+		V3 atPhysical(T east, T north, T height) const;
+
+	private:
+		V3 faceAt(T east, T north, T height) const;
+		static V3 inRows(const V3 &p, const std::array<V3, 3> &rows);
 	};
 
 private:
@@ -117,6 +132,7 @@ private:
 
 	int32_t m_half;
 	double m_radius;
+	Mapping m_mapping;
 };
 
 } // namespace terragen

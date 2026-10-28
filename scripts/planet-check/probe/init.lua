@@ -8,17 +8,6 @@
 local GROUND = 8 -- flat mapgen's ground level: the top node
 local SPEED = 3  -- m/s, the walkers
 
-core.register_entity("planet_probe:walker", {
-	initial_properties = {
-		physical = true,
-		collide_with_objects = false,
-		collisionbox = { -0.3, 0, -0.3, 0.3, 1.7, 0.3 },
-		visual = "sprite",
-		textures = { "blank.png" },
-		static_save = false,
-	},
-})
-
 local results = { pass = 0, fail = 0 }
 local function check(ok, what)
 	if ok then
@@ -28,6 +17,35 @@ local function check(ok, what)
 		print("PLANET miss " .. what)
 	end
 end
+
+local function length(v)
+	return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+end
+
+core.register_entity("planet_probe:walker", {
+	initial_properties = {
+		physical = true,
+		collide_with_objects = false,
+		collisionbox = { -0.3, 0, -0.3, 0.3, 1.7, 0.3 },
+		visual = "sprite",
+		textures = { "blank.png" },
+		static_save = false,
+	},
+	on_step = function(self, dt)
+		local pos = self.object:get_pos()
+		if not pos then return end
+		local face = core.planet.face(vector.round(pos))
+		check(face ~= nil, (self.case or "walker") .. ": entered a face gap")
+		if not face then return end
+		local physical = core.planet.state(pos, self.object:get_velocity()).pos
+		if self.last_physical then
+			local travelled = length(vector.subtract(physical, self.last_physical))
+			check(travelled <= SPEED * dt + 2, (self.case or "walker") ..
+				(": physical jump %.3f m in %.3f s"):format(travelled, dt))
+		end
+		self.last_physical = physical
+	end,
+})
 
 local DIRS = { { x = 1, z = 0 }, { x = 0, z = 1 }, { x = -1, z = 0 }, { x = 0, z = -1 } }
 
@@ -57,6 +75,7 @@ local function walkers(list, done)
 		local obj = core.add_entity(start, "planet_probe:walker") or error("planet check: no walker")
 		obj:set_acceleration({ x = 0, y = -9.81, z = 0 })
 		obj:set_velocity({ x = SPEED * s.d.x, y = 0, z = SPEED * s.d.z })
+		obj:get_luaentity().case = s.name
 		going[#going + 1] = { s = s, obj = obj }
 	end
 	core.after(2, function()

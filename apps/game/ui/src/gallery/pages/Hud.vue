@@ -26,7 +26,7 @@ const explored = btoa(String.fromCharCode(...exploredBytes))
 
 const live = reactive({
     hp: 17, hpMax: 20, breath: 7, breathMax: 10, selected: 2, size: 9,
-    visible: true, crosshair: true, wear: 30000,
+    visible: true, crosshair: true, wear: 30000, altitude: 120, trajectory: true,
 })
 
 function push() {
@@ -36,11 +36,20 @@ function push() {
     bridge.emit({ kind: "state", section: "hotbar", value: { size: live.size, selected: live.selected } })
     bridge.emit({ kind: "ui", key: "world_controls", value: { mode: "survival", damage: true, time: 0.5, paused: false } })
     bridge.emit({ kind: "ui", key: "map", value: {
-        code, size: DEFAULTS.size, star: DEFAULTS.star, tilt: DEFAULTS.tilt,
+        code, size: DEFAULTS.size, radius: DEFAULTS.size / (2 * Math.PI), sea: 1,
+        star: DEFAULTS.star, tilt: DEFAULTS.tilt,
         mode: creativePreview ? "creative" : "survival", explored, grid: 256,
     } })
     bridge.emit({ kind: "ui", key: "map_position", value: { x: 384, z: -128, date: 0.25 } })
-    bridge.emit({ kind: "state", section: "mapPose", value: { ...mapUv(384, -128, DEFAULTS.size), heading: 35 } })
+    const mapPose = mapUv(384, -128, DEFAULTS.size)
+    bridge.emit({ kind: "state", section: "mapPose", value: { ...mapPose, heading: 35, height: live.altitude + 1 } })
+    bridge.emit({ kind: "ui", key: "map_trajectory", value: live.trajectory ? {
+        points: Array.from({ length: 129 }, (_, i): [number, number, number] => {
+            const turn = i / 128
+            return [(mapPose.u + turn) % 1, mapPose.v + 0.035 * Math.sin(turn * 2 * Math.PI), live.altitude + 24 * Math.sin(turn * 2 * Math.PI)]
+        }),
+        ending: "time", seconds: 420,
+    } : null })
     bridge.emit({
         kind: "state",
         section: "inventory",
@@ -94,6 +103,10 @@ onMounted(() => {
                     @update:model-value="bridge.emit({ kind: 'screen', screen: $event ? 'pause' : null })" />
                 <Toggle :model-value="store.screen === 'map'" label="World map (V)"
                     @update:model-value="bridge.emit({ kind: 'screen', screen: $event ? 'map' : null })" />
+            </Section>
+            <Section title="Globe flight">
+                <Slider v-model="live.altitude" label="Altitude" :min="0" :max="1000" :step="10" unit="m" />
+                <Toggle v-model="live.trajectory" label="Projected path" />
             </Section>
             <Section title="Flags">
                 <Toggle v-model="live.visible" label="HUD visible (F1)" />

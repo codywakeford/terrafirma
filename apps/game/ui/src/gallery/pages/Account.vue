@@ -32,6 +32,9 @@ const FRIENDS: { note: string; social: Social; error?: string; joining?: string 
         <Specimen name="ProfileDropdown" note="signed in: activity, friends, account actions">
             <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" />
         </Specimen>
+        <Specimen name="ProfileDropdown" note="inbox: invitations and requests">
+            <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" initial-page="activity" />
+        </Specimen>
         <Specimen name="ProfileDropdown" note="add friend view">
             <ProfileDropdown :account="STATES[5]!.account" :social="cannedSocial()" :error="null" :busy="false" :joining="null" initial-page="add" />
         </Specimen>

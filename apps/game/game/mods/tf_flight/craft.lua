@@ -113,6 +113,7 @@ return function(opts)
 		self.object:remove()
 		opts.body.settle(player)
 		player:set_ui("flight", nil)
+		player:set_ui("map_trajectory", nil)
 	end
 
 	function Craft:fly(player, dtime)
@@ -178,6 +179,63 @@ return function(opts)
 		player:set_ui("flight", reading)
 	end
 
+	-- A coast from the craft's current authoritative state. Fly it through
+	-- the same face-aware physics as the craft, then stop at generated ground.
+	-- Only the open map requests this; the normal flight report stays cheap.
+	function Craft:trajectory(player)
+		if self.resting then
+			player:set_ui("map_trajectory", nil)
+			return
+		end
+		local s = self.state
+		local pos = { x = s.pos.x, y = s.pos.y + sea, z = s.pos.z }
+		local vel = s.vel
+		local elements = core.orbit.elements(core.planet.state(pos, vel))
+		local horizon = math.min(3600, math.max(30, elements.period or 180))
+		local dt = math.min(horizon / 192, 60)
+		local points = {}
+		local elapsed, ending = 0, "time"
+		local function point()
+			local where = core.orbit.where(core.planet.state(pos, vel))
+			points[#points + 1] = {
+				where.longitude / (2 * math.pi) + 0.5,
+				0.5 - where.latitude / math.pi,
+				where.altitude,
+			}
+		end
+		local function terrain_top(at)
+			local surface = core.terra.surface(vector.round(at))
+			return math.max(surface.ground, surface.water or surface.ground) + 0.5
+		end
+		point()
+		for _ = 1, 192 do
+			-- Small steps near the ground avoid skipping over an impact; larger
+			-- ones let an orbital coast reach its far side with the same budget.
+			local step = pos.y - sea < 2000 + math.abs(vel.y) * dt and math.min(dt, 0.5) or dt
+			local next = core.planet.fly(pos, vel, pack.craft, V.zero(), step)
+			local hit = next.pos.y - sea < 2000 and next.pos.y <= terrain_top(next.pos)
+			if hit then
+				-- Locate the crossing within this step, including across a face
+				-- edge. The line should end on the land, never under it.
+				local low, high = 0, step
+				for _ = 1, 8 do
+					local mid = (low + high) / 2
+					local candidate = core.planet.fly(pos, vel, pack.craft, V.zero(), mid)
+					if candidate.pos.y <= terrain_top(candidate.pos) then high = mid else low = mid end
+				end
+				next = core.planet.fly(pos, vel, pack.craft, V.zero(), high)
+				next.pos.y = terrain_top(next.pos)
+				elapsed = elapsed + high
+			else
+				elapsed = elapsed + step
+			end
+			pos, vel = next.pos, next.vel
+			point()
+			if hit then ending = "ground"; break end
+		end
+		player:set_ui("map_trajectory", { points = points, ending = ending, seconds = elapsed })
+	end
+
 	function Craft:on_step(dtime)
 		local player = self.rider and core.get_player_by_name(self.rider)
 		if not player or player:get_attach() ~= self.object then
@@ -195,6 +253,16 @@ return function(opts)
 	end
 
 	core.register_entity("tf_flight:craft", Craft)
+	core.register_on_ui_event(function(player, name)
+		if name ~= "map.trajectory" then return end
+		local parent = player:get_attach()
+		local entity = parent and parent:get_luaentity()
+		if entity and entity.name == "tf_flight:craft" then
+			entity:trajectory(player)
+		else
+			player:set_ui("map_trajectory", nil)
+		end
+	end)
 
 	return {
 		-- Strap a player into a new craft where they are.

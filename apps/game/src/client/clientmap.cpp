@@ -3,6 +3,8 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "clientmap.h"
+#include "client/atlas_view.h" // Terra Firma
+#include "client/localplayer.h" // Terra Firma
 #include "client.h"
 #include "client/mesh.h"
 #include "mapblock_mesh.h"
@@ -70,6 +72,7 @@ namespace {
 	// reference to a mesh buffer used when rendering the map.
 	struct DrawDescriptor {
 		v3f m_pos; // world translation
+		const core::matrix4 *m_world = nullptr; // Terra Firma: or a whole transform (an atlas's block)
 		bool m_reuse_material:1;
 		bool m_use_partial_buffer:1;
 		union {
@@ -86,6 +89,26 @@ namespace {
 			m_pos(pos), m_reuse_material(false), m_use_partial_buffer(true),
 			m_partial_buffer(buffer)
 		{}
+
+		DrawDescriptor(const core::matrix4 *world, scene::IMeshBuffer *buffer) :
+			m_pos(), m_world(world), m_reuse_material(true), m_use_partial_buffer(false),
+			m_buffer(buffer)
+		{}
+
+		DrawDescriptor(const core::matrix4 *world, const PartialMeshBuffer *buffer) :
+			m_pos(), m_world(world), m_reuse_material(false), m_use_partial_buffer(true),
+			m_partial_buffer(buffer)
+		{}
+
+		void place(video::IVideoDriver *driver, core::matrix4 &m) const
+		{
+			if (m_world) {
+				driver->setTransform(video::ETS_WORLD, *m_world);
+				return;
+			}
+			m.setTranslation(m_pos);
+			driver->setTransform(video::ETS_WORLD, m);
+		}
 
 		video::SMaterial &getMaterial();
 		/// @return number of vertices drawn
@@ -224,7 +247,7 @@ bool ClientMap::useLoopsCuller() const
 
 	// Terra Firma: on a planet the faces near the camera can be far apart in
 	// the map; the BFS walks the map, the loops visit every block loaded.
-	if (m_client->getPlanet())
+	if (m_client->getPlanet() || m_client->getAtlas())
 		return true;
 
 	/*
@@ -241,6 +264,17 @@ bool ClientMap::useLoopsCuller() const
 	const MeshGrid mesh_grid = m_client->getMeshGrid();
 	assert(mesh_grid.cell_size > 0);
 	return m_control.wanted_range / mesh_grid.cell_size >= VIEW_RANGE_PREFER_LOOPS;
+}
+
+AtlasView *ClientMap::atlasView()
+{
+	const planet::Atlas *atlas = m_client->getAtlas();
+	if (!atlas)
+		return nullptr;
+	if (!m_atlas_view)
+		m_atlas_view = std::make_unique<AtlasView>(*atlas);
+	m_atlas_view->update(m_camera_position, m_client->getEnv().getLocalPlayer()->getPosition(), m_camera_offset);
+	return m_atlas_view.get();
 }
 
 void ClientMap::updateCamera(v3f pos, v3f dir, f32 fov, v3s16 offset, video::SColor light_color)
@@ -427,7 +461,8 @@ void ClientMap::updateDrawList()
 	//   because the current occlusion culling test is highly inefficient at these sizes
 	// Terra Firma: nor on a planet, where the world is drawn curved and the
 	//   flat map's rays don't say what's hidden
-	bool occlusion_culling_enabled = mesh_grid.cell_size < 4 && !m_client->getPlanet();
+	bool occlusion_culling_enabled = mesh_grid.cell_size < 4 && !m_client->getPlanet() && !m_client->getAtlas();
+	AtlasView *atlas = atlasView(); // Terra Firma: each block where the eye sees it
 	if (m_control.allow_noclip) {
 		MapNode n = getNode(cam_pos_nodes);
 		if (n.getContent() == CONTENT_IGNORE || NDT_solidness[m_nodedef->get(n).drawtype] == 2)
@@ -470,7 +505,7 @@ void ClientMap::updateDrawList()
 			v2s16 sp = sector->getPos();
 
 			blocks_loaded += sector->size();
-			if (!m_control.range_all && !planet) {
+			if (!m_control.range_all && !planet && !atlas) {
 				if (sp.X < p_blocks_min.X || sp.X > p_blocks_max.X ||
 						sp.Y < p_blocks_min.Z || sp.Y > p_blocks_max.Z)
 					continue;
@@ -498,8 +533,19 @@ void ClientMap::updateDrawList()
 					mesh_sphere_radius = 0.0f;
 				}
 
+				if (atlas) {
+					// where the eye sees it (the scene's frame, then absolute)
+					const core::matrix4 *w = atlas->transform(block_pos);
+					if (!w)
+						continue;
+					const v3f local = mesh ? mesh->getBoundingSphereCenter()
+							: v3f((MAP_BLOCKSIZE * 0.5f - 0.5f) * BS);
+					w->transformVect(mesh_sphere_center, local);
+					mesh_sphere_center += intToFloat(m_camera_offset, BS);
+				}
+
 				// First, perform a simple distance check (on a planet, over the planet).
-				const f32 distance = planet ? (f32)planet->distance(m_camera_position.X / BS, m_camera_position.Y / BS,
+				const f32 distance = atlas ? mesh_sphere_center.getDistanceFrom(m_camera_position) : planet ? (f32)planet->distance(m_camera_position.X / BS, m_camera_position.Y / BS,
 						m_camera_position.Z / BS, mesh_sphere_center.X / BS, mesh_sphere_center.Y / BS,
 						mesh_sphere_center.Z / BS) * BS : mesh_sphere_center.getDistanceFrom(m_camera_position);
 				if (!m_control.range_all && distance > m_control.wanted_range * BS + mesh_sphere_radius)
@@ -1032,6 +1078,19 @@ static u32 transformBuffersToDrawOrder(
 	return can_merge < 2 ? 0 : can_merge;
 }
 
+// Terra Firma: an atlas's buffers of one material, each block with its own
+// transform (not merged); as transformBuffersToDrawOrder, the first sets
+// the material for the rest
+static void atlasBuffersToDrawOrder(const MeshBufListMaps::MeshBufList &list, DrawDescriptorList &draw_order, AtlasView &atlas)
+{
+	const size_t draw_order_pre = draw_order.size();
+	for (auto &[pos, buffer] : list)
+		if (const core::matrix4 *w = atlas.transform(pos))
+			draw_order.emplace_back(w, buffer);
+	if (draw_order.size() > draw_order_pre)
+		draw_order[draw_order_pre].m_reuse_material = false;
+}
+
 void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 {
 	ZoneScoped;
@@ -1081,6 +1140,7 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 	draw_order.clear();
 
 	auto is_frustum_culled = m_client->getCamera()->getFrustumCuller();
+	AtlasView *atlas = atlasView(); // Terra Firma: each block where the eye sees it
 
 	for (auto &i : m_drawlist) {
 		const v3s16 block_pos = i.first;
@@ -1095,6 +1155,13 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 		// (The one in updateDrawList is only coarse.)
 		v3f mesh_sphere_center = intToFloat(block->getPosRelative(), BS)
 				+ block_mesh->getBoundingSphereCenter();
+		const core::matrix4 *world = atlas ? atlas->transform(block_pos) : nullptr;
+		if (atlas) {
+			if (!world)
+				continue;
+			world->transformVect(mesh_sphere_center, block_mesh->getBoundingSphereCenter());
+			mesh_sphere_center += intToFloat(m_camera_offset, BS);
+		}
 		f32 mesh_sphere_radius = block_mesh->getBoundingRadius();
 		if (is_frustum_culled(mesh_sphere_center, mesh_sphere_radius))
 			continue;
@@ -1123,8 +1190,12 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 		if (is_transparent_pass) {
 			// In transparent pass, the mesh will give us
 			// the partial buffers in the correct order
-			for (auto &buffer : block_mesh->getTransparentBuffers())
-				draw_order.emplace_back(get_block_wpos(block_pos), &buffer);
+			for (auto &buffer : block_mesh->getTransparentBuffers()) {
+				if (world)
+					draw_order.emplace_back(world, &buffer);
+				else
+					draw_order.emplace_back(get_block_wpos(block_pos), &buffer);
+			}
 		} else {
 			// Otherwise, group them
 			grouped_buffers.addFromBlock(block_pos, block_mesh, driver);
@@ -1134,6 +1205,10 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 	assert(!is_transparent_pass || grouped_buffers.empty());
 	for (auto &map : grouped_buffers.maps) {
 		for (auto &list : map) {
+			if (atlas) {
+				atlasBuffersToDrawOrder(list.second, draw_order, *atlas);
+				continue;
+			}
 			merged_count += transformBuffersToDrawOrder(
 				list.second, draw_order, get_block_wpos, m_dynamic_buffers);
 		}
@@ -1186,8 +1261,7 @@ void ClientMap::renderMap(video::IVideoDriver* driver, s32 pass)
 			material.TextureLayers[ShadowRenderer::TEXTURE_LAYER_SHADOW].Texture = nullptr;
 		}
 
-		m.setTranslation(descriptor.m_pos);
-		driver->setTransform(video::ETS_WORLD, m);
+		descriptor.place(driver, m);
 
 		vertex_count += descriptor.draw(driver);
 	}
@@ -1489,6 +1563,7 @@ void ClientMap::renderMapShadows(video::IVideoDriver *driver,
 	DrawDescriptorList &draw_order = tl_drawdescriptorlist;
 	grouped_buffers.clear();
 	draw_order.clear();
+	AtlasView *atlas = atlasView(); // Terra Firma
 
 	std::size_t count = 0;
 	std::size_t meshes_per_frame = m_drawlist_shadow.size() / total_frames + 1;
@@ -1521,8 +1596,14 @@ void ClientMap::renderMapShadows(video::IVideoDriver *driver,
 		if (is_transparent_pass) {
 			// In transparent pass, the mesh will give us
 			// the partial buffers in the correct order
-			for (auto &buffer : block->mesh->getTransparentBuffers())
-				draw_order.emplace_back(get_block_wpos(block_pos), &buffer);
+			for (auto &buffer : block->mesh->getTransparentBuffers()) {
+				if (atlas) {
+					if (const core::matrix4 *w = atlas->transform(block_pos))
+						draw_order.emplace_back(w, &buffer);
+				} else {
+					draw_order.emplace_back(get_block_wpos(block_pos), &buffer);
+				}
+			}
 		} else {
 			// Otherwise, group them
 			grouped_buffers.addFromBlock(block_pos, block->mesh, driver);
@@ -1531,6 +1612,10 @@ void ClientMap::renderMapShadows(video::IVideoDriver *driver,
 
 	for (auto &map : grouped_buffers.maps) {
 		for (auto &list : map) {
+			if (atlas) {
+				atlasBuffersToDrawOrder(list.second, draw_order, *atlas);
+				continue;
+			}
 			transformBuffersToDrawOrder(
 				list.second, draw_order, get_block_wpos, m_dynamic_buffers);
 		}
@@ -1567,9 +1652,7 @@ void ClientMap::renderMapShadows(video::IVideoDriver *driver,
 			++material_swaps;
 		}
 
-		m.setTranslation(descriptor.m_pos);
-
-		driver->setTransform(video::ETS_WORLD, m);
+		descriptor.place(driver, m);
 		vertex_count += descriptor.draw(driver);
 	}
 

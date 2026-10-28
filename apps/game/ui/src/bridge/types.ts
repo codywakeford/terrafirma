@@ -50,7 +50,7 @@ export type Stack = { item: string; count: number; wear: number }
 export type StateSections = {
     hud: { visible: boolean; crosshair: boolean; hotbar: boolean; health: boolean; breath: boolean }
     player: { hp: number; hpMax: number; breath: number; breathMax: number }
-    mapPose: { u: number; v: number; heading: number }
+    mapPose: { u: number; v: number; heading: number; height: number }
     hotbar: { size: number; selected: number }
     inventory: Record<string, { width: number; stacks: (Stack | null)[] }>
 }
@@ -211,7 +211,9 @@ export type UiValues = {
 	/** tf_player: the server permits this player to use the creative catalogue. */
 	creative: boolean
     /** tf_player: the planet and this player's saved exploration mask. */
-    map: { code: string; size: number; star: StarId; tilt: number; mode: "creative" | "survival"; explored: string; grid: number }
+    map: { code: string; size: number; radius: number; sea: number; star: StarId; tilt: number; mode: "creative" | "survival"; explored: string; grid: number }
+    /** tf_flight: thrust-free projected path, sampled while the full-screen map is open. */
+    map_trajectory: { points: [number, number, number][]; ending: "ground" | "time"; seconds: number }
     /** tf_player: the player's place on the world model and the current date. */
     map_position: { x: number; z: number; date: number }
     /** tf_player: server-approved world controls and their current state. */
@@ -271,6 +273,8 @@ export type UiMessage = {
 
 /** Events the page sends game Lua (core.register_on_ui_event), by name. */
 export type UiEvents = {
+	/** Ask the flight system for a fresh projected path while viewing the globe. */
+	"map.trajectory": {}
 	/** Replace one hotbar slot from the catalogue; tf_player validates on the server. */
 	"creative.take": { item: string; slot: number; count: number }
 	"creative.clear": { slot: number }

@@ -1,0 +1,484 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#include "test.h"
+
+#include "planet/atlas.h"
+#include "planet/planet.h"
+#include <algorithm>
+#include <cmath>
+#include <random>
+
+using planet::Atlas;
+using Kind = terragen::Atlas::Region;
+
+/*
+	The atlas in the map (layout v2: planet.paper.md, section 2): every
+	cell has exactly one node and every node at most one cell; a plain step
+	from a stored node is a true neighbour or seam, never another cell; the
+	regions keep apart; the planet fits or is refused; a node's column is
+	built from the place it is.
+*/
+class TestPlanetAtlas : public TestBase {
+public:
+	TestPlanetAtlas() { TestManager::registerTestModule(this); }
+	const char *getName() { return "TestPlanetAtlas"; }
+
+	void runTests(IGameDef *gamedef);
+
+	void testFits();
+	void testRegionsApart();
+	void testNodesAndCellsPair();
+	void testPlainStepsNeverLie();
+	void testEveryCellIsStored();
+	void testPlaceIsTheCell();
+	void testStepsCross();
+	void testPolewardReachesCaps();
+	void testSeeingCarriesTheGrid();
+	void testCarryKeepsThePoint();
+	void testTurnsFollowTheGround();
+	void testViewIsTheGrid();
+};
+
+static TestPlanetAtlas g_test_instance;
+
+namespace {
+
+// The game's default world (8192 round, 1:1), and a small planet with few,
+// wide segments and a thin sky.
+std::vector<terragen::Atlas::Params> planets()
+{
+	return { terragen::Atlas::standard(8192 / (2 * M_PI)), { 300, 12, 80, 60, 0.95, 32 } };
+}
+
+terragen::Atlas::Vec randomPoint(const terragen::Atlas &atlas, std::mt19937_64 &rng)
+{
+	std::normal_distribution<double> normal;
+	const auto &p = atlas.params();
+	std::uniform_real_distribution<double> radius(1, p.radius + p.height - 1e-6);
+	double x = normal(rng), y = normal(rng), z = normal(rng);
+	const double r = radius(rng) / std::sqrt(x * x + y * y + z * z);
+	return { x * r, y * r, z * r };
+}
+
+/*
+	The nodes worth visiting: in every region, at its lowest layers (by the
+	core), the surface and its top layer, the region's edge rows and
+	columns with a node of seam round them, and every 5th row and 29th
+	column between.
+*/
+template <typename Visit>
+void sweep(const Atlas &a, Visit visit)
+{
+	for (const Atlas::Region &r : a.regions())
+		for (int32_t y : { r.k0, r.k0 + 1, std::max(r.k0, std::min(0, r.k1)), r.k1 }) {
+			for (int32_t z = r.rect.z - 1; z <= r.rect.z + r.rect.depth; z++) {
+				const int32_t row = z - r.rect.z;
+				if (row > 2 && row < r.rect.depth - 3 && row % 5)
+					continue;
+				for (int32_t x = r.rect.x - 1; x <= r.rect.x + r.rect.width; x++) {
+					const int32_t from = x - r.rect.x;
+					if (from > 3 && from < r.rect.width - 4 && from % 29)
+						continue;
+					visit(Atlas::Node{ x, y, z });
+				}
+			}
+		}
+}
+
+} // namespace
+
+void TestPlanetAtlas::runTests(IGameDef *gamedef)
+{
+	TEST(testFits);
+	TEST(testRegionsApart);
+	TEST(testNodesAndCellsPair);
+	TEST(testPlainStepsNeverLie);
+	TEST(testEveryCellIsStored);
+	TEST(testPlaceIsTheCell);
+	TEST(testStepsCross);
+	TEST(testPolewardReachesCaps);
+	TEST(testSeeingCarriesTheGrid);
+	TEST(testCarryKeepsThePoint);
+	TEST(testTurnsFollowTheGround);
+	TEST(testViewIsTheGrid);
+}
+
+namespace {
+
+// Stored nodes at the edges of regions (where crossings are), across the
+// planet: every `stride`th of the sweep.
+std::vector<Atlas::Node> edgeNodes(const Atlas &a, size_t stride)
+{
+	std::vector<Atlas::Node> out;
+	size_t n = 0;
+	sweep(a, [&](Atlas::Node node) {
+		if (n++ % stride == 0 && a.cell(node))
+			out.push_back(node);
+	});
+	return out;
+}
+
+const int STEPS[6][2] = { { 0, -1 }, { 0, 1 }, { 1, -1 }, { 1, 1 }, { 2, -1 }, { 2, 1 } }; // axis, sign
+
+} // namespace
+
+void TestPlanetAtlas::testFits()
+{
+	using terragen::Atlas;
+	planet::Atlas{ Atlas::standard(8192 / (2 * M_PI)) };
+	planet::Atlas{ Atlas::standard(16384 / (2 * M_PI)) }; // the largest world
+	planet::Atlas{ Atlas::standard(9000) };
+	EXCEPTION_CHECK(std::invalid_argument, planet::Atlas{ Atlas::standard(13000) });
+}
+
+// The regions are a gap apart, inside the map.
+void TestPlanetAtlas::testRegionsApart()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		const auto &regions = a.regions();
+		for (size_t i = 0; i < regions.size(); i++) {
+			const Atlas::Rect &r = regions[i].rect;
+			UASSERT(r.x >= Atlas::ORIGIN && r.z >= Atlas::ORIGIN &&
+					r.x + r.width - Atlas::ORIGIN <= Atlas::SPAN && r.z + r.depth - Atlas::ORIGIN <= Atlas::SPAN);
+			std::vector<Atlas::Rect> others;
+			for (size_t j = i + 1; j < regions.size(); j++)
+				others.push_back(regions[j].rect);
+			for (const Atlas::Rect &s : others) {
+				const bool apartX = r.x + r.width + Atlas::GAP <= s.x || s.x + s.width + Atlas::GAP <= r.x;
+				const bool apartZ = r.z + r.depth + Atlas::GAP <= s.z || s.z + s.depth + Atlas::GAP <= r.z;
+				UASSERT(apartX || apartZ);
+			}
+		}
+	}
+}
+
+void TestPlanetAtlas::testNodesAndCellsPair()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t counts[3] = {};
+		sweep(a, [&](Atlas::Node n) {
+			const std::optional<Atlas::Cell> c = a.cell(n);
+			if (!c)
+				return;
+			counts[(int)c->region]++;
+			const Atlas::Node back = a.node(*c);
+			UASSERT(back.x == n.x && back.y == n.y && back.z == n.z);
+		});
+		UASSERT(counts[(int)Kind::Segment] > 0 && counts[(int)Kind::Cap] > 0 && counts[(int)Kind::Core] > 0);
+	}
+}
+
+/*
+	The layout's rule: from any stored node, p + dir is seam or one of the
+	cell's true neighbours across that face (terragen::Atlas::neighbours).
+	Engine code that steps without Map::next meets the seam, never a wrong
+	block.
+*/
+void TestPlanetAtlas::testPlainStepsNeverLie()
+{
+	static const int DIRS[6][3] = { { -1, 0, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { 0, -1, 0 }, { 0, 1, 0 } };
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t crossings = 0;
+		sweep(a, [&](Atlas::Node n) {
+			const std::optional<Atlas::Cell> c = a.cell(n);
+			if (!c)
+				return;
+			for (int d = 0; d < 6; d++) {
+				const Atlas::Node q{ n.x + DIRS[d][0], n.y + DIRS[d][1], n.z + DIRS[d][2] };
+				const std::optional<Atlas::Cell> there = a.cell(q);
+				if (!there)
+					continue;
+				// storage axes are the grid's: x i, z j, y k (DIRS in face order)
+				const auto truth = a.atlas().neighbours(*c, d);
+				UTEST(std::find(truth.begin(), truth.end(), *there) != truth.end(),
+						"(%d,%d,%d) + dir %d is a cell that isn't its neighbour", n.x, n.y, n.z, d);
+				crossings++;
+			}
+		});
+		UASSERT(crossings > 10000);
+	}
+}
+
+// Any cell the atlas can locate has a node.
+void TestPlanetAtlas::testEveryCellIsStored()
+{
+	std::mt19937_64 rng(5);
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		int stored = 0;
+		for (int n = 0; n < 20000; n++) {
+			const Atlas::Cell c = a.atlas().locate(randomPoint(a.atlas(), rng));
+			const Atlas::Node node = a.node(c); // throws if not stored
+			UASSERT(a.cell(node) && *a.cell(node) == c);
+			stored++;
+		}
+		UASSERT(stored > 1000);
+	}
+}
+
+// A node's column is built from where it is: place() is the latitude and
+// longitude of its column's cell at the surface.
+void TestPlanetAtlas::testPlaceIsTheCell()
+{
+	std::mt19937_64 rng(6);
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		for (int n = 0; n < 4000; n++) {
+			const Atlas::Cell c = a.atlas().locate(randomPoint(a.atlas(), rng));
+			if (c.region == Kind::Core)
+				continue;
+			const std::optional<std::array<double, 2>> at = a.place(a.node(c));
+			UASSERT(at.has_value());
+			const terragen::Atlas::Vec m = a.atlas().centre({ c.region, c.index, c.i, c.j, 0 });
+			const double R = std::sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
+			UASSERT(std::abs((*at)[0] - std::asin(m.y / R)) < 1e-12);
+			UASSERT(std::abs(std::remainder((*at)[1] - std::atan2(m.z, m.x), 2 * M_PI)) < 1e-12);
+		}
+	}
+}
+
+// A step across a seam lands on a true neighbour of the cell, and segments
+// meet segments unturned (their grids differ by a segment's width).
+void TestPlanetAtlas::testStepsCross()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t crossed = 0;
+		for (const Atlas::Node n : edgeNodes(a, 3)) {
+			const Atlas::Cell c = *a.cell(n);
+			for (const auto &[axis, sign] : STEPS) {
+				const std::optional<Atlas::Step> s = a.step(n, axis, sign);
+				if (!s)
+					continue;
+				crossed++;
+				const Atlas::Cell there = *a.cell(s->node);
+				const int face = 2 * (axis == 0 ? 0 : axis == 1 ? 2 : 1) + (sign > 0);
+				const auto truth = a.atlas().neighbours(c, face);
+				UTEST(std::find(truth.begin(), truth.end(), there) != truth.end(),
+						"step %d,%d from region %d (%lld,%lld,%lld) to region %d: not a neighbour", axis, sign,
+						(int)c.region, (long long)c.i, (long long)c.j, (long long)c.k, (int)there.region);
+				if (c.region == Kind::Segment && there.region == Kind::Segment)
+					UTEST(s->turn == 0, "segments turned %d", s->turn);
+				// within its own grid, a step is only ever to the grid's neighbour that way
+				if (there.region == c.region && there.index == c.index) {
+					Atlas::Cell plain = c;
+					(axis == 0 ? plain.i : axis == 1 ? plain.k : plain.j) += sign;
+					UTEST(there == plain, "step %d,%d from region %d (%lld,%lld,%lld) to its own grid's (%lld,%lld,%lld)", axis,
+							sign, (int)c.region, (long long)c.i, (long long)c.j, (long long)c.k, (long long)there.i,
+							(long long)there.j, (long long)there.k);
+				}
+			}
+		}
+		UTEST(crossed > 500, "only %zu crossings", crossed);
+	}
+}
+
+// Walking north (south) along any column of a segment at the surface, the
+// step past its last cell lands in the cap.
+void TestPlanetAtlas::testPolewardReachesCaps()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		for (const auto &g : a.atlas().grids()) {
+			if (g.region != Kind::Segment)
+				continue;
+			for (int64_t i = g.low[0]; i <= g.high[0]; i += 7)
+				for (const int sign : { 1, -1 }) {
+					// the column's last cell poleward
+					std::optional<Atlas::Cell> last;
+					for (int64_t j = sign > 0 ? g.high[1] : g.low[1]; j != (sign > 0 ? g.low[1] : g.high[1]); j -= sign) {
+						const Atlas::Cell c{ Kind::Segment, g.index, i, j, 0 };
+						if (a.atlas().exists(c)) {
+							last = c;
+							break;
+						}
+					}
+					if (!last)
+						continue;
+					const std::optional<Atlas::Step> s = a.step(a.node(*last), 2, sign);
+					UTEST(s.has_value(), "segment %d column %lld: no step %s past j %lld", g.index, (long long)i,
+							sign > 0 ? "north" : "south", (long long)last->j);
+					if (!s)
+						continue;
+					// the columns that reach the cap circle (the wedge's half width
+					// there); the others leave it through a neighbouring segment
+					const double reach = 0.8 * p.radius * std::cos(p.capLatitude * M_PI / 180) * M_PI / p.segments;
+					if (std::abs((double)i) > reach)
+						continue;
+					const Atlas::Cell there = *a.cell(s->node);
+					UTEST(there.region == Kind::Cap && there.index == sign, "segment %d column %lld: stepped %s into region %d",
+							g.index, (long long)i, sign > 0 ? "north" : "south", (int)there.region);
+				}
+		}
+	}
+}
+
+// Seen from a node, the grid carries on over every seam: what's a step
+// away in it is the cell that holds that point of the planet.
+void TestPlanetAtlas::testSeeingCarriesTheGrid()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t across = 0;
+		for (const Atlas::Node n : edgeNodes(a, 61)) {
+			for (int dx = -1; dx <= 1; dx++)
+				for (int dz = -1; dz <= 1; dz++)
+					for (int dy : { -1, 0, 1 }) {
+						const Atlas::Node q{ n.x + dx, n.y + dy, n.z + dz };
+						const std::optional<Atlas::Seen> s = a.see(n, q);
+						if (!s)
+							continue;
+						if (!a.cell(s->node))
+							continue; // past the top: seam
+						across++;
+						// the point the grid names is inside the cell seen: within
+						// half its diagonal of its centre
+						const Atlas::Cell to = *a.cell(s->node);
+						const terragen::Atlas::Vec named = *a.point(n, q.x, q.y, q.z), centre = a.atlas().centre(to);
+						const double off = std::sqrt(std::pow(named.x - centre.x, 2) + std::pow(named.y - centre.y, 2) +
+								std::pow(named.z - centre.z, 2));
+						UTEST(off < 0.9, "seen %.3f blocks off (region %d, kept %.3f)", off, (int)to.region,
+								a.atlas().retained(to));
+					}
+		}
+		UTEST(across > 100, "only %zu seen across", across);
+	}
+}
+
+// Carried into another grid, a position is the same place on the planet:
+// both grids put it at the same point (to a couple of centimetres: see
+// Atlas::UP), and it stays put there.
+void TestPlanetAtlas::testCarryKeepsThePoint()
+{
+	std::mt19937_64 rng(7);
+	std::uniform_real_distribution<double> wander(-2.4, 2.4);
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t carried = 0;
+		double worst = 0;
+		for (const Atlas::Node n : edgeNodes(a, 3)) {
+			const double x = n.x + wander(rng), y = n.y + wander(rng) / 2, z = n.z + wander(rng);
+			const std::optional<Atlas::Carried> to = a.carry(n.x, n.y, n.z, x, y, z);
+			if (!to)
+				continue;
+			carried++;
+			const Atlas::Node m = Atlas::moverNode(to->x, to->y, to->z);
+			UASSERT(a.cell(m).has_value());
+			const terragen::Atlas::Vec before = *a.point(n, x, y, z), after = *a.point(m, to->x, to->y, to->z);
+			// and it stays: carried again from where it landed, it doesn't move
+			UASSERT(!a.carry(to->x, to->y, to->z, to->x, to->y, to->z).has_value());
+			const double gap = std::sqrt(std::pow(before.x - after.x, 2) + std::pow(before.y - after.y, 2) +
+					std::pow(before.z - after.z, 2));
+			// to within the mover's centimetre up (Atlas::UP), or where it landed
+			// on a sliver merged into the cell (terragen::Atlas::locate), onto
+			// the cell, by the sliver's thickness
+			const Atlas::Cell into = *a.cell(m);
+			const auto q = a.atlas().grid(into.region, into.index, before);
+			const bool merged = q[0] < into.i || q[0] >= into.i + 1 || q[1] < into.j || q[1] >= into.j + 1 ||
+					q[2] < into.k - 0.02 || q[2] >= into.k + 1.02;
+			worst = std::max(worst, gap);
+			UTEST(gap < (merged ? 0.25 : 2 * Atlas::UP), "carried %.3g blocks off (%s)", gap,
+					merged ? "merged" : "into the cell holding it");
+		}
+		rawstream << "carried " << carried << ", worst " << worst << " blocks" << std::endl;
+		UTEST(carried > 100, "only %zu carried", carried);
+	}
+}
+
+// Into a cap from a segment, all round the cap's circle: a step north turns
+// by the longitude, and Planet::turned with the turn given is the direction
+// in the cap's grid nearest the segment's north on the ground (within 45°).
+void TestPlanetAtlas::testTurnsFollowTheGround()
+{
+	using V = terragen::Atlas::Vec;
+	const auto sub = [](V a, V b) { return V{ a.x - b.x, a.y - b.y, a.z - b.z }; };
+	const auto unit = [](V a) { const double l = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); return V{ a.x / l, a.y / l, a.z / l }; };
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		const terragen::Atlas &atlas = a.atlas();
+		const double R = p.radius + 0.5, lat = (p.capLatitude - 1) * M_PI / 180;
+		int turned = 0, entered = 0;
+		for (int deg = 0; deg < 360; deg += 7) {
+			// north up the segment there, to the cap's circle
+			const double lon = deg * M_PI / 180;
+			Atlas::Node from = a.node(atlas.locate({ R * std::cos(lat) * std::cos(lon), R * std::sin(lat),
+				R * std::cos(lat) * std::sin(lon) }));
+			std::optional<Atlas::Step> step;
+			for (int n = 0; n < 200 && !(step = a.step(from, 2, 1)); n++)
+				from.z++;
+			UASSERT(step.has_value());
+			const Atlas::Cell segment = *a.cell(from), cap = *a.cell(step->node);
+			if (cap.region != Kind::Cap)
+				continue; // a step over the segment's own seam first
+			entered++;
+			const auto c = atlas.corners(segment), k = atlas.corners(cap);
+			const V north = unit(sub(c[2], c[0]));
+			const V capEast = unit(sub(k[1], k[0])), capNorth = unit(sub(k[2], k[0]));
+			const std::array<int, 2> d = planet::Planet::turned(0, 1, step->turn);
+			const V way = unit({ d[0] * capEast.x + d[1] * capNorth.x, d[0] * capEast.y + d[1] * capNorth.y,
+				d[0] * capEast.z + d[1] * capNorth.z });
+			const double agree = north.x * way.x + north.y * way.y + north.z * way.z;
+			UTEST(agree > std::cos(50 * M_PI / 180), "at %d°, turn %d points %.1f° off north", deg,
+					step->turn, std::acos(std::min(1.0, agree)) * 180 / M_PI);
+			turned += step->turn != 0;
+		}
+		UASSERT(entered > 20);
+		UASSERT(turned > 0); // the cap's grid isn't the segments' everywhere
+	}
+}
+
+// The view of a region from an eye: the eye's own grid nearby is itself
+// (to a hair: the chart's curvature), and a cell across any seam lands
+// where the eye's grid carried on puts it, against the face it's across.
+void TestPlanetAtlas::testViewIsTheGrid()
+{
+	for (const auto &p : planets()) {
+		const Atlas a(p);
+		size_t across = 0;
+		for (const Atlas::Node n : edgeNodes(a, 4)) {
+			const std::array<double, 3> at{ (double)n.x, (double)n.y, (double)n.z };
+			// itself
+			const Atlas::Frame eye = *a.frame(n, at);
+			const Atlas::Affine self = Atlas::view(eye, eye);
+			const auto same = self(n.x + 3, n.y - 2, n.z + 1);
+			UTEST(std::abs(same[0] - (n.x + 3)) < 0.01 && std::abs(same[1] - (n.y - 2)) < 0.01 &&
+					std::abs(same[2] - (n.z + 1)) < 0.01, "own grid moved by the view (%.3f)", same[0] - (n.x + 3));
+			// a step across a seam: the far cell, seen, is a step from here
+			for (const auto &[axis, sign] : STEPS) {
+				const std::optional<Atlas::Step> s = a.step(n, axis, sign);
+				if (!s)
+					continue;
+				across++;
+				const std::array<double, 3> far{ (double)s->node.x, (double)s->node.y, (double)s->node.z };
+				const auto seen = Atlas::view(eye, *a.frame(s->node, far))(far[0], far[1], far[2]);
+				std::array<double, 3> want = at; // just past the face's middle: where step looks
+				want[axis] += sign * 0.501;
+				const double off = std::sqrt(std::pow(seen[0] - want[0], 2) + std::pow(seen[1] - want[1], 2) +
+						std::pow(seen[2] - want[2], 2));
+				// the far cell holds that point: its centre is within
+				// half its diagonal of it (near the axis cells are wide), and the
+				// view adds a hair
+				const auto k = a.atlas().corners(*a.cell(s->node));
+				const double half = 0.5 * std::sqrt(std::pow(k[7].x - k[0].x, 2) + std::pow(k[7].y - k[0].y, 2) +
+						std::pow(k[7].z - k[0].z, 2));
+				const Atlas::Cell from = *a.cell(n), to = *a.cell(s->node);
+				const terragen::Atlas::Vec mid = a.atlas().centre(from);
+				// at a cut (either side), the neighbour past the cut's edge or
+				// nearest the face's middle; or where the point is a gap merged
+				// into the cell (terragen::Atlas::locate): a little further
+				const terragen::Atlas::Vec stepped = *a.point(n, want[0], want[1], want[2]);
+				const bool cut = a.atlas().retained(*a.cell(n)) < 1 || a.atlas().retained(*a.cell(s->node)) < 1;
+				const bool merged = !(a.atlas().owner(stepped) == *a.cell(s->node));
+				const double slack = cut || merged ? 0.6 : 0.1;
+				UTEST(off < half + slack, "a step across a seam is drawn %.3f away (cell half %.3f): region %d→%d, r %.1f, the step's point is %s the far cell",
+						off, half, (int)from.region, (int)to.region, std::sqrt(mid.x * mid.x + mid.y * mid.y + mid.z * mid.z),
+						a.atlas().locate(stepped) == to ? "in" : "NOT in");
+			}
+		}
+		UTEST(across > 200, "only %zu crossings", across);
+	}
+}

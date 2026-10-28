@@ -121,6 +121,14 @@ struct MapgenParams {
 	// Terra Firma: the planet's faces, blocks from a face's centre to its edge
 	// (planet::Planet); 0 a flat world. Any mapgen.
 	s32 planet_half = 0;
+	u8 planet_mapping = 1; // terragen::Sphere::Mapping; missing means equiangular-v1
+	// Terra Firma: an atlas planet's mapping code (terragen::Atlas::code,
+	// planet/atlas.h); empty unless the world is one. Never with planet_half.
+	std::string planet_atlas;
+	// Terra Firma, TEMP(2026-10-27): an atlas planet with no terrain: a smooth
+	// sphere (ground below layer 0) painted by what each cell is, its regions
+	// and seams, to look at (sprint 30). Never in a production world.
+	bool planet_atlas_debug = false;
 	// Flags set in readParams
 	u32 flags = 0;
 	u32 spflags = 0;

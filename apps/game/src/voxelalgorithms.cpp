@@ -241,6 +241,21 @@ static bool step_on_planet(Map *map, direction &dir, relative_v3 &rel_pos,
 {
 	const v3s16 from = block_pos * MAP_BLOCKSIZE + rel_pos;
 	const bool crossed = step_rel_block_pos(dir, rel_pos, block_pos);
+	// an atlas's seams can be anywhere in a block, and up and down too
+	if (map->getAtlas()) {
+		const Map::Next next = map->next(from, neighbor_dirs[dir]);
+		if (next.pos == from + neighbor_dirs[dir])
+			return crossed;
+		block_pos = getNodeBlockPos(next.pos);
+		rel_pos = next.pos - block_pos * MAP_BLOCKSIZE;
+		if (dir != 1 && dir != 4) {
+			const auto way = planet::Planet::turned(neighbor_dirs[dir].X, neighbor_dirs[dir].Z, next.turn);
+			for (direction d = 0; d < 6; d++)
+				if (neighbor_dirs[d] == v3s16(way[0], 0, way[1]))
+					dir = d;
+		}
+		return true;
+	}
 	if (!crossed || !map->getPlanet() || dir == 1 || dir == 4)
 		return crossed;
 	const Map::Next next = map->next(from, neighbor_dirs[dir]);

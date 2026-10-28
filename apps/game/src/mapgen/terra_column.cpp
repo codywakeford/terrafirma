@@ -3,7 +3,9 @@
 
 #include "terra_column.h"
 #include "mapgen.h" // MAX_MAP_GENERATION_LIMIT
+#include "planet/atlas.h"
 #include "planet/planet.h"
+#include <stdexcept>
 #include <algorithm>
 #include <cmath>
 
@@ -12,13 +14,35 @@ using namespace terragen;
 namespace terra {
 
 Columns::Columns(const World &world, const Blocks &blocks, s16 water_level,
-		const planet::Planet *planet) :
-	m_world(world), m_planet(planet), m_blocks(blocks), m_water_level(water_level)
+		const planet::Planet *planet, const planet::Atlas *atlas) :
+	m_world(world), m_planet(planet), m_atlas(atlas), m_blocks(blocks), m_water_level(water_level)
 {
+	if (planet && atlas)
+		throw std::invalid_argument("terra::Columns: a world is a cube planet or an atlas, not both");
+}
+
+// The world model's block at a latitude and longitude (radians): its map is
+// equirectangular, x longitude from 0, z latitude, poles at ±size/2 (as
+// planet::Planet::equirect).
+static std::array<s16, 2> equirect(double lat, double lon, int32_t size)
+{
+	const double half = size / 2.0;
+	double wx = std::round(lon / (2 * M_PI) * size);
+	wx -= std::floor((wx + half) / size) * size; // into −half … half
+	const double wz = std::clamp(std::round(lat / M_PI * size), 1 - half, half);
+	return { (s16)wx, (s16)wz };
 }
 
 std::array<s16, 2> Columns::onWorld(s16 x, s16 z) const
 {
+	if (m_atlas) {
+		// the surface shell's column (its storage y is its layer)
+		const std::optional<std::array<double, 2>> at = m_atlas->place({ x, 0, z });
+		if (!at)
+			throw std::logic_error("terra::Columns: storage column (" + std::to_string(x) + ", " +
+					std::to_string(z) + ") is no place in the atlas's surface shell");
+		return equirect((*at)[0], (*at)[1], m_world.code().size);
+	}
 	if (!m_planet)
 		return { x, z };
 	const std::array<int32_t, 2> w = m_planet->equirect(x, z, m_world.code().size);
@@ -33,6 +57,12 @@ static constexpr double LANDMARK_HEIGHT = 72; // m above the sea, at the corner
 
 Column Columns::at(s16 x, s16 z, fix sun) const
 {
+	if (m_atlas) {
+		if (!m_atlas->place({ x, 0, z }))
+			return nothing(); // seam in the surface shell: the generator fills nodes by their own place
+		const std::array<s16, 2> w = onWorld(x, z);
+		return column(w[0], w[1], sunlight(w[1]));
+	}
 	if (!m_planet)
 		return column(x, z, sun);
 	const std::array<s16, 2> w = onWorld(x, z);
@@ -51,6 +81,30 @@ Column Columns::at(s16 x, s16 z, fix sun) const
 	return c;
 }
 
+Column Columns::atPlace(double latitude, double longitude) const
+{
+	const std::array<s16, 2> w = onWorldAt(latitude, longitude);
+	return column(w[0], w[1], sunlight(w[1]));
+}
+
+std::array<s16, 2> Columns::onWorldAt(double latitude, double longitude) const
+{
+	return equirect(latitude, longitude, m_world.code().size);
+}
+
+// No world: air all the way up (past the polar wall, or storage that is
+// no place on an atlas).
+Column Columns::nothing() const
+{
+	Column c{};
+	c.beyond = c.space = true;
+	c.biome = Biome::Snow;
+	c.height = c.water = -MAX_MAP_GENERATION_LIMIT - 1; // every block above it: air
+	c.top = CONTENT_AIR;
+	c.top_end = c.filler_end = c.ice_end = c.height;
+	return c;
+}
+
 fix Columns::sunlight(s16 z) const
 {
 	fix v = m_world.v(z);
@@ -61,14 +115,8 @@ Column Columns::column(s16 x, s16 z, fix sun) const
 {
 	Column c{};
 	fix v = m_world.v(z);
-	if (z >= m_world.spaceFrom()) {
-		c.beyond = c.space = true;
-		c.biome = Biome::Snow;
-		c.height = c.water = -MAX_MAP_GENERATION_LIMIT - 1; // every block above it: air
-		c.top = CONTENT_AIR;
-		c.top_end = c.filler_end = c.ice_end = c.height;
-		return c;
-	}
+	if (z >= m_world.spaceFrom())
+		return nothing(); // past the polar wall
 	if (v < 0 || v >= ONE) {
 		c.beyond = true;
 		c.biome = Biome::Snow;

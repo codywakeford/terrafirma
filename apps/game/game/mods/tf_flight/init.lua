@@ -43,6 +43,13 @@ local function strap(stack, user)
 	if e and e.name == "tf_flight:craft" then
 		e:dismount(user)
 	elseif not parent then
+		-- TEMP(2026-10-27): the pack flies the cube planet's orbits
+		-- (core.planet.fly); an atlas planet has none yet (sprint 30)
+		if core.planet.atlas() then
+			core.chat_send_player(user:get_player_name(),
+				"The flight pack doesn't fly over an atlas planet yet. Use fly mode (K) to look around.")
+			return
+		end
 		craft.launch(user)
 	end
 end
@@ -62,6 +69,12 @@ core.register_on_joinplayer(function(player)
 	local flying = player:get_meta():get_string("tf_flight")
 	if flying ~= "" and flying ~= "flying" then
 		error("tf_flight: " .. player:get_player_name() .. " has a flight saved as '" .. flying .. "'")
+	end
+	if flying == "flying" and core.planet.atlas() then
+		-- TEMP(2026-10-27): as strap; the flight saved (a crash mid-flight) is
+		-- dropped, and they're where they were
+		player:get_meta():set_string("tf_flight", "")
+		return
 	end
 	core.after(0, function()
 		if player:is_valid() and flying == "flying" then craft.launch(player) end

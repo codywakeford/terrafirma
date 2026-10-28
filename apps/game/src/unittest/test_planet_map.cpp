@@ -31,6 +31,7 @@ public:
 	void testSeenAcrossEdges(IGameDef *gamedef);
 	void testWalkOverEdges(IGameDef *gamedef);
 	void testPointAcrossEdges(IGameDef *gamedef);
+	void testCornerNeighbourhood(IGameDef *gamedef);
 	void testLightAcrossEdges(IGameDef *gamedef);
 };
 
@@ -44,6 +45,7 @@ void TestPlanetMap::runTests(IGameDef *gamedef)
 	TEST(testSeenAcrossEdges, gamedef);
 	TEST(testWalkOverEdges, gamedef);
 	TEST(testPointAcrossEdges, gamedef);
+	TEST(testCornerNeighbourhood, gamedef);
 	TEST(testLightAcrossEdges, gamedef);
 }
 
@@ -210,6 +212,26 @@ void TestPlanetMap::testWalkOverEdges(IGameDef *gamedef)
 			UASSERT(speed.getLength() > 3.9f * BS);
 		});
 	}
+	// Diagonally through each three-face point: collision samples the three
+	// incident floors, then the movement rebase lands on a real face.
+	for (int f = 0; f < 6; f++) {
+		const planet::Planet::Square face = SMALL.square(f);
+		for (int dx : { -1, 1 })
+		for (int dz : { -1, 1 }) {
+			const double x = dx < 0 ? face.x : face.x + SMALL.width() - 1;
+			const double z = dz < 0 ? face.z : face.z + SMALL.width() - 1;
+			v3f pos(x * BS, 0.5f * BS, z * BS);
+			v3f speed(dx * 4.0f * BS, 0, dz * 4.0f * BS);
+			const CollisionMoveResult r = collisionMoveSimple(&env, gamedef, box, 0.0f, 0.25f,
+					&pos, &speed, v3f(0, -9.81f * BS, 0), nullptr, false, StepUpMode::LEGACY);
+			UASSERT(r.touching_ground);
+			UASSERT(std::abs(pos.X / BS - (x + dx)) < 0.01f);
+			UASSERT(std::abs(pos.Z / BS - (z + dz)) < 0.01f);
+			const auto carried = SMALL.carry(f, x, z, pos.X / BS, pos.Z / BS);
+			UASSERT(carried && SMALL.face((int32_t)std::lround(carried->x),
+					(int32_t)std::lround(carried->z)) == carried->face);
+		}
+	}
 	// the control: the same map read flat walks into the gap's wall
 	env.getMap().setPlanet(nullptr);
 	const planet::Planet::Square s = SMALL.square(0);
@@ -247,6 +269,31 @@ void TestPlanetMap::testPointAcrossEdges(IGameDef *gamedef)
 			UASSERT(hit.node_undersurface == target);
 			map.setNode(target, MapNode(CONTENT_AIR));
 		});
+	}
+}
+
+void TestPlanetMap::testCornerNeighbourhood(IGameDef *gamedef)
+{
+	PlanetEnvironment env(gamedef);
+	Map &map = env.getMap();
+	for (int face = 0; face < 6; face++) {
+		const planet::Planet::Square s = SMALL.square(face);
+		for (int dx : { -1, 1 })
+		for (int dz : { -1, 1 }) {
+			const v3s16 corner(dx < 0 ? s.x : s.x + SMALL.width() - 1, 1,
+					dz < 0 ? s.z : s.z + SMALL.width() - 1);
+			const v3s16 ghost = corner + v3s16(dx, 0, dz);
+			const Map::Next seen = map.see(corner, ghost);
+			UASSERT(seen.pos != ghost);
+			const auto target_face = SMALL.face(seen.pos.X, seen.pos.Z);
+			UASSERT(target_face && *target_face != face);
+			map.setNode(seen.pos, MapNode(t_CONTENT_BRICK));
+			bool valid = false;
+			UASSERTEQ(content_t, map.getNodeSeen(corner, ghost, &valid).getContent(),
+					t_CONTENT_BRICK);
+			UASSERT(valid);
+			map.setNode(seen.pos, MapNode(CONTENT_AIR));
+		}
 	}
 }
 

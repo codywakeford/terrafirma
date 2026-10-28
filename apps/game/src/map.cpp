@@ -3,6 +3,8 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "map.h"
+#include "planet/atlas.h" // Terra Firma
+#include <algorithm>
 #include "planet/planet.h" // Terra Firma
 #include "mapsector.h"
 #include "mapblock.h"
@@ -32,6 +34,14 @@ Map::Next Map::next(v3s16 p, v3s16 dir) const
 {
 	if (std::abs(dir.X) + std::abs(dir.Y) + std::abs(dir.Z) != 1)
 		throw BaseException("Map::next: one step along the grid");
+	if (m_atlas) {
+		const int axis = dir.X ? 0 : dir.Y ? 1 : 2;
+		const std::optional<planet::Atlas::Step> s =
+				m_atlas->step({ p.X, p.Y, p.Z }, axis, dir.X + dir.Y + dir.Z);
+		if (!s)
+			return { p + dir, 0 }; // the same grid, or seam
+		return { v3s16(s->node.x, s->node.y, s->node.z), s->turn };
+	}
 	if (!m_planet || dir.Y != 0)
 		return { p + dir, 0 };
 	if (!m_planet->face(p.X, p.Z))
@@ -49,8 +59,18 @@ static Rotation planetRotation(int turn)
 	return ROTATIONS[((turn % 4) + 4) % 4];
 }
 
+static Map::Next nextOf(const planet::Atlas::Seen &s, v3s16 p)
+{
+	return { v3s16(s.node.x, s.node.y, s.node.z), s.turn,
+		v3f((f32)(s.x - p.X), (f32)(s.y - p.Y), (f32)(s.z - p.Z)) };
+}
+
 Map::Next Map::see(v3s16 from, v3s16 p) const
 {
+	if (m_atlas) {
+		const std::optional<planet::Atlas::Seen> s = m_atlas->see({ from.X, from.Y, from.Z }, { p.X, p.Y, p.Z });
+		return s ? nextOf(*s, p) : Next{ p, 0 };
+	}
 	if (!m_planet)
 		return { p, 0 };
 	const std::optional<int> face = m_planet->face(from.X, from.Z);
@@ -58,8 +78,30 @@ Map::Next Map::see(v3s16 from, v3s16 p) const
 		return { p, 0 };
 	const std::optional<planet::Planet::Step> h = m_planet->halo(*face, p.X, p.Z);
 	if (!h)
-		return { p, 0 }; // round a corner: the seam
+		return { p, 0 }; // beyond the planet neighbourhood: the seam
 	return { v3s16(h->x, p.Y, h->z), h->turn };
+}
+
+std::vector<Map::Next> Map::seeAll(v3s16 from, v3s16 p) const
+{
+	const Next one = see(from, p);
+	if (!m_atlas || (one.pos == p && one.offset == v3f()))
+		return { one };
+	// p's cell of `from`'s grid, at its middle and near its 8 corners: every
+	// cell across the seam it overlaps (a cell is at least ~¾ of a node wide)
+	std::vector<Next> out;
+	for (int k = 0; k < 9; k++) {
+		const f32 d = 0.45f;
+		const v3f at = k == 8 ? v3f() : v3f(k & 1 ? d : -d, k & 2 ? d : -d, k & 4 ? d : -d);
+		const std::optional<planet::Atlas::Seen> s = m_atlas->seeAt({ from.X, from.Y, from.Z },
+				p.X + at.X, p.Y + at.Y, p.Z + at.Z);
+		if (!s)
+			continue;
+		const Next n = nextOf(*s, p);
+		if (std::none_of(out.begin(), out.end(), [&](const Next &o) { return o.pos == n.pos; }))
+			out.push_back(n);
+	}
+	return out;
 }
 
 f32 Map::distance(v3f a, v3f b) const
@@ -75,6 +117,14 @@ MapNode Map::getNodeSeen(v3s16 from, v3s16 p, bool *is_valid_position)
 	MapNode n = getNode(s.pos, is_valid_position);
 	if (s.turn != 0)
 		n.rotateAlongYAxis(m_nodedef, planetRotation(s.turn));
+	return n;
+}
+
+MapNode Map::getNodeTurned(v3s16 p, int turn)
+{
+	MapNode n = getNode(p);
+	if (turn != 0)
+		n.rotateAlongYAxis(m_nodedef, planetRotation(turn));
 	return n;
 }
 

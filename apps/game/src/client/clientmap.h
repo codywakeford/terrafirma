@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "irrlichttypes_bloated.h"
 #include "map.h"
 #include <ISceneNode.h>
@@ -54,6 +56,8 @@ using ModifyMaterialCallback = std::function<void(video::SMaterial& /* material 
 	This is the only map class that is able to render itself on screen.
 */
 
+class AtlasView; // Terra Firma
+
 class ClientMap : public Map, public scene::ISceneNode
 {
 public:
@@ -95,6 +99,10 @@ public:
 	void updateDrawList();
 	/// @brief clears m_drawlist and m_keeplist
 	void clearDrawList();
+
+	// Terra Firma: an atlas planet's view from the camera, up to date (null
+	// on any other world): how its blocks, and the far view's tiles, are drawn
+	AtlasView *atlasView();
 
 	// Terra Firma: each block drawn this frame (the far view hides where they are)
 	template <typename F>
@@ -179,6 +187,9 @@ private:
 	v3f m_camera_direction = v3f(0,0,1);
 	f32 m_camera_fov = M_PI;
 	v3s16 m_camera_offset;
+	// Terra Firma: an atlas planet's blocks as the eye sees them (null on any
+	// other world); atlasView() keeps it up to the camera
+	std::unique_ptr<AtlasView> m_atlas_view;
 	video::SColor m_camera_light_color = video::SColor(0xFFFFFFFF);
 	bool m_needs_update_transparent_meshes = true;
 

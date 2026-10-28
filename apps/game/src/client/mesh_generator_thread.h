@@ -7,6 +7,7 @@
 #include "mapnode.h"
 #include <ctime>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 #include "irrlichttypes_bloated.h"
 #include "threading/mutex_auto_lock.h"
@@ -15,6 +16,7 @@
 #include <memory>
 
 class Map;
+namespace planet { class Atlas; }
 class MapBlock;
 class MapBlockMesh;
 struct MeshMakeData;
@@ -34,6 +36,10 @@ struct QueuedMeshUpdate
 	// net has there (the seam) before meshing, so the next face's blocks
 	// meet this one's.
 	std::vector<std::pair<v3s16, MapNode>> halo;
+	const planet::Atlas *atlas = nullptr; // Terra Firma: the map's, if it's one
+	// Terra Firma, an atlas: the blocks the halo read over a seam (present
+	// or not): when one arrives, this mesh is made again
+	std::vector<v3s16> read;
 	u16 epoch = U16_MAX;
 	bool urgent = false;
 
@@ -47,6 +53,8 @@ struct QueuedMeshUpdate
 	 * @param cell_size mesh grid cell size
 	 */
 	void retrieveBlocks(Map *map, u16 cell_size);
+	// The mesh's nodes, from what retrieveBlocks took (any thread).
+	void fill(MeshMakeData *data) const;
 	/**
 	 * Drop block references.
 	 * @note not done by destructor, since this is only safe on main thread
@@ -109,8 +117,12 @@ public:
 	/// @param finish if true, also clears updates that need to be acked to the server
 	void clear(bool finish);
 
+	// Terra Firma, an atlas: the meshes that read a block over a seam
+	std::vector<v3s16> readersOf(v3s16 block);
+
 private:
 	Client *m_client;
+	std::unordered_map<v3s16, std::unordered_set<v3s16>> m_readers; // Terra Firma: block → meshes that read it
 	std::vector<QueuedMeshUpdate *> m_queue;
 	std::unordered_set<v3s16> m_urgents;
 	std::unordered_set<v3s16> m_inflight_blocks;
@@ -123,6 +135,7 @@ private:
 	bool m_cache_enable_waving_water;
 
 	void fillDataFromMapBlocks(QueuedMeshUpdate *q);
+	void noteReads(const QueuedMeshUpdate &q);
 };
 
 struct MeshUpdateResult
@@ -188,6 +201,10 @@ public:
 
 	/// @param finish if true, also clears updates that need to be acked to the server
 	void clearAllQueues(bool finish);
+
+	// Terra Firma, an atlas: the meshes that read a block over a seam (made
+	// again when it arrives)
+	std::vector<v3s16> readersOf(v3s16 block) { return m_queue_in.readersOf(block); }
 
 	void start();
 	void stop();

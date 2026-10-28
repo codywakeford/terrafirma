@@ -259,6 +259,24 @@ void RemoteClient::GetNextBlocks (
 		lens.emplace(*planet, camera_pos.X / BS, camera_pos.Y / BS, camera_pos.Z / BS);
 	const f32 cone = std::cos(std::min(camera_fov * 0.55f, core::PI * 0.5f)); // the view, and a tenth more
 
+	// Terra Firma: an atlas planet (planet/atlas.h): the shells round the
+	// player are of its own grid carried on over every seam (Atlas::seeAt);
+	// each slot is the block that holds that place
+	const planet::Atlas *atlas = env->getServer()->atlas();
+	std::optional<planet::Atlas::Node> eye;
+	if (atlas) {
+		// the eye's node, or (the eye in a gap between shells) the feet's:
+		// the player's grid carries on to the eye
+		const planet::Atlas::Node n = planet::Atlas::moverNode(camera_pos.X / BS, camera_pos.Y / BS, camera_pos.Z / BS);
+		const planet::Atlas::Node feet = planet::Atlas::moverNode(playerpos.X / BS, playerpos.Y / BS, playerpos.Z / BS);
+		if (atlas->cell(n))
+			eye = n;
+		else if (atlas->cell(feet))
+			eye = feet;
+	}
+
+	std::unordered_set<v3s16> listed; // an atlas: blocks already taken this pass
+
 	s16 d;
 	for (d = d_start; d <= d_max; d++) {
 		/*
@@ -269,7 +287,20 @@ void RemoteClient::GetNextBlocks (
 
 		for (auto li = list.begin(); li != list.end(); ++li) {
 			v3s16 p = *li + center;
-			if (planet) {
+			v3f slot; // the slot's middle from the camera, in its grid (nodes)
+			// Terra Firma: the blocks this slot shows. One, but on an atlas
+			// a slot over a seam or down a shell lies across the other
+			// grid's blocks: every block its middle or a corner falls in
+			std::vector<v3s16> held{ p };
+			if (eye) {
+				const double middle = MAP_BLOCKSIZE / 2 - 0.5;
+				const double x = p.X * MAP_BLOCKSIZE + middle, y = p.Y * MAP_BLOCKSIZE + middle,
+					z = p.Z * MAP_BLOCKSIZE + middle;
+				slot = v3f(x - camera_pos.X / BS, y - camera_pos.Y / BS, z - camera_pos.Z / BS);
+				held.clear();
+				for (const planet::Atlas::Block b : atlas->blocksAt(*eye, x, y, z))
+					held.emplace_back(b.x, b.y, b.z);
+			} else if (planet) {
 				const double half = MAP_BLOCKSIZE / 2 - 0.5; // the block's middle node
 				const auto w = planet->wrap(planet_face, p.X * MAP_BLOCKSIZE + half, p.Z * MAP_BLOCKSIZE + half);
 				p.X = getContainerPos(w[0], MAP_BLOCKSIZE);
@@ -307,7 +338,16 @@ void RemoteClient::GetNextBlocks (
 				(0.1 is about 5 degrees)
 			*/
 			f32 dist = 0;
-			if (planet) {
+			if (eye) {
+				// as the player sees it: near enough, and in the view
+				const f32 far = slot.getLength();
+				dist = far * BS;
+				if (dist > d_blocks_in_sight)
+					continue;
+				const f32 size = MAP_BLOCKSIZE * 0.87f; // half a block's diagonal
+				if (far > size && slot.dotProduct(camera_dir) / far < cone - size / far)
+					continue;
+			} else if (planet) {
 				// as the player sees it: near enough, and in the view (with
 				// room for the block's own size)
 				const double middle = MAP_BLOCKSIZE / 2 - 0.5;
@@ -329,6 +369,9 @@ void RemoteClient::GetNextBlocks (
 				continue;
 			}
 
+			for (const v3s16 p : held) {
+			if (eye && !listed.insert(p).second)
+				continue; // another slot of this pass took it
 			/*
 				Check if map has this block
 			*/
@@ -383,7 +426,7 @@ void RemoteClient::GetNextBlocks (
 				/*
 					Note that we do this even before the block is loaded as this does not depend on its contents.
 				 */
-				if (m_occ_cull && !planet &&
+				if (m_occ_cull && !planet && !atlas &&
 						env->getMap().isBlockOccluded(p * MAP_BLOCKSIZE, cam_pos_nodes, d >= d_cull_opt)) {
 					m_blocks_occ.insert(p);
 					continue;
@@ -411,6 +454,7 @@ void RemoteClient::GetNextBlocks (
 			dest.emplace_back((float)dist, p, peer_id);
 
 			num_blocks_selected += 1;
+			}
 		}
 	}
 queue_full_break:

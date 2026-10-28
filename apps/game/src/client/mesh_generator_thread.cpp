@@ -16,6 +16,7 @@
 	QueuedMeshUpdate
 */
 
+
 QueuedMeshUpdate::~QueuedMeshUpdate()
 {
 	delete data;
@@ -48,19 +49,73 @@ void QueuedMeshUpdate::retrieveBlocks(Map *map, u16 cell_size)
 	// Terra Firma: the border past a planet face's edge, read now (this is
 	// the main thread; meshes are made on others)
 	halo.clear();
+	read.clear();
+	atlas = map->getAtlas();
+	const s16 n = cell_size * MAP_BLOCKSIZE;
+	const v3s16 low = p * MAP_BLOCKSIZE;
+	if (atlas) {
+		// an atlas: every node the mesh reads that isn't a cell (seam: over
+		// a seam, or the gap between shells, which can lie inside a block)
+		// is what lies across (Atlas::rim). Grids don't line up over a seam:
+		// a face is hidden only by what covers it whole. Across, every node
+		// it overlaps the same: that node; mixed (stone over part, air over
+		// the rest): air, lit as the air across is, so the face is drawn
+		const NodeDefManager *ndef = map->getNodeDefManager();
+		for (const planet::Atlas::RimNode &r : atlas->rim({ p.X, p.Y, p.Z })) {
+			const MapNode first = map->getNodeTurned(v3s16(r.across[0].x, r.across[0].y, r.across[0].z), r.turn);
+			MapNode open(CONTENT_AIR);
+			bool mixed = false;
+			for (const planet::Atlas::Node &a : r.across) {
+				const v3s16 at(a.x, a.y, a.z);
+				const v3s16 b = getNodeBlockPos(at);
+				if (std::find(read.begin(), read.end(), b) == read.end())
+					read.push_back(b);
+				const MapNode there = map->getNode(at);
+				mixed |= there.getContent() != first.getContent();
+				if (ndef->get(there).light_propagates) // day and night banks, each the brightest
+					open.param1 = std::max(open.param1 & 0x0f, there.param1 & 0x0f) |
+							std::max(open.param1 & 0xf0, there.param1 & 0xf0);
+			}
+			halo.emplace_back(v3s16(r.at.x, r.at.y, r.at.z), mixed ? open : first);
+		}
+		return;
+	}
 	if (!map->getPlanet())
 		return;
-	const s16 n = cell_size * MAP_BLOCKSIZE;
-	const v3s16 low = p * MAP_BLOCKSIZE, from = low + v3s16(n / 2);
+	const v3s16 from = low + v3s16(n / 2);
 	if (!map->getPlanet()->face(from.X, from.Z))
 		return; // the seam's own blocks
 	for (s16 z = low.Z - 1; z <= low.Z + n; z++)
 	for (s16 x = low.X - 1; x <= low.X + n; x++) {
 		const v3s16 column(x, 0, z);
 		if (map->see(from, column).pos == column)
-			continue; // on the face (or round a corner: the seam)
+			continue; // on the face, or beyond the planet neighbourhood
 		for (s16 y = low.Y - 1; y <= low.Y + n; y++)
 			halo.emplace_back(v3s16(x, y, z), map->getNodeSeen(from, v3s16(x, y, z)));
+	}
+}
+
+void QueuedMeshUpdate::fill(MeshMakeData *data) const
+{
+	data->fillBlockDataBegin(p);
+	data->m_atlas = atlas;
+
+	// NOTE: the "data race" mentioned by MapBlock::tryShrinkNodes() is right here
+	for (auto *block : map_blocks) {
+		if (block)
+			block->copyTo(data->m_vmanip);
+	}
+	// Terra Firma: over the seam; what's inside the block is read, not drawn
+	const s32 side = data->m_side_length;
+	const v3s16 low = p * MAP_BLOCKSIZE;
+	for (const auto &[pos, node] : halo) {
+		data->m_vmanip.setNodeNoEmerge(pos, node);
+		const v3s16 r = pos - low;
+		if (r.X < 0 || r.Y < 0 || r.Z < 0 || r.X >= side || r.Y >= side || r.Z >= side)
+			continue;
+		if (data->m_hidden.empty())
+			data->m_hidden.assign((size_t)side * side * side, false);
+		data->m_hidden[(r.Z * side + r.Y) * side + r.X] = true;
 	}
 }
 
@@ -151,6 +206,7 @@ bool MeshUpdateQueue::addBlock(Map *map, v3s16 p, bool ack_block_to_server,
 			q->crack_pos = m_client->getCrackPos();
 			q->urgent |= urgent;
 			q->retrieveBlocks(map, mesh_grid.cell_size);
+			noteReads(*q);
 			return true;
 		}
 	}
@@ -166,6 +222,7 @@ bool MeshUpdateQueue::addBlock(Map *map, v3s16 p, bool ack_block_to_server,
 	q->crack_pos = m_client->getCrackPos();
 	q->urgent = urgent;
 	q->retrieveBlocks(map, mesh_grid.cell_size);
+	noteReads(*q);
 
 	/*
 		Air blocks won't suddenly become visible due to a neighbor update, so
@@ -183,6 +240,19 @@ bool MeshUpdateQueue::addBlock(Map *map, v3s16 p, bool ack_block_to_server,
 	m_queue.push_back(q.release());
 
 	return true;
+}
+
+void MeshUpdateQueue::noteReads(const QueuedMeshUpdate &q)
+{
+	for (const v3s16 &b : q.read)
+		m_readers[b].insert(q.p);
+}
+
+std::vector<v3s16> MeshUpdateQueue::readersOf(v3s16 block)
+{
+	MutexAutoLock lock(m_mutex);
+	const auto it = m_readers.find(block);
+	return it == m_readers.end() ? std::vector<v3s16>() : std::vector<v3s16>(it->second.begin(), it->second.end());
 }
 
 void MeshUpdateQueue::reAddBlock(MeshUpdateResult &r)
@@ -287,15 +357,7 @@ void MeshUpdateQueue::fillDataFromMapBlocks(QueuedMeshUpdate *q)
 			MAP_BLOCKSIZE * mesh_grid.cell_size, mesh_grid);
 	q->data = data;
 
-	data->fillBlockDataBegin(q->p);
-
-	// NOTE: the "data race" mentioned by MapBlock::tryShrinkNodes() is right here
-	for (auto *block : q->map_blocks) {
-		if (block)
-			block->copyTo(data->m_vmanip);
-	}
-	for (const auto &[pos, node] : q->halo) // Terra Firma: over the seam
-		data->m_vmanip.setNodeNoEmerge(pos, node);
+	q->fill(data);
 
 	data->setCrack(q->crack_level, q->crack_pos);
 

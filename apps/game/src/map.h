@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <list>
 #include <map>
 #include <ostream>
@@ -20,7 +22,7 @@
 #include "util/numeric.h" // for forEachNodeInArea
 
 class MapSector;
-namespace planet { class Planet; } // Terra Firma
+namespace planet { class Planet; class Atlas; } // Terra Firma
 class NodeMetadata;
 class NodeTimer;
 class IGameDef;
@@ -285,6 +287,10 @@ public:
 	*/
 	void setPlanet(const planet::Planet *planet) { m_planet = planet; }
 	const planet::Planet *getPlanet() const { return m_planet; }
+	// Or an atlas planet (src/planet/atlas.h): its regions are the map's.
+	// Never both.
+	void setAtlas(const planet::Atlas *atlas) { m_atlas = atlas; }
+	const planet::Atlas *getAtlas() const { return m_atlas; }
 
 	/*
 		Terra Firma: the node next to `p` along `dir` (one axis, ±1). On a
@@ -297,6 +303,9 @@ public:
 	{
 		v3s16 pos;
 		int turn;
+		// Terra Firma, an atlas: where pos's centre is in the grid looked
+		// from, less p (nodes). Across a T-junction columns don't line up.
+		v3f offset{};
 	};
 	Next next(v3s16 p, v3s16 dir) const;
 
@@ -309,16 +318,23 @@ public:
 		an area round something (collision, meshes, rays) looks through this.
 	*/
 	Next see(v3s16 from, v3s16 p) const;
+	// Terra Firma: every node `p`'s cell of `from`'s grid overlaps (an atlas
+	// across a seam: one to a few, each at its own offset); see() alone
+	// elsewhere. What collision gathers, so no sliver of a cell is missed.
+	std::vector<Next> seeAll(v3s16 from, v3s16 p) const;
 
 	// Terra Firma: how far apart two positions are (BS units): on a planet,
 	// through the planet (Planet::distance); straight across the map if not.
 	f32 distance(v3f a, v3f b) const;
 	// The node at `p` seen from `from`'s face, turned into that face's grid.
 	MapNode getNodeSeen(v3s16 from, v3s16 p, bool *is_valid_position = nullptr);
+	// Terra Firma: the node at p, from a grid `turn` quarter turns from its own
+	MapNode getNodeTurned(v3s16 p, int turn);
 
 protected:
 	IGameDef *m_gamedef;
 	const planet::Planet *m_planet = nullptr; // Terra Firma
+	const planet::Atlas *m_atlas = nullptr;   // Terra Firma
 
 	std::set<MapEventReceiver*> m_event_receivers;
 

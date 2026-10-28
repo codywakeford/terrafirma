@@ -2039,7 +2039,8 @@ bool GenericCAO::carry(const v3f &was)
 	if (!planet)
 		return false;
 	const int face = planet->nearest(was.X / BS, was.Z / BS);
-	const std::optional<planet::Planet::Carried> c = planet->carry(face, m_position.X / BS, m_position.Z / BS);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, was.X / BS, was.Z / BS,
+			m_position.X / BS, m_position.Z / BS);
 	if (!c)
 		return false;
 	m_position.X = c->x * BS;

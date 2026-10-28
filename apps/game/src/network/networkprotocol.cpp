@@ -98,11 +98,13 @@
 		TOCLIENT_PLANET: the world is a planet, and its size
 	PROTOCOL VERSION 60 (Terra Firma)
 		TOCLIENT_ALOFT gone (space bubbles: orbit is flight over the planet)
-		Only 60 is accepted on either side.
+	PROTOCOL VERSION 61 (Terra Firma)
+		TOCLIENT_PLANET carries the world's sphere mapping version
+		Only 61 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 60;
+const u16 LATEST_PROTOCOL_VERSION = 61;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

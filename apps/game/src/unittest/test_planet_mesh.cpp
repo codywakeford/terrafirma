@@ -61,6 +61,19 @@ void TestPlanetMesh::testHaloAtEdges(IGameDef *gamedef)
 			found = node.getContent() == t_CONTENT_BRICK;
 	}
 	UASSERT(found);
+	// At a three-face corner the diagonal halo sample is another incident
+	// face, never the net's synthetic seam.
+	const v3s16 corner(s.x + SMALL.width() - 1, 5, s.z + SMALL.width() - 1);
+	const v3s16 ghost = corner + v3s16(1, 0, 1);
+	const v3s16 corner_across = map.see(corner, ghost).pos;
+	UASSERT(corner_across != ghost);
+	map.setNode(corner_across, MapNode(t_CONTENT_BRICK));
+	const auto corner_halo = grab(getNodeBlockPos(corner));
+	bool found_corner = false;
+	for (const auto &[pos, node] : corner_halo)
+		if (pos == ghost)
+			found_corner = node.getContent() == t_CONTENT_BRICK;
+	UASSERT(found_corner);
 	// a block in the middle of a face: nothing to add
 	UASSERT(grab(getNodeBlockPos(v3s16(s.x + SMALL.half(), 5, s.z + SMALL.half()))).empty());
 }

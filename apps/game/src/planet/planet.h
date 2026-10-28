@@ -63,7 +63,7 @@ public:
 		int turn;
 	};
 
-	explicit Planet(int32_t half);
+	explicit Planet(int32_t half, terragen::Sphere::Mapping mapping = terragen::Sphere::Mapping::Equiangular);
 
 	const terragen::Sphere &sphere() const { return m_sphere; }
 	int32_t half() const { return m_sphere.half(); }
@@ -89,18 +89,18 @@ public:
 	// Where a node of `face`'s grid carried on past one of its edges is: the
 	// node of the neighbour face there, exactly, and the turn between the
 	// grids. Past an edge by k is a step across and k − 1 on (the faces meet
-	// block for block). Past two edges at once, round a corner, there's
-	// nothing (three faces meet there, not four): none; nor more than a face
-	// past an edge. On the face, the
-	// node itself. The engine reads a face's surroundings through this:
+	// block for block). Past two edges at once, the path is resolved through
+	// the three incident faces (there is no invented fourth face). Nor may a
+	// query extend more than a face past the source. On the face, the node
+	// itself. The engine reads a face's surroundings through this:
 	// what's next to it, whatever the net puts there.
 	std::optional<Step> halo(int face, int32_t x, int32_t z) const;
 
 	// Something at (x, z) (fractional nodes) that has moved off `face` past
 	// one edge: where it is on the neighbour face, exactly (its node is the
 	// halo's, and where it is in that node turns with the grid), and the
-	// turn. None if it's still on the face, round a corner, or further than
-	// a face past the edge.
+	// turn. None if it's still on the face or further than a face past an
+	// edge. Use the movement overload below for corners and multiple edges.
 	struct Carried
 	{
 		double x, z;
@@ -108,13 +108,21 @@ public:
 		int turn;
 	};
 	std::optional<Carried> carry(int face, double x, double z) const;
+	// Carry a whole movement, consuming as many face edges as it crosses.
+	// `from` is on `face`; `to` is in that face's continued grid. This is
+	// the movement path: unlike the convenience overload above it cannot
+	// strand a fast object in a net gap or skip a second edge.
+	std::optional<Carried> carry(int face, double from_x, double from_z,
+			double to_x, double to_z) const;
 	// A vector along the ground turned with a grid (east toward north).
 	static std::array<double, 2> turned(double dx, double dz, int turn);
 
 	// A node of `face`'s grid carried on past its edges (x, z: map nodes,
 	// fractional), put on the face the planet has it on: the map's node there.
-	// Not exact a long way past an edge (one grid carried on isn't the next
-	// face's), so for what's near, not for stepping: that's step().
+	// Exact on this face and across one edge for up to a whole face. Beyond
+	// that, or diagonally past a corner, the sphere projection is an
+	// approximation: those positions have no single square-grid continuation.
+	// For walking node by node use step(), never wrap().
 	std::array<int32_t, 2> wrap(int face, double x, double z) const;
 
 	// The column of an equirectangular map `size` blocks round (x east from

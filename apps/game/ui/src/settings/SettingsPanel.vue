@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue"
 import { BridgeError } from "../bridge/index.ts"
 import { useBridge } from "../bridge/use.ts"
 import { Button, Choice, ListEmpty, ListGroup, ListItem, Notice, Slider, Toggle, WorkbenchPanel } from "../kit/index.ts"
-import { CATEGORIES, GRAPHICS_PRESETS, type Option, type Page, type Category } from "./options.ts"
+import { CATEGORIES, GRAPHICS_PRESETS, type Page, type Category } from "./options.ts"
 import { BINDINGS } from "./bindings.ts"
 import Keybindings from "./Keybindings.vue"
 import { publishAudioLevels } from "./audio.ts"
@@ -65,7 +65,6 @@ const matches = computed(() => {
             .map((b) => ({ key: b.key, label: b.label, category: c, page: p })) : []),
     ]))
 })
-const selected = computed(() => page.value.options.find((o) => o.key === selectedKey.value) ?? null)
 const focusBinding = computed(() => page.value.bindings ? selectedKey.value : null)
 const preset = computed(() => {
     if (!values.value) return null
@@ -123,17 +122,6 @@ async function applyPreset(id: string) {
         busy.value = false
     }
 }
-/** An option's current value as the player reads it. */
-function shown(o: Option) {
-    const value = values.value?.[o.key]
-    if (value === undefined) return "—"
-    if (o.kind === "toggle") return value ? "On" : "Off"
-    if (typeof value !== "number") throw new Error(`setting ${o.key} is not a number`)
-    return o.format ? o.format(value) : String(value)
-}
-function range(o: Option & { kind: "slider" }) {
-    return `${o.format ? o.format(o.min) : o.min} – ${o.format ? o.format(o.max) : o.max}`
-}
 function open(m: SearchMatch) {
     categoryId.value = m.category.id
     pageId.value = m.page.id
@@ -172,6 +160,10 @@ onMounted(async () => {
         <template #content>
             <Notice v-if="problem" tone="danger">{{ problem }}</Notice>
             <p v-if="!values && !problem" class="dim">Reading settings…</p>
+            <header class="page-intro">
+                <h2>{{ page.title }}</h2>
+                <p>{{ page.note }}</p>
+            </header>
             <template v-if="values && page.preset">
                 <Choice v-model="chosenPreset" :options="presetOptions" :disabled="busy" />
                 <p class="dim">{{ preset ? "" : "Custom: your settings match no preset." }}</p>
@@ -185,44 +177,19 @@ onMounted(async () => {
                         @update:model-value="stage(o.key, $event)" @change="save(o.key, $event)" />
                     <Toggle v-else :model-value="flagValue(o.key)" :label="o.label"
                         @update:model-value="save(o.key, $event)" />
+                    <p class="option-note">{{ o.note }}</p>
                 </div>
             </div>
-        </template>
-
-        <template #facts>
-            <template v-if="selected">
-                <h4>{{ selected.label }}</h4>
-                <p class="dim">{{ category.title }} · {{ page.title }}</p>
-                <p class="copy">{{ selected.note }}</p>
-                <dl>
-                    <div><dt>Now</dt><dd>{{ shown(selected) }}</dd></div>
-                    <div v-if="selected.kind === 'slider'"><dt>Range</dt><dd>{{ range(selected) }}</dd></div>
-                </dl>
-                <button class="link" @click="selectedKey = null">« All of {{ page.title }}</button>
-            </template>
-            <template v-else>
-                <h4>{{ page.title }}</h4>
-                <p class="dim">{{ category.title }} · {{ page.group }}</p>
-                <p class="copy">{{ page.note }}</p>
-                <template v-if="page.preset">
-                    <p class="copy">A preset sets render distance, distant terrain, shadows, bloom, fog and clouds together. Change any of them afterwards and the profile becomes custom.</p>
-                    <dl v-if="values">
-                        <div v-for="o in CATEGORIES.find((c) => c.id === 'graphics')!.pages.flatMap((p) => p.options)" :key="o.key">
-                            <dt>{{ o.label }}</dt><dd>{{ shown(o) }}</dd>
-                        </div>
-                    </dl>
-                </template>
-                <dl v-if="values && page.options.length">
-                    <div v-for="o in page.options" :key="o.key"><dt>{{ o.label }}</dt><dd>{{ shown(o) }}</dd></div>
-                </dl>
-            </template>
         </template>
     </WorkbenchPanel>
 </template>
 
 <style scoped>
-.options { display: grid; max-width: 620px; }
+.page-intro { display: grid; gap: 7px; padding-bottom: 16px; border-bottom: 1px solid var(--stone-4); }
+.page-intro h2 { margin: 0; font: 18px var(--font-display); text-transform: uppercase; }
+.page-intro p, .option-note { margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.5; }
+.options { display: grid; }
 .option { padding: 12px 10px; border: var(--b) solid transparent; border-bottom-color: var(--stone-3); }
 .option.on { border-color: var(--edge); background: var(--stone-1); box-shadow: var(--sunk); }
-.settings :deep(.choice) { max-width: 620px; }
+.option-note { max-width: 68ch; padding-top: 6px; }
 </style>

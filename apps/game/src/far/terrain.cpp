@@ -44,6 +44,21 @@ Generator::Generator(const Horizon &horizon, const std::optional<planet::Planet>
 	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level,
 			m_planet ? &*m_planet : nullptr))
 {
+	growCrowns();
+}
+
+Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas) :
+	m_horizon(horizon),
+	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
+	m_atlas(atlas),
+	m_globe(Globe(atlas.atlas().params().radius)),
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, nullptr, &*m_atlas))
+{
+	growCrowns();
+}
+
+void Generator::growCrowns()
+{
 	// each species' typical crown, from growing a few of its trees
 	for (const terra::Species &s : m_horizon.species) {
 		treegen::TreeDef def = terra::treeDef(s);
@@ -133,6 +148,8 @@ const terra::Species *Generator::speciesAt(const terra::Column &c, s32 x, s32 z)
 
 Tile Generator::build(const TileKey &key) const
 {
+	if (m_globe)
+		return buildOnGlobe(key);
 	Tile tile;
 	tile.key = key;
 	tile.cells.resize((size_t)(TILE + 2) * (TILE + 2));
@@ -162,6 +179,43 @@ Tile Generator::build(const TileKey &key) const
 	}
 	if (key.level == 0)
 		growExact(tile);
+	return tile;
+}
+
+/*
+	A globe's tile: each cell the column at its middle's latitude and
+	longitude, and its species' crown wherever the forest is dense enough (at
+	every level: the game's trees are planted per map chunk, and a globe's
+	cells aren't the map's). Noise that wants a column's map position (ores,
+	caves at a cliff) gets the cell's place on its face, fine cells across.
+*/
+Tile Generator::buildOnGlobe(const TileKey &key) const
+{
+	Tile tile;
+	tile.key = key;
+	tile.cells.resize((size_t)(TILE + 2) * (TILE + 2));
+	const s32 cell = key.cell();
+	for (s32 j = -1; j <= TILE; j++)
+		for (s32 i = -1; i <= TILE; i++) {
+			const s32 fx = key.x * key.span() + i * cell + cell / 2, fz = key.z * key.span() + j * cell + cell / 2;
+			const std::array<double, 2> at = Globe::place(m_globe->direction(key.face, fx, fz));
+			const terra::Column c = m_columns->atPlace(at[0], at[1]);
+			Cell &out = tile.at(i, j) = cellOf(*m_columns, c, fx, fz);
+			if (c.beyond || c.water > c.height)
+				continue;
+			const std::array<s16, 2> w = m_columns->onWorldAt(at[0], at[1]);
+			const Cover cover = m_world->cover(w[0], w[1], c.ground);
+			const content_t ground = m_columns->node(c, fx, c.height, fz).getContent();
+			const terra::Species *s = terra::choose(m_horizon.species, terra::spotAt(c.ground, cover), ground);
+			if (!s)
+				continue;
+			const Crown &crown = m_crowns[s - m_horizon.species.data()];
+			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
+				continue;
+			out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s->leaves) };
+			if (crown.low > 0)
+				out.trunk = { c.height + 1, c.height + crown.low, MapNode(s->trunk) };
+		}
 	return tile;
 }
 

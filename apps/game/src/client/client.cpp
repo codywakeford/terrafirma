@@ -1847,6 +1847,14 @@ void Client::addUpdateMeshTask(v3s16 p, bool ack_to_server, bool urgent)
 void Client::addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server, bool urgent)
 {
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, true);
+	// Terra Firma: an atlas: and the meshes that read it over a seam or a
+	// shell floor (made before it came, they read nothing there)
+	if (getAtlas()) {
+		for (const v3s16 &reader : m_mesh_update_manager->readersOf(blockpos))
+			if (reader != blockpos)
+				addUpdateMeshTask(reader, false, urgent);
+		return;
+	}
 	// Terra Firma: and the blocks across a planet face's edge, which show it
 	const v3s16 low = blockpos * MAP_BLOCKSIZE;
 	for (s16 i = 0; i < MAP_BLOCKSIZE; i++) {

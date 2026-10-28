@@ -76,9 +76,29 @@ terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef)
 MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 	MapgenBasic(MAPGEN_TERRA, params, emerge),
 	m_world(decodeOrFail(params->code)),
-	m_planet(params->planet_half ? std::optional<planet::Planet>(params->planet_half) : std::nullopt),
-	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_planet ? &*m_planet : nullptr)
+	m_planet(params->planet_half ? std::optional<planet::Planet>(std::in_place, params->planet_half,
+			static_cast<terragen::Sphere::Mapping>(params->planet_mapping)) : std::nullopt),
+	m_atlas(params->planet_atlas.empty() ? std::nullopt : std::optional<planet::Atlas>(std::in_place,
+			terragen::Atlas::parse(params->planet_atlas))),
+	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_planet ? &*m_planet : nullptr,
+			m_atlas ? &*m_atlas : nullptr)
 {
+	if (m_atlas) {
+		c_seam = ndef->getId("mapgen_seam");
+		if (c_seam == CONTENT_IGNORE)
+			throw BaseException("mapgen terra: an atlas world needs the mapgen_seam alias (tf_planet)");
+		m_atlasDebug = params->planet_atlas_debug;
+	}
+	if (m_atlasDebug) {
+		const auto paint = [&](const char *name) {
+			const content_t c = ndef->getId(std::string("tf_planet:debug_") + name);
+			if (c == CONTENT_IGNORE)
+				throw BaseException(std::string("mapgen terra: the debug sphere needs tf_planet:debug_") + name);
+			return c;
+		};
+		m_paint = { paint("segment_a"), paint("segment_b"), paint("cap"), paint("core"), paint("segment_seam"),
+			paint("cap_edge"), paint("cut"), paint("core_edge"), paint("line") };
+	}
 	for (int i = 0; i < (int)terragen::Biome::Count; i++)
 		m_biomes[i] = (::Biome *)m_bmgr->getByName(BIOME_NAMES[i]);
 	c_lava_source = m_columns.blocks().lava;
@@ -87,6 +107,8 @@ MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 
 bool MapgenTerra::groundAt(s16 x, s16 z, terragen::Ground &ground) const
 {
+	if (m_atlas && !m_atlas->place({ x, 0, z }))
+		return false; // seam at the surface: no ground
 	const std::array<s16, 2> w = m_columns.onWorld(x, z); // on a planet, its latitude and longitude
 	x = w[0];
 	z = w[1];
@@ -128,9 +150,13 @@ void MapgenTerra::makeChunk(BlockMakeData *data)
 	dustTopNodes();
 
 	updateLiquid(&data->transforming_liquid, full_node_min, full_node_max);
-	if (flags & MG_LIGHT)
-		calcLighting(node_min - v3s16(0, 1, 0), node_max + v3s16(0, 1, 0),
-			full_node_min, full_node_max);
+	if (flags & MG_LIGHT) {
+		if (m_atlas)
+			lightAtlas();
+		else
+			calcLighting(node_min - v3s16(0, 1, 0), node_max + v3s16(0, 1, 0),
+				full_node_min, full_node_max);
+	}
 
 	this->generating = false;
 }
@@ -150,7 +176,7 @@ s16 MapgenTerra::generateTerrain()
 			for (s16 y = node_min.Y - 1; y <= node_max.Y + 1; y++) {
 				if (vm->m_data[vi].getContent() == CONTENT_IGNORE) {
 					// every block from the one rule the far view also draws with
-					vm->m_data[vi] = m_columns.node(c, x, y, z);
+					vm->m_data[vi] = m_atlas ? atlasNode(x, y, z) : m_columns.node(c, x, y, z);
 					if (y <= c.height && y > stone_max)
 						stone_max = y;
 				}
@@ -159,6 +185,97 @@ s16 MapgenTerra::generateTerrain()
 		}
 	}
 	return stone_max;
+}
+
+/*
+	An atlas's node: seam where no cell is stored, stone in the core, and
+	otherwise its column's block at its layer, the column being the one at
+	the node's own place (a storage column holds several shells, each
+	somewhere else on the planet; consecutive nodes share it, so it's kept).
+*/
+MapNode MapgenTerra::atlasNode(s16 x, s16 y, s16 z)
+{
+	const std::optional<planet::Atlas::Cell> cell = m_atlas->cell({ x, y, z });
+	if (!cell)
+		return MapNode(c_seam);
+	if (m_atlasDebug)
+		return MapNode(cell->k >= 0 && cell->region != terragen::Atlas::Region::Core ? CONTENT_AIR : atlasPaint(*cell));
+	if (cell->region == terragen::Atlas::Region::Core)
+		return MapNode(m_columns.blocks().stone);
+	return m_columns.node(atlasColumn(*m_atlas->place({ x, y, z })), x, (s32)cell->k, z);
+}
+
+const terra::Column &MapgenTerra::atlasColumn(const std::array<double, 2> &place)
+{
+	if (!m_atlasColumn || place != m_atlasPlace) {
+		m_atlasColumn = m_columns.atPlace(place[0], place[1]);
+		m_atlasPlace = place;
+	}
+	return *m_atlasColumn;
+}
+
+/*
+	The debug sphere: a cell painted by its seams (cut, the cap's circle,
+	the core's sphere, a segment's edge), else its region (segments
+	alternating, the caps, the core), with a line every 15° of latitude and
+	30° of longitude.
+*/
+content_t MapgenTerra::atlasPaint(const planet::Atlas::Cell &cell) const
+{
+	using Region = terragen::Atlas::Region;
+	const terragen::Atlas &atlas = m_atlas->atlas();
+	const uint8_t seams = atlas.quality(cell).seams;
+	if (seams & terragen::Atlas::CUT)
+		return m_paint.cut;
+	if (seams & terragen::Atlas::CAP)
+		return m_paint.capEdge;
+	if (seams & terragen::Atlas::CORE)
+		return m_paint.coreEdge;
+	if (seams & terragen::Atlas::SEGMENT)
+		return m_paint.segmentSeam;
+	if (cell.region == Region::Cap)
+		return m_paint.cap;
+	if (cell.region == Region::Core)
+		return m_paint.core;
+	// on a line: the nearest 15° of latitude, or 30° of longitude, passes
+	// within half a block of this cell's centre
+	const terragen::Atlas::Vec p = atlas.centre(cell);
+	const double r = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+	const double lat = std::asin(p.y / r), lon = std::atan2(p.z, p.x);
+	const double latStep = M_PI / 12, lonStep = M_PI / 6;
+	const double offLat = std::abs(lat - std::round(lat / latStep) * latStep) * r;
+	const double offLon = std::abs(lon - std::round(lon / lonStep) * lonStep) * r * std::cos(lat);
+	if (offLat < 0.5 || offLon < 0.5)
+		return m_paint.line;
+	return cell.index % 2 ? m_paint.segmentA : m_paint.segmentB;
+}
+
+void MapgenTerra::lightAtlas()
+{
+	for (s16 z = node_min.Z; z <= node_max.Z; z++)
+	for (s16 y = node_min.Y; y <= node_max.Y; y++)
+	for (s16 x = node_min.X; x <= node_max.X; x++) {
+		MapNode &n = vm->m_data[vm->m_area.index(x, y, z)];
+		const ContentFeatures &f = ndef->get(n);
+		u8 light = 0;
+		const std::optional<planet::Atlas::Cell> cell = m_atlas->cell({ x, y, z });
+		if (!cell) {
+			light = LIGHT_SUN; // seam: lit, so a face beside it isn't black
+		} else if (cell->region != terragen::Atlas::Region::Core && (f.sunlight_propagates || f.liquid_type != LIQUID_NONE)) {
+			const s32 ground = m_atlasDebug ? -1 : atlasColumn(*m_atlas->place({ x, y, z })).height;
+			if (cell->k > ground) {
+				if (f.liquid_type == LIQUID_NONE) {
+					light = LIGHT_SUN;
+				} else {
+					// under water, dimmer with depth below its surface
+					const s32 surface = m_atlasDebug ? ground : atlasColumn(*m_atlas->place({ x, y, z })).water;
+					light = (u8)std::max<s32>(0, LIGHT_SUN - 1 - 2 * (surface - (s32)cell->k));
+				}
+			}
+		}
+		n.setLight(LIGHTBANK_DAY, light, f.getLightingFlags());
+		n.setLight(LIGHTBANK_NIGHT, 0, f.getLightingFlags());
+	}
 }
 
 void MapgenTerra::paintSurface()
@@ -172,6 +289,8 @@ void MapgenTerra::paintSurface()
 
 int MapgenTerra::getGroundLevelAtPoint(v2s16 p)
 {
+	if (m_atlasDebug)
+		return -1; // the debug sphere's ground: layer −1, at every place
 	Ground g;
 	if (!groundAt(p.X, p.Y, g))
 		return MAX_MAP_GENERATION_LIMIT;
@@ -180,6 +299,8 @@ int MapgenTerra::getGroundLevelAtPoint(v2s16 p)
 
 int MapgenTerra::getSpawnLevelAtPoint(v2s16 p)
 {
+	if (m_atlasDebug)
+		return -1; // on the debug sphere, its ground's top (core.get_spawn_level adds one)
 	Ground g;
 	if (!groundAt(p.X, p.Y, g) || g.kind != Water::None)
 		return MAX_MAP_GENERATION_LIMIT; // in the sea, a lake or a river: the engine looks elsewhere

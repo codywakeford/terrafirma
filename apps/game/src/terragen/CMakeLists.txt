@@ -1,6 +1,7 @@
 # terragen: the world model. No engine dependencies — the map generator, the
 # menu preview and the unit tests all call it.
 set(terragen_SRCS
+	${CMAKE_CURRENT_SOURCE_DIR}/atlas.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/body.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/calendar.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/climate.cpp

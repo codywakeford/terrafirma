@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { GlobeRenderer } from "../../worldgen/globe"
+import { GlobeRenderer, type GlobePoint } from "../../worldgen/globe"
+import type { UiValues } from "../../bridge"
 
 const props = defineProps<{
     image: ImageData
     elevation: Float32Array
-    pose: { u: number; v: number; heading: number }
+    pose: { u: number; v: number; heading: number; height: number }
+    radius: number
+    sea: number
+    trajectory: UiValues["map_trajectory"] | null
     sun: { declination: number; color: readonly [number, number, number] }
     compact?: boolean
     initialZoom: number
@@ -15,41 +19,36 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 const frame = ref<HTMLElement | null>(null)
 const spin = reactive({ lon: 0, tilt: 0 })
 const zoom = ref(props.initialZoom)
-const marker = ref<{ left: string; top: string } | null>(null)
 let renderer: ReturnType<typeof GlobeRenderer> | null = null
 let resize: ResizeObserver | null = null
 let drag: { x: number; y: number } | null = null
 let following = true
+let queued: number | null = null
+let hadTrajectory = !!props.trajectory
 
-function projectPlayer() {
-    const el = frame.value
-    if (!el) return
-    const { u, v } = props.pose
-    const cy = Math.cos(spin.lon), sy = Math.sin(spin.lon), cx = Math.cos(spin.tilt), sx = Math.sin(spin.tilt)
-    const scale = 0.92 * zoom.value / 1.08
-    const project = (longitude: number, latitude: number) => {
-        const lon = longitude * Math.PI * 2, lat = (latitude - 0.5) * Math.PI
-        const nx = Math.cos(lat) * Math.sin(lon), ny = Math.sin(lat), nz = Math.cos(lat) * Math.cos(lon)
-        const x = cy * nx + sy * nz
-        const y = sx * sy * nx + cx * ny - sx * cy * nz
-        const z = -cx * sy * nx + sx * ny + cx * cy * nz
-        return { x: (1 + x * scale * el.clientHeight / el.clientWidth) * 50, y: (1 + y * scale) * 50, z }
-    }
-    const here = project(u, v)
-    marker.value = here.z > 0 && here.x >= 0 && here.x <= 100 && here.y >= 0 && here.y <= 100
-        ? { left: `${here.x}%`, top: `${here.y}%` } : null
+function fitTrajectory() {
+    const points = props.trajectory?.points
+    if (!points?.length) return
+    const farthest = Math.max(1, ...points.map((point) => 1 + Math.max(0, point[2]) / props.radius))
+    zoom.value = Math.min(zoom.value, Math.max(0.12, 0.91 / farthest))
 }
 
 function draw() {
+    const { u, v, height } = props.pose
+    renderer?.marker([u, v, (height - props.sea) / props.radius])
     renderer?.draw(spin, 0.08, props.sun, zoom.value)
-    projectPlayer()
+}
+function scheduleDraw() {
+    if (queued !== null) return
+    queued = window.setTimeout(() => { queued = null; draw() }, 32)
 }
 
 function recenter() {
     const { u, v } = props.pose
     spin.lon = -u * Math.PI * 2
-    spin.tilt = (v - 0.5) * Math.PI
+    spin.tilt = Math.max(-1.5, Math.min(1.5, (v - 0.5) * Math.PI + (props.trajectory ? 0.45 : 0)))
     zoom.value = props.initialZoom
+    fitTrajectory()
     following = true
     draw()
 }
@@ -72,36 +71,45 @@ function onMove(event: PointerEvent) {
 function onUp() { drag = null }
 function onWheel(event: WheelEvent) {
     if (props.compact) return
-    zoom.value = Math.max(1, Math.min(8, zoom.value * (event.deltaY < 0 ? 1.2 : 1 / 1.2)))
+    zoom.value = Math.max(0.1, Math.min(8, zoom.value * (event.deltaY < 0 ? 1.2 : 1 / 1.2)))
     following = false
     draw()
 }
 
 watch(() => [props.image, props.elevation] as const, ([image, elevation]) => {
     renderer?.terrain(image, elevation)
+    renderer?.trajectory(props.trajectory?.points.map((point): GlobePoint => [point[0], point[1], point[2] / props.radius]) ?? null)
     draw()
 })
 watch(() => props.sun, draw, { deep: true })
+watch(() => props.trajectory, (trajectory) => {
+    renderer?.trajectory(trajectory?.points.map((point): GlobePoint => [point[0], point[1], point[2] / props.radius]) ?? null)
+    if (following && trajectory && !hadTrajectory)
+        spin.tilt = Math.max(-1.5, Math.min(1.5, spin.tilt + 0.45))
+    hadTrajectory = !!trajectory
+    if (following) fitTrajectory()
+    draw()
+})
 watch(() => props.pose, () => {
     if (props.compact && following) recenter()
-    else projectPlayer()
+    else scheduleDraw()
 }, { deep: true })
 
 onMounted(() => {
     renderer = GlobeRenderer({ canvas: canvas.value!, detail: props.compact ? 1 : 2 })
     renderer.terrain(props.image, props.elevation)
+    renderer.trajectory(props.trajectory?.points.map((point): GlobePoint => [point[0], point[1], point[2] / props.radius]) ?? null)
     recenter()
     resize = new ResizeObserver(draw)
     resize.observe(frame.value!)
 })
-onBeforeUnmount(() => { resize?.disconnect() })
+onBeforeUnmount(() => { resize?.disconnect(); if (queued !== null) clearTimeout(queued) })
 defineExpose({ recenter, zoom })
 </script>
 
 <template>
     <div ref="frame" class="map-globe" :class="{ compact }">
         <canvas ref="canvas" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp" @wheel.prevent="onWheel" />
-        <span v-if="marker" class="player" :style="marker" aria-label="Your position"><span /></span>
     </div>
 </template>
 
@@ -111,7 +119,4 @@ canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: 
 canvas:active { cursor: grabbing; }
 .compact { clip-path: circle(49% at center); }
 .compact canvas { cursor: default; pointer-events: none; }
-.player { position: absolute; z-index: 1; width: 20px; height: 20px; transform: translate(-50%, -50%); border: 3px solid #e9f8ff; border-radius: 50%; background: #06141a; box-shadow: 0 0 0 2px #06141a, 0 0 12px 3px rgb(35 173 230 / .5); display: grid; place-items: center; pointer-events: none; }
-.player span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-hi); }
-.compact .player { width: 16px; height: 16px; }
 </style>

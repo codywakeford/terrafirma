@@ -16,6 +16,7 @@
 #include "util/numeric.h"
 #include "util/string.h" // StringMap
 #include "far/terrain.h" // Terra Firma: far::Horizon
+#include "planet/atlas.h" // Terra Firma
 #include "planet/planet.h" // Terra Firma
 
 #include <map>
@@ -198,6 +199,7 @@ public:
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Horizon(NetworkPacket *pkt);
 	void handleCommand_Planet(NetworkPacket *pkt);
+	void handleCommand_Atlas(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -254,6 +256,7 @@ public:
 	const std::optional<far::Horizon> &getHorizon() const { return m_horizon; }
 	// Terra Firma: the planet the world is, if it is one
 	const planet::Planet *getPlanet() const { return m_planet ? &*m_planet : nullptr; }
+	const planet::Atlas *getAtlas() const { return m_atlas ? &*m_atlas : nullptr; }
 	// Where the server says the player is over the planet, carried forward
 	// to now; none while that's where they stand.
 
@@ -486,6 +489,7 @@ private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
 	std::optional<planet::Planet> m_planet;
+	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 
 	struct PendingMediaDownload {
 		// Tokens to ack to the server. multiple because server can send duplicate

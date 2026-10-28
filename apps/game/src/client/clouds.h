@@ -13,6 +13,7 @@
 #include <CMeshBuffer.h>
 
 class IShaderSource;
+namespace planet { class Planet; }
 
 namespace scene
 {
@@ -66,6 +67,13 @@ public:
 	void step(float dtime);
 
 	void update(const v3f &camera_p, const video::SColorf &color);
+	void setPlanet(const planet::Planet *planet)
+	{
+		if (m_planet == planet)
+			return;
+		m_planet = planet;
+		invalidateMesh();
+	}
 
 	void updateCameraOffset(v3s16 camera_offset)
 	{
@@ -174,4 +182,5 @@ private:
 	bool m_enable_3d;
 	video::SColorf m_color = video::SColorf(1.0f, 1.0f, 1.0f, 1.0f);
 	CloudParams m_params;
+	const planet::Planet *m_planet = nullptr;
 };

@@ -13,7 +13,7 @@ world="$work/world"
 mkdir -p "$world/worldmods"
 cp -r "$root/scripts/planet-check/probe" "$world/worldmods/planet_probe"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
-printf 'mg_name = flat\nseed = 1\nplanet_half = 64\nmg_flags = nocaves,nodungeons,light,nodecorations\n[end_of_params]\n' > "$world/map_meta.txt"
+printf 'mg_name = flat\nseed = 1\nplanet_half = 64\nplanet_mapping = cobe-v1\nmg_flags = nocaves,nodungeons,light,nodecorations\n[end_of_params]\n' > "$world/map_meta.txt"
 
 port=$((30700 + RANDOM % 500))
 # no settings but the world's: a check can't depend on the minetest.conf of whoever runs it

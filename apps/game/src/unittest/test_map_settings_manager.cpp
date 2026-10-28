@@ -201,6 +201,8 @@ void TestMapSettingsManager::testMapMetaSaveLoad()
 	{
 		conf.set("seed", "12345");
 		conf.set("water_level", "5");
+		conf.set("planet_half", "64");
+		conf.set("planet_mapping", "cobe-v1");
 		MapSettingsManager mgr(path);
 		MapgenParams *params = mgr.makeMapgenParams();
 		UASSERT(params);
@@ -224,8 +226,12 @@ void TestMapSettingsManager::testMapMetaSaveLoad()
 	// Check that both results are correct
 	UASSERTEQ(u64, params1.seed, 12345);
 	UASSERTEQ(s16, params1.water_level, 5);
+	UASSERTEQ(s32, params1.planet_half, 64);
+	UASSERTEQ(u8, params1.planet_mapping, 2);
 	UASSERTEQ(u64, params2.seed, 12345);
 	UASSERTEQ(s16, params2.water_level, 5);
+	UASSERTEQ(s32, params2.planet_half, 64);
+	UASSERTEQ(u8, params2.planet_mapping, 2);
 }
 
 

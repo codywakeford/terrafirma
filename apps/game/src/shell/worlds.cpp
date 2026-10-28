@@ -8,6 +8,7 @@
 #include "log.h"
 #include "porting.h"
 #include "settings.h"
+#include "terragen/atlas.h"
 #include "terragen/code.h"
 #include "util/string.h"
 #include <ctime>
@@ -92,7 +93,24 @@ WorldSpec Worlds::create(const std::string &name, const std::string &code,
 		Settings meta("[end_of_params]");
 		meta.set("mg_name", "terra");
 		meta.set("mgterra_code", code);
-		meta.setS32("planet_half", world_code.size / 8);
+		if (g_settings->getBool("planet_atlas_worlds")) {
+			// TEMP(2026-10-27): atlas planets (planet.paper.md) by a setting
+			// until they're drawn and played whole (sprint 30), then the
+			// default: as many blocks round as the code's world (radius
+			// size / 2π), so it's laid on it block for block
+			meta.set("planet_atlas", terragen::Atlas(terragen::Atlas::standard(world_code.size / (2 * M_PI))).code());
+			// map-block chunks: a region's box is narrow next to an 80-node
+			// chunk, which would be mostly seam and other regions' storage,
+			// generated for nothing
+			meta.set("chunksize", "1");
+			if (g_settings->getBool("planet_atlas_debug"))
+				meta.setBool("planet_atlas_debug", true);
+		} else {
+			meta.setS32("planet_half", world_code.size / 8);
+			// Geometry is save data. New mappings get a new value and old worlds
+			// stay equiangular until they are explicitly migrated.
+			meta.set("planet_mapping", "cobe-v1");
+		}
 		meta.set("seed", std::to_string(world_code.seed_hash));
 		if (!meta.updateConfigFile((path + DIR_DELIM "map_meta.txt").c_str()))
 			throw BaseException("shell: could not write the map settings for " + path);

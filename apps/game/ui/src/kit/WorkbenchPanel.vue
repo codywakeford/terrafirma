@@ -1,15 +1,16 @@
 <script setup lang="ts" generic="T extends string">
+import { provide, toRef } from "vue"
 import IconRail from "./IconRail.vue"
 import Panel from "./Panel.vue"
-import SearchBox from "./SearchBox.vue"
 import WorkbenchColumns from "./WorkbenchColumns.vue"
+import { WORKBENCH_SEARCH } from "./workbench.ts"
 
 /**
  * Every workspace screen (wiki, settings, community): one size, a rail of
- * groups, search in the header. A screen fills either the list / content /
+ * groups, search at the top of its navigator. A screen fills either the list / content /
  * facts slots, or `workspace` when each group lays out its own columns.
  */
-defineProps<{
+const props = defineProps<{
     title: string
     section: string
     groups: readonly { id: T; label: string; shortLabel?: string; rows: readonly string[]; palette: Record<string, string> }[]
@@ -19,13 +20,17 @@ defineProps<{
 }>()
 const group = defineModel<T>("group", { required: true })
 const query = defineModel<string>("query", { default: "" })
+provide(WORKBENCH_SEARCH, {
+    query,
+    label: toRef(props, "searchLabel"),
+    placeholder: toRef(props, "searchPlaceholder"),
+})
 </script>
 
 <template>
     <Panel :title="`${title} / ${section}`" class="workbench-panel">
         <template #actions>
             <slot name="headerActions" />
-            <SearchBox v-if="searchLabel" v-model="query" :label="searchLabel" :placeholder="searchPlaceholder" />
             <slot name="actions" />
         </template>
         <div class="workbench-frame">

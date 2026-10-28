@@ -15,6 +15,7 @@ const props = defineProps<{
     sun: { declination: number; color: readonly [number, number, number] }
     rotationPeriod?: number
     layers?: BodyCard["layers"]
+    autoSpin?: boolean
 }>()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -29,11 +30,11 @@ function draw() {
 }
 
 function tick() {
-    if (auto && !drag) {
+    if (props.autoSpin !== false && auto && !drag) {
         spin.lon += 0.003 * 24 / (props.rotationPeriod ?? 24)
         draw()
     }
-    frame = requestAnimationFrame(tick)
+    if (props.autoSpin !== false) frame = requestAnimationFrame(tick)
 }
 
 function onDown(e: MouseEvent) {
@@ -65,7 +66,7 @@ onMounted(() => {
     renderer.terrain(props.image, props.elevation)
     renderer.interior(props.layers)
     draw()
-    frame = requestAnimationFrame(tick)
+    if (props.autoSpin !== false) frame = requestAnimationFrame(tick)
 })
 onBeforeUnmount(() => cancelAnimationFrame(frame))
 </script>

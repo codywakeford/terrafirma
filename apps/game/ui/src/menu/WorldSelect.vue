@@ -184,9 +184,9 @@ onMounted(() => {
                     <h3>{{ group.label }}</h3>
                     <button v-for="entry in group.entries" :key="entry.id" class="entry" :class="{ on: selected === entry.id }"
                         :aria-current="selected === entry.id ? 'page' : undefined" @click="selected = entry.id">
-                        <span class="entry-mark" :class="entry.kind" />
                         <span class="entry-copy"><strong>{{ entry.label }}</strong><small>{{ entry.note }}</small></span>
                         <span v-if="entry.tag" class="entry-tag">{{ entry.tag }}</span>
+                        <span v-if="selected === entry.id" class="entry-current" aria-hidden="true">»</span>
                     </button>
                 </section>
             </template>
@@ -220,8 +220,10 @@ onMounted(() => {
                 <section v-if="local.code" class="detail-section">
                     <h3>Planet code</h3>
                     <p>The same land and climate can be shared. Buildings and world rules stay in this save.</p>
-                    <code class="world-code">{{ local.code }}</code>
-                    <Button size="sm" @click="copier.copy(local.code!)">{{ copier.state.value === "copied" ? "Copied" : "Copy code" }}</Button>
+                    <div class="section-actions">
+                        <code class="world-code">{{ local.code }}</code>
+                        <Button size="sm" @click="copier.copy(local.code!)">{{ copier.state.value === "copied" ? "Copied" : "Copy code" }}</Button>
+                    </div>
                     <Notice v-if="copier.state.value === 'failed'" tone="warn">Clipboard access failed. Select the code to copy it.</Notice>
                 </section>
                 <section v-if="installedMods" class="detail-section">
@@ -230,6 +232,7 @@ onMounted(() => {
                     <Button size="sm" @click="emit('go', 'community')">Browse mods »</Button>
                 </section>
                 <section class="danger-zone">
+                    <div class="danger-copy"><h3>World management</h3><p>Remove this world and everything built in it from this device.</p></div>
                     <template v-if="confirming">
                         <span>Delete “{{ local.name }}” and its saved world?</span>
                         <Button size="sm" @click="confirming = false">Keep world</Button>
@@ -314,24 +317,22 @@ onMounted(() => {
 .play-panel { width: min(1340px, 97vw); height: min(840px, 94vh); }
 .list-group { margin-bottom: 14px; }
 .list-group h3 { margin: 0 0 5px; padding: 0 8px; color: var(--ink-faint); font: 10px var(--font-display); text-transform: uppercase; letter-spacing: .07em; }
-.entry { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; padding: 8px; border: 0; border-left: 3px solid transparent; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.entry { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 8px 8px 8px 11px; border: 0; border-left: 3px solid transparent; background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .entry:hover { background: var(--stone-2); }
-.entry.on { border-left-color: var(--accent); background: var(--stone-3); }
-.entry-mark { flex: none; width: 9px; height: 9px; border: 1px solid var(--edge); background: var(--accent-hi); }
-.entry-mark.friend { background: #70ba80; }
-.entry-mark.server { background: #d7af6a; }
+.entry.on { border-left-color: var(--accent); background: var(--stone-2); }
 .entry-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .entry-copy strong, .entry-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-copy strong { font-size: 12px; font-weight: 400; }
 .entry-copy small { color: var(--ink-faint); font-size: 10px; }
 .entry-tag { flex: none; color: var(--accent-hi); font: 9px var(--font-display); text-transform: uppercase; }
+.entry-current { color: var(--accent-hi); font: 15px var(--font-display); }
 .list-message { padding: 8px; color: var(--ink-dim); font-size: 11px; }
 .detail-head { display: grid; gap: 8px; padding-bottom: 18px; border-bottom: 1px solid var(--stone-4); }
 .eyebrow { color: var(--accent-hi); font: 10px var(--font-display); text-transform: uppercase; }
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 h2 { margin: 0; font: 24px var(--font-display); text-transform: uppercase; overflow-wrap: anywhere; }
 .detail-head p, .description { margin: 0; color: var(--ink-dim); font-size: 12px; line-height: 1.55; }
-.world-overview { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 22px; padding: 8px 0; }
+.world-overview { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; padding: 8px 0; }
 .world-overview :deep(.preview) { width: 100%; }
 .no-map { display: grid; place-items: center; aspect-ratio: 1; border: var(--b) solid var(--edge); background: var(--stone-1); color: var(--ink-dim); font-size: 12px; text-align: center; padding: 24px; }
 .world-facts { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0; }
@@ -342,8 +343,11 @@ dt { color: var(--ink-dim); }
 dd { margin: 0; text-align: right; font-family: var(--font-display); text-transform: uppercase; }
 .detail-section { display: grid; justify-items: start; gap: 10px; padding-top: 18px; border-top: 1px solid var(--stone-4); }
 .detail-section p { max-width: 65ch; margin: 0; color: var(--ink-dim); font-size: 12px; line-height: 1.5; }
+.section-actions { display: flex; align-items: stretch; gap: 8px; max-width: 100%; }
 .world-code { max-width: 100%; overflow-wrap: anywhere; padding: 10px 12px; border: var(--b) solid var(--edge); background: var(--stone-1); box-shadow: var(--sunk); color: var(--accent-hi); font-size: 11px; user-select: text; }
-.danger-zone { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 28px; color: var(--danger); font-size: 11px; }
+.danger-zone { display: flex; align-items: end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; padding: 18px 0 30px; border-top: 1px solid var(--stone-4); color: var(--danger); font-size: 11px; }
+.danger-copy { display: grid; gap: 6px; }
+.danger-copy p { max-width: 52ch; margin: 0; color: var(--ink-faint); font-size: 11px; line-height: 1.45; }
 .host { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--stone-4); background: var(--stone-1); }
 .avatar { display: grid; place-items: center; width: 42px; height: 42px; border: var(--b) solid var(--edge); background: var(--accent-lo); box-shadow: var(--raised); font: 18px var(--font-display); }
 .host > span:nth-child(2) { display: flex; flex-direction: column; flex: 1; min-width: 0; }
@@ -360,6 +364,7 @@ dd { margin: 0; text-align: right; font-family: var(--font-display); text-transf
 .empty-detail { display: grid; justify-items: start; align-content: center; gap: 12px; min-height: 100%; max-width: 440px; }
 .empty-detail p { margin: 0; color: var(--ink-dim); font-size: 12px; line-height: 1.6; }
 .large-mark { color: var(--accent); font: 36px var(--font-display); }
+.play-panel :deep(.workbench-content-inner) { padding-bottom: 24px; }
 @media (max-width: 900px) {
     .world-overview { grid-template-columns: 1fr; }
     .server-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

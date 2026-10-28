@@ -16,10 +16,16 @@
     "check:flight": "bash scripts/flight-check.sh",
     "check:sphere": "bash scripts/sphere-check.sh",
     "check:planet": "bash scripts/planet-check.sh",
+    "check:planet-grid": "bash scripts/planet-grid-check.sh",
     "release:gate": "bash scripts/release/gate.sh",
     "release:tag": "bun scripts/release/tag.ts",
     "release:wait": "bun scripts/release/wait.ts",
-    "package:linux": "bash scripts/release/package-linux.sh"
+    "package:linux": "bash scripts/release/package-linux.sh",
+    "check:atlas": "bash scripts/atlas-check.sh",
+    "check:atlas-world": "bash scripts/atlas-world-check.sh",
+    "check:atlas-seams": "bash scripts/atlas-seam-check.sh",
+    "check:atlas-debug": "bash scripts/atlas-debug-check.sh",
+    "check:atlas-dig": "bash scripts/atlas-dig-check.sh"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -3,6 +3,9 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "collision.h"
+#include <algorithm>
+#include "planet/atlas.h"
+#include "planet/planet.h"
 #include <cmath>
 #include "irr_aabb3d.h"
 #include "mapblock.h"
@@ -217,6 +220,28 @@ bool wouldCollideWithCeiling(
 	return false;
 }
 
+// Terra Firma: the node a mover is in (planet::Atlas::moverNode: a
+// centimetre above its feet, so feet on a floor are in the node above it).
+static v3s16 moverNode(v3f pos)
+{
+	const planet::Atlas::Node n = planet::Atlas::moverNode(pos.X / BS, pos.Y / BS, pos.Z / BS);
+	return v3s16(n.x, n.y, n.z);
+}
+
+// Terra Firma, an atlas: a cut cell's solid part (planet::Atlas::extent),
+// turned into the grid it's seen from, about its centre (nodes × BS). None
+// for a whole cell.
+static std::optional<aabb3f> solidPart(const planet::Atlas &atlas, const Map::Next &seen)
+{
+	const std::optional<planet::Atlas::Extent> e = atlas.extent({ seen.pos.X, seen.pos.Y, seen.pos.Z });
+	if (!e)
+		return std::nullopt;
+	const auto a = planet::Planet::turned(e->low[0], e->low[2], seen.turn);
+	const auto b = planet::Planet::turned(e->high[0], e->high[2], seen.turn);
+	return aabb3f(v3f(std::min(a[0], b[0]), e->low[1], std::min(a[1], b[1])) * BS,
+			v3f(std::max(a[0], b[0]), e->high[1], std::max(a[1], b[1])) * BS);
+}
+
 // `from`: where the mover is. Terra Firma: on a planet, past the edge of
 // its face the nodes are the neighbour face's, seen from here (Map::see).
 static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IGameDef *gamedef,
@@ -238,11 +263,61 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 	// Note #2: the >= min check will prevent an overflow from causing an
 	// infinite loop.
 
+	std::vector<v3s16> across; // Terra Firma, an atlas: cells over a seam, once each
+
 	v3s16 p;
 	for (p.Z = min.Z; p.Z >= min.Z && p.Z <= max.Z; p.Z++)
 	for (p.Y = min.Y; p.Y >= min.Y && p.Y <= max.Y; p.Y++)
 	for (p.X = min.X; p.X >= min.X && p.X <= max.X; p.X++) {
-		if (map->getPlanet() && map->see(from, p).pos != p) {
+		if (map->getAtlas()) {
+			// over a seam of an atlas: every cell this node of the mover's
+			// grid overlaps, its box where the cell really is (Map::seeAll)
+			const planet::Atlas &atlas = *map->getAtlas();
+			const Map::Next seen = map->see(from, p);
+			const bool cut = seen.pos == p && atlas.extent({ p.X, p.Y, p.Z });
+			if (seen.pos != p || seen.offset != v3f() || cut) {
+				for (const Map::Next &c : map->seeAll(from, p)) {
+					if (std::find(across.begin(), across.end(), c.pos) != across.end())
+						continue;
+					across.push_back(c.pos);
+					bool valid;
+					MapNode n = map->getNode(c.pos, &valid);
+					const v3f posf = intToFloat(p, BS) + c.offset * BS;
+					// collisions report the node really hit (c.pos), not the
+					// mover-grid slot it was seen in
+					// a cut cell is only its part in its territory
+					const std::optional<aabb3f> part = solidPart(atlas, c);
+					if (!valid || n.getContent() == CONTENT_IGNORE) {
+						aabb3f box = getNodeBox(v3s16(0, 0, 0), BS);
+						if (part)
+							box = *part;
+						box.MinEdge += posf;
+						box.MaxEdge += posf;
+						cinfo.emplace_back(true, 0, c.pos, box); // not loaded: solid, as below
+						continue;
+					}
+					any_position_valid = true;
+					const ContentFeatures &f = nodedef->get(n);
+					if (!f.walkable)
+						continue;
+					nodeboxes.clear();
+					n.getCollisionBoxes(nodedef, &nodeboxes, 0);
+					for (auto box : nodeboxes) {
+						if (part) {
+							box.MinEdge = componentwise_max(box.MinEdge, part->MinEdge);
+							box.MaxEdge = componentwise_min(box.MaxEdge, part->MaxEdge);
+							if (box.MinEdge.X >= box.MaxEdge.X || box.MinEdge.Y >= box.MaxEdge.Y
+									|| box.MinEdge.Z >= box.MaxEdge.Z)
+								continue;
+						}
+						box.MinEdge += posf;
+						box.MaxEdge += posf;
+						cinfo.emplace_back(false, abs(itemgroup_get(f.groups, "bouncy")), c.pos, box);
+					}
+				}
+				continue;
+			}
+		} else if (map->getPlanet() && map->see(from, p).pos != p) {
 			// past the mover's face: the neighbour face's node, turned to this grid
 			bool valid;
 			const MapNode n = map->getNodeSeen(from, p, &valid);
@@ -502,7 +577,7 @@ CollisionMoveResult collisionMoveSimple(Environment *env, IGameDef *gamedef,
 		v3s16 min = floatToInt(minpos_f + box_0.MinEdge, BS) - v3s16(1, 1, 1);
 		v3s16 max = floatToInt(maxpos_f + box_0.MaxEdge, BS) + v3s16(1, 1, 1);
 
-		bool any_position_valid = add_area_node_boxes(min, max, floatToInt(*pos_f, BS), gamedef, env, cinfo);
+		bool any_position_valid = add_area_node_boxes(min, max, moverNode(*pos_f), gamedef, env, cinfo);
 
 		// Do not move if world has not loaded yet, since custom node boxes
 		// are not available for collision detection.
@@ -702,7 +777,7 @@ bool collision_check_intersection(Environment *env, IGameDef *gamedef,
 		v3s16 min = floatToInt(pos_f + box_0.MinEdge, BS) - v3s16(1, 1, 1);
 		v3s16 max = floatToInt(pos_f + box_0.MaxEdge, BS) + v3s16(1, 1, 1);
 
-		bool any_position_valid = add_area_node_boxes(min, max, floatToInt(pos_f, BS), gamedef, env, cinfo);
+		bool any_position_valid = add_area_node_boxes(min, max, moverNode(pos_f), gamedef, env, cinfo);
 
 		if (!any_position_valid) {
 			return true;

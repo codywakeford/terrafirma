@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useBridge } from "../../bridge/use.ts"
 import { useStore } from "../store.ts"
 import { Button, IconTile, Notice, Panel } from "../../kit/index.ts"
@@ -17,8 +17,9 @@ const data = worldMapData()
 const map = computed(() => store.ui.map)
 const position = computed(() => store.ui.map_position)
 const pose = computed(() => store.state.mapPose ?? (position.value && map.value ? {
-    ...mapUv(position.value.x, position.value.z, map.value.size), heading: 0,
+    ...mapUv(position.value.x, position.value.z, map.value.size), heading: 0, height: map.value.sea,
 } : null))
+const trajectory = computed(() => store.ui.map_trajectory)
 const coordinates = computed(() => pose.value && map.value ? mapCoordinates(pose.value, map.value.size) : null)
 const fields = computed(() => {
     const current = data.preview.value
@@ -41,6 +42,19 @@ const sun = computed(() => map.value && position.value ? {
     declination: declination(map.value.tilt, position.value.date), color: star(map.value.star).color,
 } : null)
 const globe = ref<InstanceType<typeof MapGlobe> | null>(null)
+let trajectoryTimer: number | null = null
+function requestTrajectory() {
+    if (view.value !== "globe" || !store.ui.flight) return
+    void bridge.send("ui.send", { name: "map.trajectory", payload: {} }).catch((error: unknown) => {
+        console.error("map trajectory", error)
+    })
+}
+onMounted(() => {
+    requestTrajectory()
+    trajectoryTimer = window.setInterval(requestTrajectory, 1000)
+})
+onBeforeUnmount(() => { if (trajectoryTimer !== null) clearInterval(trajectoryTimer) })
+watch(view, requestTrajectory)
 const flatMarker = ref<{ x: number; z: number } | null>(null)
 const explored = computed(() => {
     if (!map.value || map.value.mode === "creative") return "Whole planet"
@@ -67,7 +81,8 @@ watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
             <div class="stage">
                 <template v-if="map && image && fields && pose && sun">
                     <MapGlobe v-if="view === 'globe'" ref="globe" :image="image" :elevation="fields.elevation"
-                        :pose="pose" :sun="sun" :initial-zoom="map.mode === 'creative' ? 1 : 4" />
+                        :pose="pose" :radius="map.radius" :sea="map.sea" :trajectory="trajectory"
+                        :sun="sun" :initial-zoom="map.mode === 'creative' ? 1 : 4" />
                     <div v-else class="flat-stage"><MapView v-model:spawn="flatMarker" :image="image" :size="map.size" :allow-spawn="false" /></div>
                 </template>
                 <div v-else class="pending">{{ data.problem.value ?? 'Charting planet…' }}</div>
@@ -91,6 +106,8 @@ watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
                 <div class="map-readout">
                     <strong>{{ explored }}</strong>
                     <span v-if="coordinates">{{ coordinates.x }}, {{ coordinates.z }}</span>
+                    <span v-if="pose && map">{{ Math.round(pose.height - map.sea).toLocaleString() }} m ASL</span>
+                    <span v-if="trajectory">Projected coast · {{ Math.round(trajectory.seconds) }} s</span>
                     <span>Drag to explore · scroll to zoom · V or Esc to close</span>
                 </div>
                 <Notice v-if="data.problem.value" class="problem" tone="danger">{{ data.problem.value }}</Notice>

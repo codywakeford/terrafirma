@@ -4,7 +4,7 @@ import type { Account, Friend, Player, Social } from "../bridge"
 import { Button, Field, Notice, Toggle } from "../kit"
 import { byPresence, presenceDot, presenceLine } from "../social/presence"
 
-type Page = "friends" | "account" | "add"
+type Page = "friends" | "activity" | "account" | "add"
 const props = defineProps<{ account: Account; social: Social | null; error: string | null; busy: boolean; joining: string | null; initialPage?: Page }>()
 const emit = defineEmits<{
     signIn: []; cancel: []; signOut: []; retry: []; openUrl: [url: string]
@@ -19,6 +19,7 @@ const view = computed(() => props.social?.view)
 const friends = computed(() => [...(view.value?.friends ?? [])].sort(byPresence))
 const online = computed(() => friends.value.filter((friend) => friend.presence).length)
 const waiting = computed(() => (view.value?.incoming.length ?? 0) + (view.value?.invites.length ?? 0))
+const activity = computed(() => waiting.value + (view.value?.outgoing.length ?? 0))
 const displayName = computed(() => {
     if (props.account.status !== "signedIn") return ""
     const name = props.account.name?.trim()
@@ -29,6 +30,13 @@ const open = computed({
     set: (value: boolean) => emit("openWorld", value),
 })
 const inMenu = computed(() => props.social?.me.state === "menu")
+const myPresence = computed(() => {
+    const me = props.social?.me
+    if (!me) return "Connecting to ArcLabs"
+    if (me.state === "menu") return "Main menu"
+    if (me.state === "hosting") return "Hosting"
+    return "Playing"
+})
 const joinable = (friend: Friend) => friend.presence?.state === "hosting" && friend.presence.open
 const invitable = (friend: Friend) =>
     props.social?.joinable && friend.presence !== null && friend.presence.world !== props.social.me.world
@@ -56,111 +64,122 @@ function remove(friend: Friend) {
             <header class="identity">
                 <div class="avatar" aria-hidden="true">{{ account.username.slice(0, 1).toUpperCase() }}</div>
                 <div class="identity-text">
-                    <span class="eyebrow"><span class="live" /> ArcLabs connected</span>
                     <strong>{{ displayName }}</strong>
-                    <span v-if="displayName !== account.username" class="handle">@{{ account.username }}</span>
+                    <span class="handle"><span class="live" />{{ displayName !== account.username ? `@${account.username}` : "ArcLabs connected" }}</span>
                 </div>
             </header>
 
-            <nav class="tabs" aria-label="Profile sections">
-                <button :class="{ selected: page === 'friends' || page === 'add' }" :aria-current="page === 'friends' || page === 'add' ? 'page' : undefined"
-                    @click="page = 'friends'">
-                    <svg viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges" aria-hidden="true">
-                        <path fill="currentColor" d="M5 2h4v1h1v4H9v1H5V7H4V3h1zm-2 8h8v1h2v4H1v-4h2zM11 4h2v1h1v3h-1v1h-2V8h1V5h-1z" />
-                    </svg>
-                    Friends <span v-if="waiting" class="tab-count">{{ waiting }}</span>
-                </button>
-                <button :class="{ selected: page === 'account' }" :aria-current="page === 'account' ? 'page' : undefined"
-                    @click="page = 'account'">
-                    <svg viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges" aria-hidden="true">
-                        <path fill="currentColor" d="M5 1h6v2h1v5h-1v1H5V8H4V3h1zm-1 10h8v1h2v3H2v-3h2z" />
-                    </svg>
-                    Account
-                </button>
-            </nav>
+            <div class="hub">
+                <nav class="rail" aria-label="Social sections">
+                    <button :class="{ selected: page === 'friends' || page === 'add' }" aria-label="Friends"
+                        :aria-current="page === 'friends' || page === 'add' ? 'page' : undefined" @click="page = 'friends'">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2h5v1h1v4H9v1H4V7H3V3h1zm-2 8h9v1h2v4H0v-4h2zm10-6h2v1h1v3h-1v1h-2V8h1V5h-1z" /></svg>
+                        <span>Friends</span>
+                    </button>
+                    <button :class="{ selected: page === 'activity' }" aria-label="Activity"
+                        :aria-current="page === 'activity' ? 'page' : undefined" @click="page = 'activity'">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 2h12v11h-3v2H5v-2H2zm2 2v7h8V4zm1 1h6v2H5zm0 3h4v2H5z" /></svg>
+                        <span>Inbox</span><b v-if="waiting" class="rail-badge">{{ waiting }}</b>
+                    </button>
+                    <button class="account-tab" :class="{ selected: page === 'account' }" aria-label="Account"
+                        :aria-current="page === 'account' ? 'page' : undefined" @click="page = 'account'">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 1h6v2h1v5h-1v1H5V8H4V3h1zm-1 10h8v1h2v3H2v-3h2z" /></svg>
+                        <span>Account</span>
+                    </button>
+                </nav>
 
-            <div class="content">
-                <Notice v-if="error" tone="danger">{{ error }}</Notice>
-                <Notice v-if="social?.problem" tone="warn">Friends may be out of date: {{ social.problem }}</Notice>
+                <div class="workspace">
+                    <div class="content">
+                        <Notice v-if="error" tone="danger">{{ error }}</Notice>
+                        <Notice v-if="social?.problem" tone="warn">Friends may be out of date: {{ social.problem }}</Notice>
 
-                <template v-if="page === 'friends'">
-                    <template v-if="view && (view.invites.length || view.incoming.length)">
-                        <div class="section-head"><div><span class="kicker">For you</span><h2>Invites & requests</h2></div></div>
-                        <div class="list">
-                            <div v-for="invite in view.invites" :key="invite.id" class="activity">
-                                <span class="activity-mark">»</span>
-                                <div class="friend-copy"><strong>{{ invite.from.username }}</strong><small>Invited you to {{ invite.world }}</small></div>
-                                <Button size="sm" variant="primary" :disabled="busy || !inMenu" :title="inMenu ? undefined : 'Leave your world first'"
-                                    @click="emit('join', invite.from)">{{ joining === invite.from.id ? "Joining…" : "Join" }}</Button>
-                                <Button size="sm" :disabled="busy" aria-label="Dismiss invite" @click="emit('dismiss', invite.id)">×</Button>
+                        <template v-if="page === 'friends'">
+                            <div class="section-head">
+                                <div><span class="kicker">People · {{ online }} online</span><h2>Your friends</h2></div>
+                                <Button size="sm" @click="page = 'add'">+ Add</Button>
                             </div>
-                            <div v-for="player in view.incoming" :key="player.id" class="activity">
-                                <span class="activity-mark">+</span>
-                                <div class="friend-copy"><strong>{{ player.username }}</strong><small>Wants to be friends</small></div>
-                                <Button size="sm" variant="primary" :disabled="busy" @click="emit('accept', player.id)">Accept</Button>
-                                <Button size="sm" :disabled="busy" aria-label="Decline friend request" @click="emit('remove', player.id)">×</Button>
+                            <p v-if="!social" class="empty">Connecting to friends…</p>
+                            <p v-else-if="!view" class="empty">Loading friends…</p>
+                            <p v-else-if="!friends.length" class="empty">Your friends will appear here. Add someone by their ArcLabs username.</p>
+                            <div v-if="friends.length" class="list">
+                                <div v-for="friend in friends" :key="friend.id" class="friend">
+                                    <span class="presence" :class="presenceDot(friend.presence)" />
+                                    <div class="friend-copy">
+                                        <strong>{{ friend.name || friend.username }}</strong>
+                                        <small><span v-if="friend.name">@{{ friend.username }} · </span>{{ presenceLine(friend.presence) }}</small>
+                                    </div>
+                                    <Button v-if="joinable(friend)" size="sm" variant="primary" :disabled="busy || !inMenu"
+                                        :title="inMenu ? undefined : 'Leave your world first'" @click="emit('join', friend)">
+                                        {{ joining === friend.id ? "Joining…" : "Join" }}
+                                    </Button>
+                                    <Button v-if="invitable(friend)" size="sm" :disabled="busy" @click="emit('invite', friend.id)">Invite</Button>
+                                    <button class="row-more" :class="{ danger: confirming === friend.id }" :disabled="busy"
+                                        :aria-label="confirming === friend.id ? `Confirm removing ${friend.username}` : `Friend options for ${friend.username}`"
+                                        :title="confirming === friend.id ? 'Press again to remove friend' : 'Friend options'"
+                                        @click="remove(friend)">{{ confirming === friend.id ? "Remove" : "•••" }}</button>
+                                </div>
                             </div>
-                        </div>
-                    </template>
-                    <div class="section-head">
-                        <div><span class="kicker">People · {{ online }} online</span><h2>Your friends</h2></div>
-                        <Button size="sm" @click="page = 'add'">+ Add friend</Button>
+                        </template>
+
+                        <template v-else-if="page === 'activity'">
+                            <div class="section-head"><div><span class="kicker">Activity · {{ activity }}</span><h2>Invites & requests</h2></div></div>
+                            <p v-if="!social" class="empty">Connecting to ArcLabs…</p>
+                            <p v-else-if="!view" class="empty">Loading invitations and requests…</p>
+                            <p v-if="view && !activity" class="empty">You’re all caught up. Invitations and friend requests will appear here.</p>
+                            <div v-if="view && (view.invites.length || view.incoming.length)" class="list">
+                                <div v-for="invite in view.invites" :key="invite.id" class="activity">
+                                    <span class="activity-mark">»</span>
+                                    <div class="friend-copy"><strong>{{ invite.from.username }}</strong><small>Invited you to {{ invite.world }}</small></div>
+                                    <Button size="sm" variant="primary" :disabled="busy || !inMenu" :title="inMenu ? undefined : 'Leave your world first'"
+                                        @click="emit('join', invite.from)">{{ joining === invite.from.id ? "Joining…" : "Join" }}</Button>
+                                    <Button size="sm" :disabled="busy" aria-label="Dismiss invite" @click="emit('dismiss', invite.id)">×</Button>
+                                </div>
+                                <div v-for="player in view.incoming" :key="player.id" class="activity">
+                                    <span class="activity-mark">+</span>
+                                    <div class="friend-copy"><strong>{{ player.username }}</strong><small>Wants to be friends</small></div>
+                                    <Button size="sm" variant="primary" :disabled="busy" @click="emit('accept', player.id)">Accept</Button>
+                                    <Button size="sm" :disabled="busy" aria-label="Decline friend request" @click="emit('remove', player.id)">×</Button>
+                                </div>
+                            </div>
+                            <template v-if="view?.outgoing.length">
+                                <div class="section-head sent-head"><div><span class="kicker">Pending</span><h2>Sent requests</h2></div></div>
+                                <div class="list">
+                                    <div v-for="player in view.outgoing" :key="player.id" class="activity">
+                                        <span class="activity-mark muted">…</span>
+                                        <div class="friend-copy"><strong>{{ player.username }}</strong><small>Waiting for a reply</small></div>
+                                        <button class="text-action" :disabled="busy" @click="emit('remove', player.id)">Cancel</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </template>
+
+                        <template v-else-if="page === 'add'">
+                            <button class="back" @click="page = 'friends'">← Friends</button>
+                            <div class="section-head"><div><span class="kicker">Find a player</span><h2>Add a friend</h2></div></div>
+                            <p class="copy">Enter their exact ArcLabs username. They'll see your request the next time they play.</p>
+                            <form class="add-form" @submit.prevent="add">
+                                <Field v-model="username" label="ArcLabs username" placeholder="Username" :maxlength="64" />
+                                <Button variant="primary" :disabled="busy || !username.trim()">Send request »</Button>
+                            </form>
+                        </template>
+
+                        <template v-else>
+                            <div class="section-head"><div><span class="kicker">ArcLabs / Profile</span><h2>Account details</h2></div></div>
+                            <dl class="details">
+                                <div><dt>Username</dt><dd>@{{ account.username }}</dd></div>
+                                <div v-if="displayName !== account.username"><dt>Display name</dt><dd>{{ displayName }}</dd></div>
+                                <div><dt>Email</dt><dd class="muted">Managed by ArcLabs</dd></div>
+                                <div><dt>Connection</dt><dd><span class="live" /> Connected</dd></div>
+                            </dl>
+                            <p class="copy">Your ArcLabs identity connects you with friends across Terra Firma worlds.</p>
+                            <div class="account-actions"><Button size="sm" @click="emit('signOut')">Sign out on this device</Button></div>
+                        </template>
                     </div>
-                    <Toggle v-if="social?.joinable" v-model="open" :label="`Friends can join ${social.me.world}`" />
-                    <p v-if="!social" class="empty">Connecting to friends…</p>
-                    <p v-else-if="!view" class="empty">Loading friends…</p>
-                    <p v-else-if="!friends.length" class="empty">Your friends will appear here. Add someone by their ArcLabs username.</p>
-                    <div v-if="friends.length" class="list">
-                        <div v-for="friend in friends" :key="friend.id" class="friend">
-                            <span class="presence" :class="presenceDot(friend.presence)" />
-                            <div class="friend-copy">
-                                <strong>{{ friend.name || friend.username }}</strong>
-                                <small><span v-if="friend.name">@{{ friend.username }} · </span>{{ presenceLine(friend.presence) }}</small>
-                            </div>
-                            <Button v-if="joinable(friend)" size="sm" variant="primary" :disabled="busy || !inMenu"
-                                :title="inMenu ? undefined : 'Leave your world first'" @click="emit('join', friend)">
-                                {{ joining === friend.id ? "Joining…" : "Join" }}
-                            </Button>
-                            <Button v-if="invitable(friend)" size="sm" :disabled="busy" @click="emit('invite', friend.id)">Invite</Button>
-                            <button class="row-more" :class="{ danger: confirming === friend.id }" :disabled="busy"
-                                :aria-label="confirming === friend.id ? `Confirm removing ${friend.username}` : `Remove ${friend.username}`"
-                                :title="confirming === friend.id ? 'Press again to remove friend' : 'Remove friend'"
-                                @click="remove(friend)">{{ confirming === friend.id ? "Remove?" : "×" }}</button>
-                        </div>
-                    </div>
-                    <template v-if="view?.outgoing.length">
-                        <div class="section-head sent-head"><div><span class="kicker">Pending</span><h2>Sent requests</h2></div></div>
-                        <div class="list">
-                            <div v-for="player in view.outgoing" :key="player.id" class="activity">
-                                <span class="activity-mark muted">…</span>
-                                <div class="friend-copy"><strong>{{ player.username }}</strong><small>Waiting for a reply</small></div>
-                                <button class="text-action" :disabled="busy" @click="emit('remove', player.id)">Cancel</button>
-                            </div>
-                        </div>
-                    </template>
-                </template>
-
-                <template v-else-if="page === 'add'">
-                    <button class="back" @click="page = 'friends'">← Friends</button>
-                    <div class="section-head"><div><span class="kicker">Find a player</span><h2>Add a friend</h2></div></div>
-                    <p class="copy">Enter their exact ArcLabs username. They'll see your request the next time they play.</p>
-                    <form class="add-form" @submit.prevent="add">
-                        <Field v-model="username" label="ArcLabs username" placeholder="Username" :maxlength="64" />
-                        <Button variant="primary" :disabled="busy || !username.trim()">Send request »</Button>
-                    </form>
-                </template>
-
-                <template v-else>
-                    <div class="section-head"><div><span class="kicker">ArcLabs / Profile</span><h2>Account details</h2></div></div>
-                    <dl class="details">
-                        <div><dt>Username</dt><dd>@{{ account.username }}</dd></div>
-                        <div v-if="displayName !== account.username"><dt>Display name</dt><dd>{{ displayName }}</dd></div>
-                        <div><dt>Email</dt><dd class="muted">Managed by ArcLabs</dd></div>
-                        <div><dt>Connection</dt><dd><span class="live" /> Connected</dd></div>
-                    </dl>
-                    <p class="copy">Your ArcLabs identity connects you with friends across Terra Firma worlds.</p>
-                    <div class="account-actions"><Button size="sm" @click="emit('signOut')">Sign out on this device</Button></div>
-                </template>
+                    <footer class="presence-footer">
+                        <div><span class="live" /><strong>{{ myPresence }}</strong><small v-if="social?.me.world">{{ social.me.world }}</small></div>
+                        <Toggle v-if="social?.joinable" v-model="open" label="Friends may join" />
+                    </footer>
+                </div>
             </div>
         </template>
 
@@ -199,30 +218,39 @@ function remove(friend: Friend) {
     border: var(--b) solid var(--edge); background: var(--stone-1);
     box-shadow: var(--raised), 8px 8px 0 rgb(0 0 0 / 0.35);
 }
-.dropdown.connected { min-height: min(380px, calc(100vh - 88px)); }
+.dropdown.connected { height: min(540px, calc(100vh - 88px)); min-height: min(400px, calc(100vh - 88px)); }
 .identity {
-    flex: none; display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 12px 16px;
+    flex: none; display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 8px 10px;
     background: var(--stone-2); border-bottom: var(--b) solid var(--edge); box-shadow: var(--raised);
 }
 .avatar {
-    flex: none; display: grid; place-items: center; width: 42px; height: 42px;
+    flex: none; display: grid; place-items: center; width: 34px; height: 34px;
     background: var(--stone-3); border: var(--b) solid var(--edge); box-shadow: var(--raised);
-    font: 20px var(--font-display); color: var(--accent-hi);
+    font: 15px var(--font-display); color: var(--accent-hi);
 }
 .identity-text { min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.3; }
-.identity-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 14px var(--font-display); }
+.identity-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-display); text-transform: uppercase; }
 .eyebrow { font: 9px var(--font-display); color: var(--ink-dim); text-transform: uppercase; letter-spacing: .06em; }
 .handle { color: var(--ink-dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
 .live, .presence { display: inline-block; width: 7px; height: 7px; margin-right: 5px; background: var(--accent-hi); border: 1px solid var(--edge); }
-.tabs { flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--stone-1); border-bottom: var(--b) solid var(--edge); }
-.tabs button { min-width: 0; height: 46px; display: flex; align-items: center; gap: 9px; padding: 0 18px; border: 0; border-right: 1px solid var(--edge); background: var(--stone-2); box-shadow: var(--raised); font: 11px var(--font-display); text-transform: uppercase; white-space: nowrap; }
-.tabs button:last-child { border-right: 0; }
-.tabs button:hover { background: var(--stone-3); }
-.tabs button.selected { background: var(--stone-3); box-shadow: inset 0 -3px 0 var(--accent), var(--raised); }
-.tabs svg { flex: none; color: var(--ink-dim); }
-.tabs button.selected svg { color: var(--accent-hi); }
-.tabs .tab-count { margin-left: auto; min-width: 18px; padding: 2px 3px; background: var(--accent-lo); border: 1px solid var(--edge); color: var(--ink); font: 10px var(--font-display); text-align: center; }
-.content { min-height: 0; flex: 1; overflow-y: auto; padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 10px; background: var(--stone-1); }
+.hub { display: grid; grid-template-columns: 62px minmax(0, 1fr); min-height: 0; flex: 1; }
+.rail { display: flex; flex-direction: column; gap: 5px; min-height: 0; padding: 8px 5px; border-right: var(--b) solid var(--edge); background: var(--stone-2); }
+.rail button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 8px 2px 7px; border: var(--b) solid transparent; background: none; color: var(--ink-faint); font: 8px var(--font-display); text-transform: uppercase; }
+.rail button:hover { color: var(--ink); background: var(--stone-3); }
+.rail button.selected { border-color: var(--edge); background: var(--accent-lo); box-shadow: var(--sunk); color: var(--ink); }
+.rail svg { width: 18px; height: 18px; }
+.rail button.selected svg { color: var(--accent-hi); }
+.rail .account-tab { margin-top: auto; }
+.rail-badge { position: absolute; top: 3px; right: 2px; min-width: 15px; height: 15px; padding: 0 2px; border: 1px solid var(--edge); background: var(--accent); color: var(--ink); font: 8px/13px var(--font-display); }
+.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.content { min-height: 0; flex: 1; overflow-y: auto; padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 10px; background: var(--stone-1); }
+.presence-footer { flex: none; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: var(--b) solid var(--edge); background: var(--stone-2); box-shadow: var(--raised); }
+.presence-footer > div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.presence-footer .live { grid-row: 1 / span 2; }
+.presence-footer strong, .presence-footer small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence-footer strong { font-size: 10px; }
+.presence-footer small { color: var(--ink-faint); font-size: 9px; }
+.presence-footer :deep(.toggle) { flex: none; width: auto; gap: 7px; font-size: 9px; }
 .section-head { display: flex; justify-content: space-between; align-items: end; gap: 10px; margin-bottom: 4px; }
 .section-head:not(:first-child) { margin-top: 8px; }
 .section-head > div { min-width: 0; }

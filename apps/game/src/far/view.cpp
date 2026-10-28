@@ -33,20 +33,13 @@ namespace far {
 // A tile splits while it's nearer than this many of its own spans past the
 // near world's edge, by the Horizon detail setting (1..4).
 static const float SPLIT[4] = { 1.0f, 1.5f, 2.0f, 3.0f };
-// The coarsest level: 32 · 2⁹ = 16 384 blocks, the largest world.
-static constexpr s32 TOP_LEVEL = 9;
 // Tiles put on the GPU per frame, at most.
 static constexpr int INSTALLS_PER_FRAME = 6;
 // The air's depth, in its scale heights: above it the haze has given way
 // to the planet seen from above (tf_flight's boundary is the same).
 static constexpr double AIR_DEPTH = 8;
-// m above the sea the land can reach (mountains, the corner landmarks): a
-// camera this far above the sea sees nothing nearer.
-static constexpr float PEAKS = 300;
 // A tile not wanted for this many frames is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
-// The mask: map-block columns around the camera, a texel each.
-static constexpr s32 MASK = 128;
 
 static float span(s32 level)
 {
@@ -96,31 +89,6 @@ private:
 	CachedPixelShaderSetting<float> m_air{"farAir"};
 };
 
-// From lowest ground to the top of the highest water or tree, per map-block
-// column a tile covers: what the near world must draw before the far view
-// can step aside there. Tiles coarser than a map block don't say.
-static std::vector<Surface> surfaces(const Tile &tile)
-{
-	std::vector<Surface> out;
-	const s32 cell = tile.key.cell();
-	if (cell > MAP_BLOCKSIZE)
-		return out;
-	const s32 per = MAP_BLOCKSIZE / cell, columns = TILE / per;
-	const s32 bx0 = tile.key.x * tile.key.span() / MAP_BLOCKSIZE, bz0 = tile.key.z * tile.key.span() / MAP_BLOCKSIZE;
-	for (s32 bj = 0; bj < columns; bj++)
-	for (s32 bi = 0; bi < columns; bi++) {
-		Surface s{ (s16)(bx0 + bi), (s16)(bz0 + bj), INT32_MAX, INT32_MIN, (u8)tile.key.level };
-		for (s32 j = bj * per; j < (bj + 1) * per; j++)
-		for (s32 i = bi * per; i < (bi + 1) * per; i++) {
-			const Cell &c = tile.at(i, j);
-			s.low = std::min(s.low, c.ground);
-			s.high = std::max({ s.high, c.ground, c.water, c.canopy.empty() ? c.ground : c.canopy.high });
-		}
-		out.push_back(s);
-	}
-	return out;
-}
-
 /*
 	The workers: build tiles and their meshes off the main thread, nearest
 	first. The view says each frame which tiles it wants (want()); keys being
@@ -136,8 +104,8 @@ public:
 		std::vector<Surface> surfaces;
 	};
 
-	Workers(const Horizon &horizon, const Colours &colours, const std::optional<planet::Planet> &planet) :
-		m_horizon(horizon), m_colours(colours), m_planet(planet)
+	Workers(const Horizon &horizon, const Colours &colours, const Layout &layout) :
+		m_horizon(horizon), m_colours(colours), m_layout(layout)
 	{
 		unsigned n = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
 		for (unsigned i = 0; i < n; i++)
@@ -182,7 +150,7 @@ public:
 	}
 
 private:
-	static std::tuple<s32, s32, s32> id(const TileKey &k) { return { k.level, k.x, k.z }; }
+	static std::tuple<s32, s32, s32, s32> id(const TileKey &k) { return { k.level, k.x, k.z, k.face }; }
 
 	void run()
 	{
@@ -191,7 +159,7 @@ private:
 			std::lock_guard lock(m_mutex);
 			if (!m_generator && m_error.empty()) {
 				try {
-					m_generator = std::make_unique<Generator>(m_horizon, m_planet);
+					m_generator = m_layout.generator(m_horizon);
 				} catch (const std::exception &e) {
 					m_error = std::string("the world can't be built from the server's data: ") + e.what();
 				}
@@ -211,8 +179,8 @@ private:
 			Result r{ key, {}, {} };
 			try {
 				Tile tile = m_generator->build(key);
-				r.mesh = mesh(tile, m_colours, m_planet);
-				r.surfaces = surfaces(tile);
+				r.mesh = m_layout.mesh(tile, m_colours);
+				r.surfaces = m_layout.surfaces(tile);
 			} catch (const std::exception &e) {
 				lock.lock();
 				m_error = e.what();
@@ -226,14 +194,14 @@ private:
 
 	const Horizon &m_horizon;
 	const Colours &m_colours;
-	const std::optional<planet::Planet> m_planet;
+	const Layout &m_layout;
 	std::unique_ptr<Generator> m_generator;
 
 	std::mutex m_mutex;
 	std::condition_variable m_wake;
 	bool m_stop = false;
 	std::deque<TileKey> m_queue;
-	std::set<std::tuple<s32, s32, s32>> m_busy; // being built, or built and not yet taken
+	std::set<std::tuple<s32, s32, s32, s32>> m_busy; // being built, or built and not yet taken
 	std::deque<Result> m_results;
 	std::string m_error;
 	std::vector<std::thread> m_threads; // last: started once everything above exists
@@ -247,20 +215,17 @@ static void settingChanged(const std::string &, void *data)
 static const char *const SETTINGS[] = { "far_view", "far_view_detail", "far_view_max" };
 
 View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc,
-		const NodeDefManager *ndef, const Horizon &horizon, const planet::Planet *planet) :
+		const NodeDefManager *ndef, const Horizon &horizon, std::unique_ptr<Layout> layout) :
 	scene::ISceneNode(smgr->getRootSceneNode(), smgr, -1),
 	m_horizon(horizon),
-	m_planet(planet ? std::optional<planet::Planet>(*planet) : std::nullopt),
+	m_layout(std::move(layout)),
 	m_state(std::make_shared<DrawState>())
 {
-	// a terra world is a planet: the far view draws it through the sphere lens
-	if (!m_planet)
-		throw BaseException("far view: the world isn't a planet (every terra world is)");
 	m_colours = std::make_unique<Colours>(ndef, tsrc, blocksIn(m_horizon));
-	m_workers = std::make_unique<Workers>(m_horizon, *m_colours, m_planet);
+	m_workers = std::make_unique<Workers>(m_horizon, *m_colours, *m_layout);
 
 	m_uniforms = make_irr<Uniforms>(m_state);
-	u32 shader = ssrc->getShader("far_shader", ShaderConstants{}, video::EMT_SOLID, m_uniforms.get());
+	u32 shader = ssrc->getShader(m_layout->shader(), ShaderConstants{}, video::EMT_SOLID, m_uniforms.get());
 	m_material.MaterialType = ssrc->getShaderInfo(shader).material;
 	m_material.BackfaceCulling = false;
 	m_material.FogEnable = false; // the shader fogs to the horizon itself
@@ -306,20 +271,9 @@ void View::readSettings()
 	m_max = g_settings->getFloat("far_view_max");
 }
 
-float View::distance(const Key &key, v2f eye) const
+bool View::choose(const Key &key, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want)
 {
-	float s = span(key.level), x0 = key.x * s - 0.5f, z0 = key.z * s - 0.5f;
-	// over the planet: from the eye to the tile's middle, less its half diagonal
-	const float cx = x0 + 0.5f * s, cz = z0 + 0.5f * s;
-	const int face = m_planet->nearest(cx, cz);
-	const terragen::Sphere::Vec p = m_planet->sphere().point(m_planet->place(face, cx, cz), 0);
-	const float d = (float)std::hypot(p.x - m_eye_point.x, p.y - m_eye_point.y, p.z - m_eye_point.z);
-	return std::max(d - 0.7072f * s, 0.0f);
-}
-
-bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want)
-{
-	float d = distance(key, eye);
+	float d = m_layout->distance(key.tile());
 	if (d > m_range)
 		return true; // beyond the horizon's reach: nothing to draw
 	// high up, a tile's size on screen goes by how far it is through the air
@@ -340,7 +294,7 @@ bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<s
 			if (k.level == 0)
 				return false;
 			for (s32 c = 0; c < 4; c++) {
-				Key child{ k.level - 1, k.x * 2 + (c & 1), k.z * 2 + (c >> 1) };
+				const Key child = k.child(c);
 				auto it = m_tiles.find(child);
 				if (it != m_tiles.end() && it->second.ready) {
 					it->second.used = m_frame;
@@ -360,7 +314,7 @@ bool View::choose(const Key &key, v2f eye, std::vector<Key> &draw, std::vector<s
 	size_t mark = draw.size();
 	bool all = true;
 	for (s32 c = 0; c < 4; c++)
-		all &= choose({ key.level - 1, key.x * 2 + (c & 1), key.z * 2 + (c >> 1) }, eye, draw, want);
+		all &= choose(key.child(c), draw, want);
 	if (all)
 		return true;
 	// a finer tile isn't there yet: this one stands in for all four
@@ -380,23 +334,21 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	m_frame++;
 	m_camera_offset = camera.getOffset();
 	v3f eye = (camera.getCameraNode()->getPosition() + intToFloat(m_camera_offset, BS)) / BS;
-	m_altitude = std::max(eye.Y - m_horizon.water_level, 0.0f);
+	m_layout->look(eye, map);
+	m_altitude = m_layout->altitude();
 	// up through the air the haze gives way to the planet seen from above
-	const double r = m_planet->sphere().radius(), h = m_altitude;
+	const double r = m_layout->radius(), h = m_altitude;
 	m_share = (float)std::clamp(h / (AIR_DEPTH * terragen::sphere(r).scale_height), 0.0, 1.0);
 	m_lift = m_altitude; // a block is a metre: the height counts toward a tile's distance as is
 
-	// The land is drawn by the sphere lens (client/shaders/sphere/lens.glsl),
-	// out to the planet's horizon (at most half way round), and how far a tile
-	// is goes by the planet, not the net: faces that meet on the planet can be
-	// far apart in the map.
+	// out to the planet's horizon (at most half way round); how far a tile
+	// is goes by the planet (the layout's distance), never by the map
 	const float horizon = (float)std::sqrt(2 * r * h + h * h); // m
 	float range = std::min(m_max, (float)(M_PI * r));
 	if (fog_limit)
 		range = std::min(range, *fog_limit);
 	else
 		range = std::min(std::max(range, 1.1f * horizon), (float)(M_PI * r));
-	m_eye_point = m_planet->sphere().point(m_planet->place(m_planet->nearest(eye.X, eye.Z), eye.X, eye.Z), 0);
 	m_cut = near_range;
 	m_range = range;
 	m_reach = std::max(range, horizon) * BS + m_altitude * BS;
@@ -404,22 +356,11 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	if (!m_showing)
 		return;
 
-	v2f flat(eye.X, eye.Z);
-
 	// the coarsest tiles that reach the range, split down toward the camera
 	m_draw.clear();
 	std::vector<std::pair<float, Key>> want;
-	s32 top = 0;
-	while (top < TOP_LEVEL && span(top) < range / 2)
-		top++;
-	// the whole net: distance() says which tiles are in reach
-	const float pitch = (float)(m_planet->width() + planet::Planet::GAP), low = (float)planet::Planet::ORIGIN;
-	const s32 lo_x = (s32)std::floor(low / span(top)), lo_z = lo_x;
-	const s32 hi_x = (s32)std::floor((low + 3 * pitch) / span(top));
-	const s32 hi_z = (s32)std::floor((low + 2 * pitch) / span(top));
-	for (s32 z = lo_z; z <= hi_z; z++)
-		for (s32 x = lo_x; x <= hi_x; x++)
-			choose({ top, x, z }, flat, m_draw, want);
+	for (const TileKey &root : m_layout->roots(range))
+		choose(root, m_draw, want);
 
 	std::sort(want.begin(), want.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
 	std::vector<std::pair<float, TileKey>> keys;
@@ -447,7 +388,7 @@ void View::install()
 			if (!fresh && s.level <= it->second.level)
 				it->second = s; // the finer tile knows better
 		}
-		Entry &e = m_tiles[{ k.level, k.x, k.z }];
+		Entry &e = m_tiles[Key(k)];
 		e.parts.clear();
 		for (Mesh::Part &part : result->mesh.parts) {
 			auto buffer = make_irr<scene::SMeshBuffer>();
@@ -465,16 +406,14 @@ void View::install()
 	}
 }
 
-void View::updateMask(ClientMap &map, v3f eye)
+void View::updateMask(ClientMap &map, v3f origin)
 {
-	m_mask_centre = getNodeBlockPos(floatToInt(eye * BS, BS));
-	const s32 half = MASK / 2;
 	// the map blocks the near world draws this frame, by column
 	std::vector<std::vector<s16>> drawn((size_t)MASK * MASK);
 	map.forEachDrawn([&](v3s16 block) {
-		s32 u = block.X - m_mask_centre.X + half, v = block.Z - m_mask_centre.Z + half;
-		if (u >= 0 && u < MASK && v >= 0 && v < MASK)
-			drawn[(size_t)v * MASK + u].push_back(block.Y);
+		const std::optional<v2s32> at = m_layout->maskColumn(block, origin);
+		if (at && at->X >= 0 && at->X < MASK && at->Y >= 0 && at->Y < MASK)
+			drawn[(size_t)at->Y * MASK + at->X].push_back(block.Y);
 	});
 	auto *pixels = static_cast<u32 *>(m_mask->lock(video::ETLM_WRITE_ONLY, 0, 0, video::ETLF_NONE));
 	if (!pixels)
@@ -483,21 +422,25 @@ void View::updateMask(ClientMap &map, v3f eye)
 	for (s32 v = 0; v < MASK; v++)
 	for (s32 u = 0; u < MASK; u++) {
 		std::vector<s16> &ys = drawn[(size_t)v * MASK + u];
-		// The near world stands in for a column only if it draws all of its
-		// surface: at its edge it draws by distance, and may have the seabed
-		// or a hill's foot without the top. Where it draws the top but not
-		// the floor (low over the sea), its water lies over our floor.
-		// A column whose surface we don't know (only coarse tiles of ours
-		// cover it: high up, where the near world draws only air) isn't the
-		// near world's.
-		auto it = m_surfaces.find(columnKey(m_mask_centre.X - half + u, m_mask_centre.Z - half + v));
-		bool near = !ys.empty() && it != m_surfaces.end(), top = near;
-		if (near) {
-			std::sort(ys.begin(), ys.end());
-			s16 lo = getContainerPos(it->second.low, MAP_BLOCKSIZE), hi = getContainerPos(it->second.high, MAP_BLOCKSIZE);
-			top = std::binary_search(ys.begin(), ys.end(), hi);
-			for (s16 y = lo; y <= hi && near; y++)
-				near = std::binary_search(ys.begin(), ys.end(), y);
+		bool near = !ys.empty(), top = near;
+		// Where columns are whole (a cube planet's), the near world stands in
+		// for one only if it draws all of its surface: at its edge it draws by
+		// distance, and may have the seabed or a hill's foot without the top.
+		// Where it draws the top but not the floor (low over the sea), its
+		// water lies over our floor. A column whose surface we don't know
+		// (only coarse tiles of ours cover it: high up, where the near world
+		// draws only air) isn't the near world's.
+		if (const std::optional<u32> column = m_layout->surfaceColumn(u, v)) {
+			auto it = m_surfaces.find(*column);
+			near = near && it != m_surfaces.end();
+			top = near;
+			if (near) {
+				std::sort(ys.begin(), ys.end());
+				s16 lo = getContainerPos(it->second.low, MAP_BLOCKSIZE), hi = getContainerPos(it->second.high, MAP_BLOCKSIZE);
+				top = std::binary_search(ys.begin(), ys.end(), hi);
+				for (s16 y = lo; y <= hi && near; y++)
+					near = std::binary_search(ys.begin(), ys.end(), y);
+			}
 		}
 		m_near[(size_t)v * MASK + u] = near;
 		pixels[(size_t)v * MASK + u] = video::SColor(255, near ? 255 : 0, top ? 255 : 0, 0).color;
@@ -508,7 +451,7 @@ void View::updateMask(ClientMap &map, v3f eye)
 void View::evict()
 {
 	// surfaces of columns long out of range
-	v2f eye(m_mask_centre.X, m_mask_centre.Z);
+	v2f eye(m_eye.X / MAP_BLOCKSIZE, m_eye.Z / MAP_BLOCKSIZE);
 	float keep = (m_range * 1.5f) / MAP_BLOCKSIZE;
 	for (auto it = m_surfaces.begin(); it != m_surfaces.end();) {
 		if (std::fabs(it->second.bx - eye.X) > keep || std::fabs(it->second.bz - eye.Y) > keep)
@@ -522,22 +465,6 @@ void View::evict()
 		else
 			++it;
 	}
-}
-
-bool View::covered(const Key &key) const
-{
-	if (m_near.empty())
-		return false;
-	s32 s = TILE << key.level, half = MASK / 2;
-	s32 bx0 = getContainerPos(key.x * s, MAP_BLOCKSIZE), bx1 = getContainerPos(key.x * s + s - 1, MAP_BLOCKSIZE);
-	s32 bz0 = getContainerPos(key.z * s, MAP_BLOCKSIZE), bz1 = getContainerPos(key.z * s + s - 1, MAP_BLOCKSIZE);
-	for (s32 bz = bz0; bz <= bz1; bz++)
-	for (s32 bx = bx0; bx <= bx1; bx++) {
-		s32 u = bx - m_mask_centre.X + half, v = bz - m_mask_centre.Z + half;
-		if (u < 0 || u >= MASK || v < 0 || v >= MASK || !m_near[(size_t)v * MASK + u])
-			return false;
-	}
-	return true;
 }
 
 void View::OnRegisterSceneNode()
@@ -554,16 +481,17 @@ void View::render()
 	if (!camera || SceneManager->getSceneNodeRenderPass() != scene::ESNRP_SKY_BOX)
 		return;
 
+	v3f eye = camera->getAbsolutePosition();
+	v3f origin = eye - m_eye * BS; // the scene position of map node (0, 0, 0)
 	// the mask, from exactly the blocks the near world is about to draw
 	// (its draw list is updated after our update(), and not every frame)
-	updateMask(*m_map, m_eye);
+	updateMask(*m_map, origin);
 
-	v3f eye = camera->getAbsolutePosition();
-	v3f origin = eye - m_eye * BS; // the scene position of map block (0, 0, 0)
+	const v2f corner = m_layout->maskCorner(origin);
 	m_state->cut = m_cut * BS;
 	m_state->haze = std::max(m_max - m_cut, 1.0f) * BS;
-	m_state->mask[0] = ((float)(m_mask_centre.X - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.X;
-	m_state->mask[1] = ((float)(m_mask_centre.Z - MASK / 2) * MAP_BLOCKSIZE - 0.5f) * BS + origin.Z;
+	m_state->mask[0] = corner.X;
+	m_state->mask[1] = corner.Y;
 	m_state->mask[2] = (float)(MAP_BLOCKSIZE * MASK) * BS;
 	m_state->mask[3] = 1;
 	m_state->share = m_share;
@@ -571,40 +499,28 @@ void View::render()
 	m_state->place[0] = m_eye.X;
 	m_state->place[1] = m_eye.Z;
 	m_state->place[2] = m_altitude;
-	m_state->air = (float)terragen::sphere(m_planet->sphere().radius()).scale_height;
+	m_state->air = (float)terragen::sphere(m_layout->radius()).scale_height;
 
-	// its own depth range: from a block away (or, high up, from well short of
-	// the land, whose peaks stand a few hundred metres up) to past the horizon
-	float znear = std::max(BS, 0.5f * (m_altitude - PEAKS) * BS);
-	float zfar = std::max((m_range * 1.5f + m_altitude) * BS, 1.5f * m_reach);
-	core::matrix4 projection = driver->getTransform(video::ETS_PROJECTION);
-	core::matrix4 own;
-	own.buildProjectionMatrixPerspectiveFovLH(camera->getFOV(), camera->getAspectRatio(),
-			znear, zfar, false);
-	driver->setTransform(video::ETS_PROJECTION, own);
+	// Share the camera's depth projection with near blocks and clouds. The
+	// latter draw later and must be tested against the actual far terrain.
 	driver->setMaterial(m_material);
 
-	// every tile chosen is drawn: drawn curved, where its box is in the flat
-	// map doesn't say whether it's in view
+	// every tile chosen is drawn: drawn curved, where its box is in the map
+	// doesn't say whether it's in view
 	for (const Key &key : m_draw) {
 		auto it = m_tiles.find(key);
 		if (it == m_tiles.end())
 			continue;
 		// the near world draws all of it: nothing of ours would show
-		if (key.level <= 3 && covered(key))
+		if (m_layout->covered(key.tile(), m_near))
 			continue;
-		float s = span(key.level);
-		v3f at(key.x * s * BS + origin.X, origin.Y, key.z * s * BS + origin.Z);
-		core::matrix4 world;
-		world.setTranslation(at);
-		driver->setTransform(video::ETS_WORLD, world);
+		const std::optional<core::matrix4> world = m_layout->transform(key.tile(), origin);
+		if (!world)
+			continue;
+		driver->setTransform(video::ETS_WORLD, *world);
 		for (const auto &part : it->second.parts)
 			driver->drawMeshBuffer(part.get());
 	}
-
-	driver->setTransform(video::ETS_PROJECTION, projection);
-	// the near world draws over all of it
-	driver->clearZBuffer();
 }
 
 } // namespace far

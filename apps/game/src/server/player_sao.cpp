@@ -4,6 +4,7 @@
 // Copyright (C) 2013-2020 Luanti core developers & community
 
 #include "player_sao.h"
+#include "planet/atlas.h" // Terra Firma
 #include "planet/planet.h" // Terra Firma
 #include "nodedef.h"
 #include "remoteplayer.h"
@@ -717,6 +718,20 @@ bool PlayerSAO::checkMovementCheat()
 	if (const planet::Planet *planet = m_env->getServer()->planet()) {
 		const v3f a = m_last_good_position / BS, b = getBasePosition() / BS;
 		d_horiz = (float)planet->distance(a.X, 0, a.Z, b.X, 0, b.Z) * BS;
+	}
+	// on an atlas, on the planet: up is the change in radius, along the rest
+	// (a step over a seam is a step, wherever the regions are stored)
+	if (const planet::Atlas *atlas = m_env->getServer()->atlas()) {
+		const v3f a = m_last_good_position / BS, b = getBasePosition() / BS;
+		const auto pa = atlas->point(planet::Atlas::moverNode(a.X, a.Y, a.Z), a.X, a.Y, a.Z);
+		const auto pb = atlas->point(planet::Atlas::moverNode(b.X, b.Y, b.Z), b.X, b.Y, b.Z);
+		if (pa && pb) {
+			const double ra = std::sqrt(pa->x * pa->x + pa->y * pa->y + pa->z * pa->z);
+			const double rb = std::sqrt(pb->x * pb->x + pb->y * pb->y + pb->z * pb->z);
+			const double d = std::sqrt(std::pow(pb->x - pa->x, 2) + std::pow(pb->y - pa->y, 2) + std::pow(pb->z - pa->z, 2));
+			d_vert = (float)((rb - ra) * BS);
+			d_horiz = (float)(std::sqrt(std::max(0.0, d * d - (rb - ra) * (rb - ra))) * BS);
+		}
 	}
 	float required_time = d_horiz / player_max_walk;
 

@@ -31,6 +31,8 @@ struct LightPair;
 
 struct MinimapMapblock;
 
+namespace planet { class Atlas; }
+
 struct MeshMakeData
 {
 	VoxelManipulator m_vmanip;
@@ -46,6 +48,12 @@ struct MeshMakeData
 
 	// relative to blockpos
 	v3s16 m_crack_pos_relative = v3s16(-1337,-1337,-1337);
+	// Terra Firma: nodes of the area (relative to blockpos) that are read,
+	// never drawn: an atlas's seam inside a block, holding what lies across
+	// it (QueuedMeshUpdate::halo). Empty, or one per node of the area.
+	std::vector<bool> m_hidden;
+	// Terra Firma: an atlas's: the mesh is bent onto the planet (bendOntoAtlas)
+	const planet::Atlas *m_atlas = nullptr;
 	float m_ao_gamma_inv = 0.0f;
 	bool m_generate_minimap = false;
 	bool m_smooth_lighting = false;
@@ -71,6 +79,13 @@ struct MeshMakeData
 	*/
 	void setCrack(int crack_level, v3s16 crack_pos);
 };
+
+struct MeshCollector;
+// Terra Firma: an atlas's mesh, its vertices (BS, from the block's lowest
+// node) put on the planet by its grid's chart, round the block's middle
+// (planet::Atlas::blockChart), its normals turned with it. A block of no
+// cells has no faces.
+void bendOntoAtlas(MeshCollector &collector, const planet::Atlas &atlas, v3s16 blockpos);
 
 // represents a triangle as indexes into the vertex buffer in SMeshBuffer
 class MeshTriangle

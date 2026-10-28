@@ -4,6 +4,7 @@
 // Copyright (C) 2013-2020 Luanti core developers & community
 
 #include "luaentity_sao.h"
+#include "planet/atlas.h" // Terra Firma
 #include "planet/planet.h" // Terra Firma
 #include "server.h"
 #include "AnimSpec.h"
@@ -606,12 +607,29 @@ bool LuaEntitySAO::collideWithObjects() const
 
 void LuaEntitySAO::carry(const v3f &was)
 {
+	if (const planet::Atlas *atlas = m_env->getServer()->atlas()) {
+		// across a seam of an atlas: where it is in the grid it's in now,
+		// its motion turned with the grid (Atlas::carry)
+		const v3f now = getBasePosition() / BS;
+		const std::optional<planet::Atlas::Carried> c =
+				atlas->carry(was.X / BS, was.Y / BS, was.Z / BS, now.X, now.Y, now.Z);
+		if (!c)
+			return;
+		setBasePosition(v3f(c->x, c->y, c->z) * BS);
+		const f32 cs = std::cos(c->angle), sn = std::sin(c->angle);
+		const auto turn = [&](v3f &v) { v = v3f(v.X * cs - v.Z * sn, v.Y, v.X * sn + v.Z * cs); };
+		turn(m_velocity);
+		turn(m_acceleration);
+		m_rotation.Y = wrapDegrees_0_360(m_rotation.Y + (f32)(c->angle * 180 / M_PI));
+		return;
+	}
 	const planet::Planet *planet = m_env->getServer()->planet();
 	if (!planet)
 		return;
 	const v3f now = getBasePosition();
 	const int face = planet->nearest(was.X / BS, was.Z / BS);
-	const std::optional<planet::Planet::Carried> c = planet->carry(face, now.X / BS, now.Z / BS);
+	const std::optional<planet::Planet::Carried> c = planet->carry(face, was.X / BS, was.Z / BS,
+			now.X / BS, now.Z / BS);
 	if (!c)
 		return;
 	setBasePosition(v3f(c->x * BS, now.Y, c->z * BS));

@@ -4,7 +4,7 @@
 #pragma once
 
 #include <array>
-namespace planet { class Planet; }
+namespace planet { class Planet; class Atlas; }
 
 #include "irrlichttypes.h"
 #include "mapnode.h"
@@ -62,11 +62,12 @@ struct Column
 class Columns
 {
 public:
-	// `planet`: the world's, if it's one (src/planet/planet.h). Then a column of
-	// the map is the world model's column at its latitude and longitude on
-	// the planet: the whole world, poles and all, on the sphere.
+	// `planet` or `atlas` (never both): the world's planet, if it's one
+	// (src/planet/planet.h, src/planet/atlas.h). Then a column of the map is
+	// the world model's column at its latitude and longitude on the planet:
+	// the whole world, poles and all, on the sphere.
 	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level,
-			const planet::Planet *planet);
+			const planet::Planet *planet, const planet::Atlas *atlas = nullptr);
 
 	const Blocks &blocks() const { return m_blocks; }
 	s16 waterLevel() const { return m_water_level; }
@@ -74,12 +75,17 @@ public:
 	// `sun`: World::sunlight for the column's row (it depends only on z); 0
 	// beyond the polar edge. On a planet it's found from where the column is.
 	Column at(s16 x, s16 z, terragen::fix sun) const;
+	// The column at a latitude and longitude (radians): an atlas's nodes are
+	// built from their place (planet::Atlas::place), node by node.
+	Column atPlace(double latitude, double longitude) const;
 	terragen::fix sunlight(s16 z) const;
 
 	// The world model's block for a column of the map: itself, or on a planet
 	// the one at its latitude and longitude (the world model's map is
 	// equirectangular: x longitude, z latitude, poles at ±size/2).
 	std::array<s16, 2> onWorld(s16 x, s16 z) const;
+	// The world model's block at a latitude and longitude (radians).
+	std::array<s16, 2> onWorldAt(double latitude, double longitude) const;
 
 	// The block the generator leaves at (x, y, z) of column `c`: rock, ore
 	// and caves below the soil, the soil painted over it, water (frozen at
@@ -89,9 +95,11 @@ public:
 
 private:
 	Column column(s16 x, s16 z, terragen::fix sun) const;
+	Column nothing() const; // a column of no world: air, for storage that isn't a place
 
 	const terragen::World &m_world;
 	const planet::Planet *m_planet;
+	const planet::Atlas *m_atlas;
 	Blocks m_blocks;
 	s16 m_water_level;
 };

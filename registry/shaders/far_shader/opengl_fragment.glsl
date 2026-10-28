@@ -13,7 +13,8 @@ uniform float farAir;        // m: the air's scale height
 
 VARYING_ lowp vec4 varColor;
 VARYING_ lowp float varLayer;
-VARYING_ lowp float varHidden; // on a planet: behind it (far_shader/opengl_vertex.glsl)
+VARYING_ highp vec3 planetVec; // curved point from the eye, in metres
+VARYING_ highp vec2 planetEye; // eye altitude and radius
 VARYING_ lowp float varOff;    // on another face than the eye's
 VARYING_ highp float varSeen;  // how far off it's seen, scene units
 VARYING_ highp vec2 flatPos;
@@ -38,8 +39,16 @@ float airmass(float eye, float altitude)
 
 void main(void)
 {
-	if (varHidden > 0.5)
-		discard; // behind the planet
+	// Test every fragment. A hidden flag at tile vertices can cut a hole
+	// through land between them, exposing clouds on the far side.
+	float far = length(planetVec);
+	if (planetEye.y > 0.0 && far >= 1.0) {
+		float d = planetEye.y + planetEye.x;
+		float t = -d * planetVec.y / far;
+		float r = planetEye.y - 100.0; // shallow water remains visible
+		if (t > 0.0 && t < far && d * d - t * t < r * r)
+			discard;
+	}
 	// where the near world draws, it's the near world. On another face of a
 	// planet, far off in the net, the mask (laid out round the eye in the net)
 	// doesn't say: there the near world draws everything within its reach

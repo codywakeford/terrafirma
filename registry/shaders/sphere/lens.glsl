@@ -14,17 +14,31 @@
 // Every vertex shader has this; one that places geometry calls sphereClip
 // in place of mWorldViewProj. Off (sphereEye.w = 0) on a flat world.
 uniform highp vec4 sphereEye;     // radians east and north on the eye's face, m above the sea, the radius (m)
-uniform highp float sphereStep;   // radians per block
+uniform highp float sphereStep;   // face-coordinate units per block
+uniform highp float sphereMapping; // terragen::Sphere::Mapping
 uniform highp vec3 sphereCamera;  // the eye, scene units
 uniform highp vec3 sphereEast;    // the grid at the eye, inverted: rows, in the eye face's axes
 uniform highp vec3 sphereUp;
 uniform highp vec3 sphereNorth;
+uniform highp vec3 spherePhysicalEast;
+uniform highp vec3 spherePhysicalUp;
+uniform highp vec3 spherePhysicalNorth;
 uniform highp mat4 sphereViewProj;
 uniform highp vec4 planetNet;     // the net: its first node, face to face (nodes), a face's half width, the eye's face
 uniform highp vec3 planetOffset;  // the scene's origin, map nodes
 
 const highp float SPHERE_BS = 10.0; // scene units per block
 const highp float PLANET_GAP = 16.0; // planet::Planet::GAP
+
+highp float sphereMapped(highp float a, highp float b)
+{
+	if (sphereMapping < 1.5)
+		return tan(a);
+	highp float a2 = a * a, b2 = b * b;
+	highp float correction = -0.0941 * a2 + 0.0276 * b2 - 0.0623 * a2 * a2 +
+		0.0409 * a2 * b2 + 0.0342 * b2 * b2;
+	return 0.7240 * a + 0.2760 * a * a2 + (1.0 - a2) * a * correction;
+}
 
 // The face nearest a map point (planet::Planet::nearest): the gaps split down their middles.
 highp float planetFace(highp vec2 q)
@@ -47,8 +61,14 @@ highp vec3 sphereNear(highp vec3 b)
 	highp float height = sphereEye.z + b.y;
 	highp float da = b.x * sphereStep, db = b.z * sphereStep;
 	highp float a = sphereEye.x + da, c = sphereEye.y + db;
-	highp float ea = tan(sphereEye.x), eb = tan(sphereEye.y), ta = tan(a), tb = tan(c);
-	highp float ga = sin(da) / (cos(a) * cos(sphereEye.x)), gb = sin(db) / (cos(c) * cos(sphereEye.y));
+	highp float ea = sphereMapped(sphereEye.x, sphereEye.y);
+	highp float eb = sphereMapped(sphereEye.y, sphereEye.x);
+	highp float ta = sphereMapped(a, c), tb = sphereMapped(c, a);
+	highp float ga = ta - ea, gb = tb - eb;
+	if (sphereMapping < 1.5) {
+		ga = sin(da) / (cos(a) * cos(sphereEye.x));
+		gb = sin(db) / (cos(c) * cos(sphereEye.y));
+	}
 	highp float n = sqrt(ta * ta + 1.0 + tb * tb), en = sqrt(ea * ea + 1.0 + eb * eb);
 	highp float grow = -(ga * (ea + ta) + gb * (eb + tb)) / (n * en * (n + en));
 	highp float r = sphereEye.w + height, rise = height - sphereEye.z;
@@ -63,8 +83,9 @@ highp vec3 sphereFar(highp vec2 q, highp float face, highp float height)
 	planetAxes(face, o, e, n);
 	planetAxes(planetNet.w, eo, ee, en);
 	highp vec2 a = planetLocal(q, face) * sphereStep;
-	highp vec3 d = normalize(o + tan(a.x) * e + tan(a.y) * n);
-	highp vec3 de = normalize(eo + tan(sphereEye.x) * ee + tan(sphereEye.y) * en);
+	highp vec3 d = normalize(o + sphereMapped(a.x, a.y) * e + sphereMapped(a.y, a.x) * n);
+	highp vec3 de = normalize(eo + sphereMapped(sphereEye.x, sphereEye.y) * ee +
+		sphereMapped(sphereEye.y, sphereEye.x) * en);
 	highp vec3 p = (sphereEye.w + height) * (d - de) + (height - sphereEye.z) * de;
 	return vec3(dot(p, ee), dot(p, eo), dot(p, en)); // in the eye face's axes, as sphereNear's
 }
@@ -75,7 +96,11 @@ highp vec3 sphereLens(highp vec3 scene)
 	highp vec2 q = planetOffset.xz + scene.xz / SPHERE_BS;
 	highp float face = planetFace(q);
 	highp vec3 p = face == planetNet.w ? sphereNear(b) : sphereFar(q, face, sphereEye.z + b.y);
-	return sphereCamera + SPHERE_BS * vec3(dot(sphereEast, p), dot(sphereUp, p), dot(sphereNorth, p));
+	highp vec3 grid = vec3(dot(sphereEast, p), dot(sphereUp, p), dot(sphereNorth, p));
+	highp vec3 physical = vec3(dot(spherePhysicalEast, p), dot(spherePhysicalUp, p), dot(spherePhysicalNorth, p));
+	highp float t = clamp((length(physical) - 16.0) / 112.0, 0.0, 1.0);
+	t = t * t * (3.0 - 2.0 * t);
+	return sphereCamera + SPHERE_BS * mix(grid, physical, t);
 }
 
 highp vec4 sphereClip(highp vec4 model, highp mat4 world)

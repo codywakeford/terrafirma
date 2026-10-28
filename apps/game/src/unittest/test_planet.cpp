@@ -9,6 +9,7 @@
 #include "planet/flying.h"
 #include "terragen/planet.h"
 #include <cmath>
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -34,12 +35,15 @@ public:
 	void testLensIsThePlanet();
 	void testLensAcrossEdges();
 	void testLensInFloats();
+	void testOrbitalSilhouetteIsRound();
 	void testWrap();
 	void testDistance();
 	void testHalo();
 	void testCarry();
+	void testFastCarry();
 	void testFlyingRoundTrip();
 	void testFlyingInOrbit();
+	void testFlyingThroughCorners();
 	void testCorner();
 };
 
@@ -60,17 +64,22 @@ void TestPlanet::runTests(IGameDef *gamedef)
 	TEST(testLensIsThePlanet);
 	TEST(testLensAcrossEdges);
 	TEST(testLensInFloats);
+	TEST(testOrbitalSilhouetteIsRound);
 	TEST(testWrap);
 	TEST(testDistance);
 	TEST(testHalo);
 	TEST(testCarry);
+	TEST(testFastCarry);
 	TEST(testFlyingRoundTrip);
 	TEST(testFlyingInOrbit);
+	TEST(testFlyingThroughCorners);
 	TEST(testCorner);
 }
 
 static const Planet FULL(Planet::MAX_HALF);
 static const Planet SMALL(64); // small enough to walk every edge node
+static const Planet MID(512);
+static const Planet COBE(512, terragen::Sphere::Mapping::Cobe);
 
 static const int DIRS[4][2] = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } };
 
@@ -259,24 +268,65 @@ void TestPlanet::testTurnFollowsTheGround()
 			dx * fr.east.z + dz * fr.north.z };
 	};
 	const auto dot = [](terragen::Sphere::Vec a, terragen::Sphere::Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+	for (const Planet *planet : { &SMALL, &COBE })
 	for (int f = 0; f < 6; f++)
 	for (int d = 0; d < 4; d++) {
 		int n = 0;
-		alongSide(SMALL, f, d, [&](int32_t x, int32_t z) {
+		alongSide(*planet, f, d, [&](int32_t x, int32_t z) {
 			if (n++ % 9 != 4)
 				return;
-			const Planet::Step out = SMALL.step(x, z, DIRS[d][0], DIRS[d][1]);
+			const Planet::Step out = planet->step(x, z, DIRS[d][0], DIRS[d][1]);
 			for (const auto &way : { DIRS[d], DIRS[(d + 1) % 4] }) { // across, and along
 				const auto there = Planet::turned(way[0], way[1], out.turn);
-				const double same = dot(direction(SMALL, f, x, z, way[0], way[1]),
-					direction(SMALL, out.face, out.x, out.z, there[0], there[1]));
+				const double same = dot(direction(*planet, f, x, z, way[0], way[1]),
+					direction(*planet, out.face, out.x, out.z, there[0], there[1]));
 				UASSERT(same > 0.3); // the grids skew up to 60° at corners (cos = 0.5); a wrong turn is −1
 			}
 		});
 	}
 }
 
-static const Planet MID(512);
+// The horizon is a circle in physical space. Sampling it independently of
+// the face grid catches the skew that a same-frame lens comparison misses.
+void TestPlanet::testOrbitalSilhouetteIsRound()
+{
+	const Planet p(2048);
+	const auto &sphere = p.sphere();
+	const double radius = sphere.radius();
+	const auto add = [](auto a, auto b) { return terragen::Sphere::Vec{a.x+b.x, a.y+b.y, a.z+b.z}; };
+	const auto mul = [](auto a, double k) { return terragen::Sphere::Vec{k*a.x, k*a.y, k*a.z}; };
+	const auto dot = [](auto a, auto b) { return a.x*b.x+a.y*b.y+a.z*b.z; };
+	const auto unit = [&](auto a) { return mul(a, 1/std::sqrt(dot(a,a))); };
+	for (int face = 0; face < 6; ++face)
+	for (double location : {0.0, 0.7, 0.99})
+	for (double altitude : {radius/2, radius, 2*radius}) {
+		const auto square = p.square(face);
+		const double ex = square.x + (location+1)*p.half()-0.5;
+		const double ez = square.z + (location+1)*p.half()-0.5;
+		const auto place = p.place(face, ex, ez);
+		const auto up = sphere.direction(place);
+		const auto frame = sphere.frame(place);
+		const auto east = unit(frame.east);
+		const auto north = unit(add(frame.north, mul(east, -dot(frame.north,east))));
+		const double angle = std::acos(radius/(radius+altitude));
+		const double expected = std::tan(std::asin(radius/(radius+altitude)));
+		const Lens<double> lens(p, ex, altitude, ez);
+		double low = 1e9, high = 0;
+		for (int i = 0; i < 72; ++i) {
+			const double azimuth = i * 2 * M_PI / 72;
+			const auto direction = add(mul(up,std::cos(angle)),
+				mul(add(mul(east,std::cos(azimuth)),mul(north,std::sin(azimuth))),std::sin(angle)));
+			const auto xy = p.at(sphere.place(direction));
+			const auto v = lens.at(xy[0]-ex, 0, xy[1]-ez);
+			const double projected = std::hypot(v.x,v.z)/-v.y;
+			low = std::min(low, projected);
+			high = std::max(high, projected);
+		}
+		UASSERT(high/low < 1.02);
+		UASSERT(std::abs(low/expected-1) < 0.02);
+		UASSERT(std::abs(high/expected-1) < 0.02);
+	}
+}
 
 // Where a point is from the eye, the plain way (doubles, no care for
 // precision): both points on the planet, the difference in the eye's frame.
@@ -289,8 +339,15 @@ static Lens<double>::V3 truth(const Planet &p, const Lens<double> &lens, double 
 	const terragen::Sphere::Vec d{ a.x - e.x, a.y - e.y, a.z - e.z };
 	const auto dot = [](terragen::Sphere::Vec u, terragen::Sphere::Vec v) { return u.x * v.x + u.y * v.y + u.z * v.z; };
 	const double l[3] = { dot(d, ax.east), dot(d, ax.out), dot(d, ax.north) };
-	const auto row = [&](int i) { const auto &w = lens.near.rows[i]; return w.x * l[0] + w.y * l[1] + w.z * l[2]; };
-	return { row(0), row(1), row(2) };
+	const auto project = [&](const auto &rows, int i) { const auto &w = rows[i]; return w.x * l[0] + w.y * l[1] + w.z * l[2]; };
+	const double physical[3] = { project(lens.near.physicalRows, 0), project(lens.near.physicalRows, 1),
+		project(lens.near.physicalRows, 2) };
+	const double distance = std::hypot(std::hypot(physical[0], physical[1]), physical[2]);
+	double t = std::clamp((distance - 16.0) / 112.0, 0.0, 1.0);
+	t = t * t * (3.0 - 2.0 * t);
+	return { (1-t)*project(lens.near.rows, 0)+t*physical[0],
+		(1-t)*project(lens.near.rows, 1)+t*physical[1],
+		(1-t)*project(lens.near.rows, 2)+t*physical[2] };
 }
 
 // Eyes: a face's middle, near an edge, near a corner, and high up.
@@ -308,7 +365,7 @@ static void eyes(const Planet &p, F f)
 // On the eye's face and off it, the lens puts a point where the planet has it.
 void TestPlanet::testLensIsThePlanet()
 {
-	for (const Planet *p : { &SMALL, &MID })
+	for (const Planet *p : { &SMALL, &MID, &COBE })
 	eyes(*p, [&](double ex, double ey, double ez) {
 		const Lens<double> lens(*p, ex, ey, ez);
 		for (int f = 0; f < 6; f++) {
@@ -391,12 +448,29 @@ void TestPlanet::testWrap()
 			UASSERT((MID.wrap(f, x, z) == std::array<int32_t, 2>{ x, z }));
 			const Planet::Step out = MID.step(x, z, DIRS[d][0], DIRS[d][1]);
 			UASSERT((MID.wrap(f, x + DIRS[d][0], z + DIRS[d][1]) == std::array<int32_t, 2>{ out.x, out.z }));
-			// 20 blocks on: on the neighbour face, about 20 blocks from the edge
-			const auto far = MID.wrap(f, x + 20 * DIRS[d][0], z + 20 * DIRS[d][1]);
-			UASSERT(MID.face(far[0], far[1]) == out.face);
-			const double gone = MID.distance(x, 0, z, far[0], 0, far[1]);
-			UASSERT(gone > 14 && gone < 21.5);
+			// The entire adjacent face is an exact continuation of this grid.
+			// The block shells sent to clients and active near players use wrap().
+			for (int depth : { 2, 20, MID.half() / 2, MID.width() }) {
+				const int32_t wx = x + depth * DIRS[d][0];
+				const int32_t wz = z + depth * DIRS[d][1];
+				const std::optional<Planet::Step> exact = MID.halo(f, wx, wz);
+				UASSERT(exact.has_value());
+				UASSERT((MID.wrap(f, wx, wz) == std::array<int32_t, 2>{ exact->x, exact->z }));
+			}
 		});
+	}
+	// There is no fourth square past a cube corner. The spherical fallback
+	// must still select a real face, never a gap in the storage net.
+	for (int f = 0; f < 6; f++) {
+		const Planet::Square s = MID.square(f);
+		for (int dx : { -1, 1 })
+		for (int dz : { -1, 1 })
+		for (int depth : { 1, 20, MID.width() }) {
+			const double x = dx < 0 ? s.x - depth : s.x + MID.width() - 1 + depth;
+			const double z = dz < 0 ? s.z - depth : s.z + MID.width() - 1 + depth;
+			const auto at = MID.wrap(f, x, z);
+			UASSERT(MID.face(at[0], at[1]).has_value());
+		}
 	}
 }
 
@@ -444,8 +518,11 @@ void TestPlanet::testHalo()
 	}
 	// round a corner: nothing
 	const Planet::Square s = SMALL.square(3);
-	UASSERT(!SMALL.halo(3, s.x - 1, s.z - 1));
-	UASSERT(!SMALL.halo(3, s.x + SMALL.width() + 4, s.z + SMALL.width() + 2));
+	const auto corner = SMALL.halo(3, s.x - 1, s.z - 1);
+	UASSERT(corner && corner->face != 3);
+	UASSERT(SMALL.face(corner->x, corner->z) == corner->face);
+	UASSERT(!SMALL.halo(3, s.x + 2 * SMALL.width() + 4,
+			s.z + 2 * SMALL.width() + 2));
 }
 
 // Off an edge by a fraction of a node: on the neighbour face, as far past
@@ -478,6 +555,37 @@ void TestPlanet::testCarry()
 	}
 	const auto t = Planet::turned(1.0, 0.0, 1);
 	UASSERT(t[0] == 0.0 && t[1] == 1.0);
+}
+
+void TestPlanet::testFastCarry()
+{
+	for (const Planet *planet : { &SMALL, &COBE }) {
+		const Planet::Square s = planet->square(0);
+		const double x = s.x + planet->half() - 0.5;
+		const double z = s.z + planet->half() - 0.5;
+		// More than a whole face in one update: every intermediate edge is
+		// consumed, and the result is on a real face rather than in a net gap.
+		const auto fast = planet->carry(0, x, z, x + 3.25 * planet->width(), z + 0.2);
+		UASSERT(fast);
+		UASSERT(planet->face((int32_t)std::lround(fast->x),
+				(int32_t)std::lround(fast->z)) == fast->face);
+
+		// Through the exact three-face point: deterministic, finite, and on
+		// one of the three incident faces. Reversing the transported movement
+		// returns to the source face without touching a storage gap.
+		const auto corner = planet->carry(0, x, z, x + planet->half() + 8,
+				z + planet->half() + 8);
+		UASSERT(corner);
+		UASSERT(planet->face((int32_t)std::lround(corner->x),
+				(int32_t)std::lround(corner->z)) == corner->face);
+		const auto delta = Planet::turned(-(planet->half() + 8.0),
+				-(planet->half() + 8.0), corner->turn);
+		const auto back = planet->carry(corner->face, corner->x, corner->z,
+				corner->x + delta[0], corner->z + delta[1]);
+		UASSERT(back);
+		UASSERT(planet->face((int32_t)std::lround(back->x),
+				(int32_t)std::lround(back->z)) == back->face);
+	}
 }
 
 static const Planet DEFAULT(2048); // a new world's
@@ -523,6 +631,36 @@ void TestPlanet::testFlyingInOrbit()
 	UASSERT(faces.size() >= 4);
 	UASSERT(faces[0] == 0 && faces[1] == 1 && faces[2] == 2 && faces[3] == 3);
 	UASSERTEQ(int, turns % 4, 0); // the equator's edges don't turn the grid
+}
+
+// A fast body crossing a three-face junction must follow the same physical
+// trajectory whichever face's map coordinates represent it. This tests the
+// flight handoff; client interpolation and collision have separate gates.
+void TestPlanet::testFlyingThroughCorners()
+{
+	const terragen::Planet body = terragen::sphere(DEFAULT.sphere().radius());
+	const orbit::Flight flight(body);
+	const Flying fly(DEFAULT, flight);
+	const orbit::Craft craft{1000, 0};
+	for (int sx : {-1, 1})
+	for (int sy : {-1, 1})
+	for (int sz : {-1, 1})
+	for (double altitude : {50.0, 500.0, 2500.0}) {
+		const double radius = body.radius + altitude;
+		const orbit::Vec corner{double(sx), double(sy), double(sz)};
+		const orbit::Vec tangent{double(sy), double(-sx), 0};
+		const orbit::State start{corner * (radius / std::sqrt(3.0)) - tangent * 0.25,
+			tangent * (600.0 / std::sqrt(2.0))};
+		const Flying::Local local = fly.fromOrbit(start);
+		const orbit::State mapped = fly.toOrbit(local);
+		UASSERT((mapped.pos-start.pos).length() < 0.001);
+		UASSERT((mapped.vel-start.vel).length() < 0.001);
+		const orbit::State expected = flight.step(start, craft, {0, 0, 0}, 0.01);
+		const Flying::Step crossed = fly.step(local, craft, {0, 0, 0}, 0.01);
+		const orbit::State actual = fly.toOrbit(crossed.where);
+		UASSERT((actual.pos-expected.pos).length() < 0.001);
+		UASSERT((actual.vel-expected.vel).length() < 0.001);
+	}
 }
 
 // Every face's corner node is beside a corner; a face's middle is as far as can be.

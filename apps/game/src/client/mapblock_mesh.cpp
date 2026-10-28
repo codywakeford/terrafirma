@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "mapblock_mesh.h"
+#include "planet/atlas.h" // Terra Firma
 #include "CMeshBuffer.h"
 #include "client.h"
 #include "mapblock.h"
@@ -494,6 +495,10 @@ MapBlockMesh::MapBlockMesh(Client *client, MeshMakeData *data):
 		// Generate everything
 		MapblockMeshGenerator(data, &collector).generate();
 	}
+	if (data->m_atlas) { // Terra Firma: on the planet, round the block's middle
+		bendOntoAtlas(collector, *data->m_atlas, data->m_blockpos);
+		m_bounding_sphere_center = v3f(0);
+	}
 
 	/*
 		Convert MeshCollector to SMesh
@@ -787,4 +792,67 @@ u8 get_solid_sides(MeshMakeData *data)
 		}
 	}
 	return result;
+}
+
+/*
+	Terra Firma: a cut cell (where a grid's territory ends inside it) is drawn
+	as the part of it in its territory (planet::Atlas::extent, what collision
+	takes too), so two grids' cut cells over one place don't both show. Each
+	triangle's node is the one its middle is in, a hair back from its face;
+	its vertices are clamped into that node's part. In storage axes, before
+	the mesh is bent.
+*/
+static void clipToTerritory(MeshCollector &collector, const planet::Atlas &atlas, v3s16 low)
+{
+	if (atlas.interior({ low.X / MAP_BLOCKSIZE, low.Y / MAP_BLOCKSIZE, low.Z / MAP_BLOCKSIZE }))
+		return;
+	for (auto &layer : collector.prebuffers)
+		for (PreMeshBuffer &buf : layer) {
+			std::vector<bool> clipped(buf.vertices.size(), false);
+			for (size_t t = 0; t + 2 < buf.indices.size(); t += 3) {
+				video::S3DVertex *v[3] = { &buf.vertices[buf.indices[t]], &buf.vertices[buf.indices[t + 1]],
+					&buf.vertices[buf.indices[t + 2]] };
+				const v3f middle = (v[0]->Pos + v[1]->Pos + v[2]->Pos) / (3 * BS) - v[0]->Normal * 0.01f;
+				const v3s16 at(std::lround(middle.X), std::lround(middle.Y), std::lround(middle.Z));
+				const std::optional<planet::Atlas::Extent> e = atlas.extent({ low.X + at.X, low.Y + at.Y, low.Z + at.Z });
+				if (!e)
+					continue;
+				for (int k = 0; k < 3; k++) {
+					const size_t index = buf.indices[t + k];
+					if (clipped[index])
+						continue;
+					clipped[index] = true;
+					v3f &pos = v[k]->Pos;
+					const v3f centre = intToFloat(at, BS);
+					pos.X = centre.X + std::clamp<f32>((pos.X - centre.X) / BS, e->low[0], e->high[0]) * BS;
+					pos.Y = centre.Y + std::clamp<f32>((pos.Y - centre.Y) / BS, e->low[1], e->high[1]) * BS;
+					pos.Z = centre.Z + std::clamp<f32>((pos.Z - centre.Z) / BS, e->low[2], e->high[2]) * BS;
+				}
+			}
+		}
+}
+
+void bendOntoAtlas(MeshCollector &collector, const planet::Atlas &atlas, v3s16 blockpos)
+{
+	const std::optional<planet::Atlas::BlockChart> chart = atlas.blockChart({ blockpos.X, blockpos.Y, blockpos.Z });
+	if (!chart)
+		return;
+	const v3s16 low = blockpos * MAP_BLOCKSIZE;
+	const double middle = MAP_BLOCKSIZE / 2 - 0.5;
+	const auto axes = atlas.frame(chart->cell, { low.X + middle, low.Y + middle, low.Z + middle })->axes;
+	clipToTerritory(collector, atlas, low);
+	f32 radius_sq = 0;
+	for (auto &layer : collector.prebuffers)
+		for (PreMeshBuffer &buf : layer)
+			for (video::S3DVertex &v : buf.vertices) {
+				const v3f s = v.Pos / BS;
+				const terragen::Atlas::Vec p = atlas.onPlanet(*chart, low.X + s.X, low.Y + s.Y, low.Z + s.Z);
+				v.Pos = v3f(p.x, p.y, p.z) * BS;
+				const v3f n = v.Normal;
+				v.Normal = v3f(axes[0].x * n.X + axes[1].x * n.Y + axes[2].x * n.Z,
+						axes[0].y * n.X + axes[1].y * n.Y + axes[2].y * n.Z,
+						axes[0].z * n.X + axes[1].z * n.Y + axes[2].z * n.Z).normalize();
+				radius_sq = std::max(radius_sq, v.Pos.getLengthSQ());
+			}
+	collector.m_bounding_radius_sq = radius_sq;
 }

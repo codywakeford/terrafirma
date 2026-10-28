@@ -1075,6 +1075,16 @@ void MapgenParams::readParams(const Settings *settings)
 	settings->getS16NoEx("water_level", water_level);
 	settings->getS16NoEx("mapgen_limit", mapgen_limit);
 	settings->getS32NoEx("planet_half", planet_half);
+	settings->getNoEx("planet_atlas", planet_atlas);
+	planet_atlas_debug = settings->exists("planet_atlas_debug") && settings->getBool("planet_atlas_debug");
+	if (std::string mapping; settings->getNoEx("planet_mapping", mapping)) {
+		if (mapping == "equiangular-v1")
+			planet_mapping = 1;
+		else if (mapping == "cobe-v1")
+			planet_mapping = 2;
+		else
+			throw BaseException("Unknown planet_mapping '" + mapping + "'");
+	}
 	settings->getFlagStrNoEx("mg_flags", flags, flagdesc_mapgen);
 
 	std::string chunksize_str;
@@ -1116,6 +1126,12 @@ void MapgenParams::writeParams(Settings *settings) const
 	settings->setS16("mapgen_limit", mapgen_limit);
 	if (planet_half != 0)
 		settings->setS32("planet_half", planet_half);
+	if (planet_half != 0)
+		settings->set("planet_mapping", planet_mapping == 2 ? "cobe-v1" : "equiangular-v1");
+	if (!planet_atlas.empty())
+		settings->set("planet_atlas", planet_atlas);
+	if (planet_atlas_debug)
+		settings->setBool("planet_atlas_debug", true);
 	settings->setFlagStr("mg_flags", flags, flagdesc_mapgen);
 
 	// Write as number if cubic, for backwards-compatibility

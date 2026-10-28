@@ -83,6 +83,11 @@ void set_default_settings()
 	// Client
 	settings->setDefault("address", "");
 	settings->setDefault("shell_url", "terra://ui/index.html");
+	// Terra Firma: new worlds are atlas planets (planet/atlas.h), not cubes
+	settings->setDefault("planet_atlas_worlds", "false");
+	// TEMP(2026-10-27): ... as the debug sphere: no terrain, every cell
+	// painted by its region and seams (sprint 30)
+	settings->setDefault("planet_atlas_debug", "false");
 	settings->setDefault("game_id", "terrafirma");
 	settings->setDefault("shell_gpu", "true");
 	// Terra Firma: the ArcLabs API accounts sign in to (src/shell/account.cpp);

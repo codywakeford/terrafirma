@@ -4,13 +4,13 @@ uniform mat4 mWorld;
 VARYING_ lowp vec4 varColor;
 
 VARYING_ highp vec3 eyeVec;
-VARYING_ lowp float varHidden; // on a planet: behind it
+VARYING_ highp vec2 planetEye; // eye altitude and planet radius, for per-fragment occlusion
 
 void main(void)
 {
 	// on a planet the clouds are a shell round it (client/shaders/sphere/lens.glsl)
 	gl_Position = sphereClip(inVertexPosition, mWorld);
-	varHidden = sphereHidden((mWorld * inVertexPosition).xyz) ? 1.0 : 0.0;
+	planetEye = sphereEye.zw;
 
 	vec4 color = inVertexColor;
 

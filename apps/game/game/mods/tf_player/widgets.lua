@@ -11,6 +11,8 @@ local maps = {} -- player name → explored bitset and last visited cell
 local clock_paused = false
 local terra = core.terra.enabled()
 local world = terra and core.terra.world() or nil
+local orbit = terra and core.orbit.planet() or nil
+local sea = terra and tonumber(core.get_mapgen_setting("water_level")) or nil
 
 local function can_control(player)
 	return core.check_player_privs(player, { server = true })
@@ -18,7 +20,8 @@ end
 
 local function send_map(player, explored)
 	player:set_ui("map", {
-		code = world.code, size = world.size, star = world.star, tilt = world.tilt,
+		code = world.code, size = world.size, radius = orbit.radius, sea = sea,
+		star = world.star, tilt = world.tilt,
 		mode = modes[player:get_player_name()] and "creative" or "survival",
 		explored = core.encode_base64(explored), grid = EXPLORE_GRID,
 	})
