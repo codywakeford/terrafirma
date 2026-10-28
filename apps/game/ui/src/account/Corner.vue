@@ -22,17 +22,19 @@ function onPointerDown(event: PointerEvent) {
 }
 function onKeyDown(event: KeyboardEvent) {
     if (event.key === "Escape" && expanded.value) {
+        event.preventDefault()
+        event.stopPropagation()
         expanded.value = false
         root.value?.querySelector<HTMLButtonElement>(".profile-trigger")?.focus()
     }
 }
 onMounted(() => {
     document.addEventListener("pointerdown", onPointerDown)
-    document.addEventListener("keydown", onKeyDown)
+    document.addEventListener("keydown", onKeyDown, true)
 })
 onUnmounted(() => {
     document.removeEventListener("pointerdown", onPointerDown)
-    document.removeEventListener("keydown", onKeyDown)
+    document.removeEventListener("keydown", onKeyDown, true)
 })
 
 async function act<K extends IntentKind>(kind: K, request: Intents[K]["request"]) {

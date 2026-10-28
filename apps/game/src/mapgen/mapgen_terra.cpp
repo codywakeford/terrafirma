@@ -81,6 +81,8 @@ MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_atlas ? &*m_atlas : nullptr)
 {
 	if (m_atlas) {
+		m_atlasLand.emplace(m_columns, *m_atlas);
+		m_land.emplace(*m_atlasLand);
 		c_seam = ndef->getId("mapgen_seam");
 		if (c_seam == CONTENT_IGNORE)
 			throw BaseException("mapgen terra: an atlas world needs the mapgen_seam alias (tf_planet)");
@@ -185,30 +187,19 @@ s16 MapgenTerra::generateTerrain()
 }
 
 /*
-	An atlas's node: seam where no cell is stored, stone in the core, and
-	otherwise its column's block at its layer, the column being the one at
-	the node's own place (a storage column holds several shells, each
-	somewhere else on the planet; consecutive nodes share it, so it's kept).
+	An atlas's node: seam where no cell is stored, else what the land is
+	there (terra::AtlasLand: the far view asks it too).
 */
 MapNode MapgenTerra::atlasNode(s16 x, s16 y, s16 z)
 {
-	const std::optional<planet::Atlas::Cell> cell = m_atlas->cell({ x, y, z });
-	if (!cell)
-		return MapNode(c_seam);
-	if (m_atlasDebug)
+	if (m_atlasDebug) {
+		const std::optional<planet::Atlas::Cell> cell = m_atlas->cell({ x, y, z });
+		if (!cell)
+			return MapNode(c_seam);
 		return MapNode(cell->k >= 0 && cell->region != terragen::Atlas::Region::Core ? CONTENT_AIR : atlasPaint(*cell));
-	if (cell->region == terragen::Atlas::Region::Core)
-		return MapNode(m_columns.blocks().stone);
-	return m_columns.node(atlasColumn(*m_atlas->place({ x, y, z })), x, (s32)cell->k, z);
-}
-
-const terra::Column &MapgenTerra::atlasColumn(const std::array<double, 2> &place)
-{
-	if (!m_atlasColumn || place != m_atlasPlace) {
-		m_atlasColumn = m_columns.atPlace(place[0], place[1]);
-		m_atlasPlace = place;
 	}
-	return *m_atlasColumn;
+	const std::optional<MapNode> n = m_land->node({ x, y, z });
+	return n ? *n : MapNode(c_seam); // no cell: seam
 }
 
 /*
@@ -259,13 +250,13 @@ void MapgenTerra::lightAtlas()
 		if (!cell) {
 			light = LIGHT_SUN; // seam: lit, so a face beside it isn't black
 		} else if (cell->region != terragen::Atlas::Region::Core && (f.sunlight_propagates || f.liquid_type != LIQUID_NONE)) {
-			const s32 ground = m_atlasDebug ? -1 : atlasColumn(*m_atlas->place({ x, y, z })).height;
+			const s32 ground = m_atlasDebug ? -1 : m_land->column({ x, y, z })->height;
 			if (cell->k > ground) {
 				if (f.liquid_type == LIQUID_NONE) {
 					light = LIGHT_SUN;
 				} else {
 					// under water, dimmer with depth below its surface
-					const s32 surface = m_atlasDebug ? ground : atlasColumn(*m_atlas->place({ x, y, z })).water;
+					const s32 surface = m_atlasDebug ? ground : m_land->column({ x, y, z })->water;
 					light = (u8)std::max<s32>(0, LIGHT_SUN - 1 - 2 * (surface - (s32)cell->k));
 				}
 			}

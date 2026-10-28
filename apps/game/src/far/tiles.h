@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "far/globe.h"
+#include "far/tiling.h"
 #include "far/terrain.h"
 #include "irr_ptr.h"
 #include "planet/atlas.h"
@@ -15,7 +15,7 @@
 
 namespace far {
 
-class Colours;
+class Palette;
 class Workers;
 
 /*
@@ -25,7 +25,7 @@ class Workers;
 */
 struct Eye
 {
-	Globe::Vec at;   // the eye's point over the sea, from the planet's centre
+	Tiling::Vec at;   // the eye's point over the sea, from the planet's centre
 	float altitude;  // above the sea: counts toward how far a tile is seen
 	float cut;       // nearer than this along the ground, someone else draws (the near world); 0 for none
 	float range;     // farther than this along the ground, nothing is drawn
@@ -33,7 +33,7 @@ struct Eye
 };
 
 /*
-	A planet's land from afar: a quadtree of globe tiles (far/globe.h) for
+	A planet's land from afar: a quadtree of its regions' tiles (far/tiling.h) for
 	an Eye, finer near it and coarser with distance, built on worker
 	threads nearest first. A tile keeps drawing until what replaces it is
 	ready, so refining never opens holes. Each tile's mesh is in true
@@ -43,11 +43,16 @@ struct Eye
 class Tiles
 {
 public:
-	// `colours` outlives the tiles: the workers read it.
-	Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Colours &colours);
+	// `palette` outlives the tiles: the workers read it. `threads`: how many
+	// build them (the far view shares the machine with the game; the
+	// Planetarium alone has most of it).
+	Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, unsigned threads);
+
+	// The threads a view may build with: a share of the machine's (0..1), at least one.
+	static unsigned threadsFor(float share);
 	~Tiles();
 
-	const Globe &globe() const { return m_globe; }
+	const Tiling &tiling() const { return m_tiling; }
 
 	// Once a frame: the tiles to draw for the eye (falling back to what's
 	// ready), the rest asked of the workers, and a few finished ones taken
@@ -57,11 +62,14 @@ public:
 	struct Drawn
 	{
 		TileKey key;
-		Globe::Vec middle; // where its mesh is from, on the planet
+		Tiling::Vec middle; // where its mesh is from, on the planet
 		const std::vector<irr_ptr<scene::SMeshBuffer>> &parts;
 	};
 	// What update() chose, ready to draw.
 	std::vector<Drawn> drawn() const;
+	// How many tiles update() wanted that aren't built yet: 0 once the eye's
+	// view is complete.
+	size_t pending() const { return m_pending; }
 
 private:
 	struct Key
@@ -92,11 +100,12 @@ private:
 
 	const planet::Atlas m_atlas; // kept: the workers build from them
 	const Horizon m_horizon;
-	const Globe m_globe;
+	const Tiling m_tiling;
 	std::unique_ptr<Workers> m_workers;
 	std::map<Key, Entry> m_tiles;
 	std::vector<Key> m_draw;
 	u32 m_frame = 0;
+	size_t m_pending = 0;
 };
 
 } // namespace far

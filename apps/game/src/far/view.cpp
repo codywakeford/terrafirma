@@ -85,8 +85,8 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 	scene::ISceneNode(smgr->getRootSceneNode(), smgr, -1),
 	m_water_level(horizon.water_level),
 	m_radius(atlas.atlas().params().radius),
-	m_colours(std::make_unique<Colours>(ndef, tsrc, blocksIn(horizon))),
-	m_tiles(std::make_unique<Tiles>(atlas, horizon, *m_colours)),
+	m_palette(std::make_unique<Palette>(Palette::live(ndef, tsrc, blocksIn(horizon.content)))),
+	m_tiles(std::make_unique<Tiles>(atlas, horizon, *m_palette, std::min(3u, Tiles::threadsFor(0.25f)))), // the game's threads come first
 	m_state(std::make_shared<DrawState>())
 {
 	m_uniforms = make_irr<Uniforms>(m_state);
@@ -117,13 +117,13 @@ View::View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc
 	for (const char *name : SETTINGS)
 		g_settings->registerChangedCallback(name, &settingChanged, this);
 	infostream << "far view: " << horizon.code << ", "
-			<< horizon.species.size() << " tree species" << std::endl;
+			<< horizon.content.species.size() << " tree species" << std::endl;
 }
 
 View::~View()
 {
 	g_settings->deregisterAllChangedCallbacks(this);
-	m_tiles.reset(); // before the colours its workers read
+	m_tiles.reset(); // before the palette its workers read
 	if (m_mask)
 		SceneManager->getVideoDriver()->removeTexture(m_mask);
 }

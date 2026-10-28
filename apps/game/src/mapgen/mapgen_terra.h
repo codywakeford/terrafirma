@@ -4,6 +4,7 @@
 #pragma once
 
 #include "planet/atlas.h"
+#include "mapgen/atlas_land.h"
 #include "planet/atlas.h"
 #include <optional>
 
@@ -60,10 +61,7 @@ private:
 	terragen::World m_world;
 	std::optional<planet::Atlas> m_atlas;   // the world's, if it's a planet (planet_atlas)
 	content_t c_seam = CONTENT_IGNORE;      // an atlas's storage that is no cell
-	std::optional<terra::Column> m_atlasColumn; // the last atlas node's column, and its place
-	std::array<double, 2> m_atlasPlace{};
 	MapNode atlasNode(s16 x, s16 y, s16 z);
-	const terra::Column &atlasColumn(const std::array<double, 2> &place);
 	// The debug sphere's block for a cell: what it is, painted.
 	content_t atlasPaint(const planet::Atlas::Cell &cell) const;
 	// An atlas's light, from the planet, not the map: sunlit above its
@@ -75,6 +73,8 @@ private:
 		content_t segmentA, segmentB, cap, core, segmentSeam, capEdge, cut, coreEdge, line;
 	} m_paint{};
 	terra::Columns m_columns; // what goes in each column (shared with the far view)
+	std::optional<terra::AtlasLand> m_atlasLand; // an atlas's cells (shared with the far view)
+	std::optional<terra::AtlasLand::Reader> m_land;  // this generator's reading of it
 	Biome *m_biomes[(int)terragen::Biome::Count];
 
 	// per column of the current chunk (z outer, x inner)

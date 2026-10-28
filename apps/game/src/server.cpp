@@ -4677,18 +4677,34 @@ void Server::setUi(RemotePlayer *player, const std::string &key, const std::stri
 	Send(&pkt);
 }
 
-void Server::SendHorizon(session_t peer_id)
+std::optional<far::Horizon> Server::horizon()
 {
 	const MapgenParams *params = m_emerge->mgparams;
 	if (params->mgtype != MAPGEN_TERRA)
-		return;
+		return std::nullopt;
 	far::Horizon h;
 	h.code = static_cast<const MapgenTerraParams *>(params)->code;
 	h.water_level = params->water_level;
-	h.blocks = terraBlocks(m_emerge->getBiomeManager(), m_nodedef);
-	h.species = m_terra->resolve(m_nodedef);
+	h.content.blocks = terraBlocks(m_emerge->getBiomeManager(), m_nodedef);
+	h.content.species = m_terra->resolve(m_nodedef);
+	return h;
+}
+
+std::unordered_map<std::string, std::string> Server::mediaPaths() const
+{
+	std::unordered_map<std::string, std::string> out;
+	for (const auto &[name, info] : m_media)
+		out.emplace(name, info.path);
+	return out;
+}
+
+void Server::SendHorizon(session_t peer_id)
+{
+	const std::optional<far::Horizon> h = horizon();
+	if (!h)
+		return;
 	NetworkPacket pkt(TOCLIENT_HORIZON, 0, peer_id);
-	far::write(pkt, h);
+	far::write(pkt, *h);
 	Send(&pkt);
 }
 

@@ -456,6 +456,7 @@ add_subdirectory(mapgen)
 add_subdirectory(terragen)
 add_subdirectory(planet)
 add_subdirectory(far)
+add_subdirectory(planetarium)
 add_subdirectory(matter)
 add_subdirectory(fluid)
 add_subdirectory(orbit)
@@ -623,6 +624,7 @@ list(APPEND client_SRCS
 	${shell_SRCS}
 	${online_client_SRCS}
 	${far_client_SRCS}
+	${planetarium_client_SRCS}
 	${client_SCRIPT_SRCS}
 	${test_client_SRCS}
 	${unittest_client_SRCS}

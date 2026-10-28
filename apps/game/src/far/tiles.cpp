@@ -6,6 +6,7 @@
 #include "constants.h"
 #include "exceptions.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -18,8 +19,8 @@
 
 namespace far {
 
-// Tiles put on the GPU per update, at most.
-static constexpr int INSTALLS_PER_FRAME = 6;
+// Time an update may spend putting tiles on the GPU (a frame at 60 fps is 16.7).
+static constexpr double INSTALL_MS = 3;
 // A tile not wanted for this many updates is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
 
@@ -37,11 +38,13 @@ public:
 		Mesh mesh;
 	};
 
-	Workers(const planet::Atlas &atlas, const Horizon &horizon, const Colours &colours, const Globe &globe) :
-		m_atlas(atlas), m_horizon(horizon), m_colours(colours), m_globe(globe)
+	Workers(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling,
+			unsigned threads) :
+		m_atlas(atlas), m_horizon(horizon), m_palette(palette), m_tiling(tiling)
 	{
-		unsigned n = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
-		for (unsigned i = 0; i < n; i++)
+		if (threads == 0)
+			throw BaseException("far tiles: no threads to build with");
+		for (unsigned i = 0; i < threads; i++)
 			m_threads.emplace_back([this] { run(); });
 	}
 
@@ -111,7 +114,7 @@ private:
 
 			Result r{ key, {} };
 			try {
-				r.mesh = onGlobe(m_generator->build(key));
+				r.mesh = onPlanet(m_generator->build(key));
 			} catch (const std::exception &e) {
 				lock.lock();
 				m_error = e.what();
@@ -124,26 +127,26 @@ private:
 	}
 
 	// The tile's mesh as on a map, each vertex then put on the planet: a
-	// tile's (x, y, z) at its place on the globe, round its middle; its
+	// tile's (x, y, z) at its place in its region, round its middle; its
 	// height over the sea (blocks) in the first texture coordinate, for
 	// the haze.
-	Mesh onGlobe(const Tile &tile) const
+	Mesh onPlanet(const Tile &tile) const
 	{
-		Mesh m = far::mesh(tile, m_colours);
+		Mesh m = far::mesh(tile, m_palette);
 		const TileKey &key = tile.key;
-		const Globe::Vec mid = m_globe.middle(key);
+		const Tiling::Vec mid = m_tiling.middle(key);
 		const float half = key.span() / 2.0f - 0.5f;
 		// the tile's own axes at its middle, for the normals
 		const auto axis = [&](double dx, double dy, double dz) {
-			const Globe::Vec a = m_globe.point(key, half + dx, -0.5 + dy, half + dz),
-					b = m_globe.point(key, half - dx, -0.5 - dy, half - dz);
+			const Tiling::Vec a = m_tiling.point(key, half + dx, -0.5 + dy, half + dz),
+					b = m_tiling.point(key, half - dx, -0.5 - dy, half - dz);
 			return v3f(a.x - b.x, a.y - b.y, a.z - b.z).normalize();
 		};
 		const v3f ex = axis(0.5, 0, 0), ey = axis(0, 0.5, 0), ez = axis(0, 0, 0.5);
 		for (Mesh::Part &part : m.parts)
 			for (video::S3DVertex &v : part.vertices) {
 				const v3f t = v.Pos / BS;
-				const Globe::Vec p = m_globe.point(key, t.X, t.Y, t.Z);
+				const Tiling::Vec p = m_tiling.point(key, t.X, t.Y, t.Z);
 				v.Pos = v3f(p.x - mid.x, p.y - mid.y, p.z - mid.z) * BS;
 				v.Normal = (ex * v.Normal.X + ey * v.Normal.Y + ez * v.Normal.Z).normalize();
 				v.TCoords = v2f(t.Y + 0.5f - (m_horizon.water_level + 1), 0);
@@ -153,8 +156,8 @@ private:
 
 	const planet::Atlas &m_atlas;
 	const Horizon &m_horizon;
-	const Colours &m_colours;
-	const Globe &m_globe;
+	const Palette &m_palette;
+	const Tiling &m_tiling;
 	std::unique_ptr<Generator> m_generator;
 
 	std::mutex m_mutex;
@@ -167,11 +170,17 @@ private:
 	std::vector<std::thread> m_threads; // last: started once everything above exists
 };
 
-Tiles::Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Colours &colours) :
+unsigned Tiles::threadsFor(float share)
+{
+	const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+	return std::max(1u, (unsigned)(cores * share));
+}
+
+Tiles::Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, unsigned threads) :
 	m_atlas(atlas),
 	m_horizon(horizon),
-	m_globe(atlas.atlas().params().radius),
-	m_workers(std::make_unique<Workers>(m_atlas, m_horizon, colours, m_globe))
+	m_tiling(atlas.atlas()),
+	m_workers(std::make_unique<Workers>(m_atlas, m_horizon, palette, m_tiling, threads))
 {
 }
 
@@ -182,9 +191,23 @@ void Tiles::update(const Eye &eye)
 	m_frame++;
 	m_draw.clear();
 	std::vector<std::pair<float, Key>> want;
-	for (s32 face = 0; face < 6; face++)
-		choose(Key(m_globe.top(), 0, 0, face), eye, m_draw, want);
+	for (const TileKey &root : m_tiling.roots())
+		choose(Key(root), eye, m_draw, want);
 
+	// the roots, everywhere, before anything: a coarse planet always there to
+	// stand in while the eye's own tiles are built (turning never opens holes)
+	for (const TileKey &root : m_tiling.roots()) {
+		Entry &e = m_tiles[Key(root)];
+		e.used = m_frame;
+		if (e.ready)
+			continue;
+		auto again = std::find_if(want.begin(), want.end(), [&](const auto &w) { return !(w.second < Key(root)) && !(Key(root) < w.second); });
+		if (again != want.end())
+			again->first = -1.0f; // wanted already: first, now
+		else
+			want.emplace_back(-1.0f, Key(root));
+	}
+	m_pending = want.size();
 	std::sort(want.begin(), want.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
 	std::vector<std::pair<float, TileKey>> keys;
 	keys.reserve(want.size());
@@ -202,20 +225,22 @@ std::vector<Tiles::Drawn> Tiles::drawn() const
 	std::vector<Drawn> out;
 	out.reserve(m_draw.size());
 	for (const Key &key : m_draw)
-		out.push_back({ key.tile(), m_globe.middle(key.tile()), m_tiles.at(key).parts });
+		out.push_back({ key.tile(), m_tiling.middle(key.tile()), m_tiles.at(key).parts });
 	return out;
 }
 
 float Tiles::distance(const TileKey &key, const Eye &eye) const
 {
-	const Globe::Vec p = m_globe.middle(key);
-	const double r = m_globe.radius(), sea = r + m_horizon.water_level + 1;
+	const Tiling::Vec p = m_tiling.middle(key);
+	const double r = m_tiling.radius(), sea = r + m_horizon.water_level + 1;
 	const double d = std::hypot(p.x * sea / r - eye.at.x, p.y * sea / r - eye.at.y, p.z * sea / r - eye.at.z);
-	return (float)std::max(d - m_globe.diagonal(key) / 2, 0.0);
+	return (float)std::max(d - m_tiling.diagonal(key) / 2, 0.0);
 }
 
 bool Tiles::choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want)
 {
+	if (!m_tiling.within(key.tile()))
+		return true; // past its region's grid: nothing there
 	float d = distance(key.tile(), eye);
 	if (d > eye.range)
 		return true; // beyond the eye's reach: nothing to draw
@@ -273,7 +298,8 @@ bool Tiles::choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::
 
 void Tiles::install()
 {
-	for (int n = 0; n < INSTALLS_PER_FRAME; n++) {
+	const auto start = std::chrono::steady_clock::now();
+	while (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count() < INSTALL_MS) {
 		std::optional<Workers::Result> result = m_workers->take();
 		if (!result)
 			return;
@@ -294,7 +320,7 @@ void Tiles::install()
 void Tiles::evict()
 {
 	for (auto it = m_tiles.begin(); it != m_tiles.end();) {
-		if (m_frame - it->second.used > KEEP_FRAMES)
+		if (m_frame - it->second.used > KEEP_FRAMES) // (the roots are used every update: kept)
 			it = m_tiles.erase(it);
 		else
 			++it;

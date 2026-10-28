@@ -33,6 +33,7 @@
 
 class BanManager;
 namespace online { class Gate; }
+namespace far { struct Horizon; } // Terra Firma
 class ChatEvent;
 class EmergeManager;
 class Inventory;
@@ -200,6 +201,9 @@ public:
 	DISABLE_CLASS_COPY(Server);
 
 	void start();
+	// Loads the world and its mods, without the server thread: start()'s
+	// first half. (Terra Firma: what the palette exporter needs.)
+	void init();
 	void stop();
 	// Actual processing is done in another thread.
 	// This just checks if there was an error in that thread.
@@ -422,6 +426,12 @@ public:
 
 	// Terra Firma: what core.terra keeps for this server.
 	ServerTerra &terra() { return *m_terra; }
+	// Terra Firma: what the far view needs of a terra world (TOCLIENT_HORIZON);
+	// none for another map generator
+	std::optional<far::Horizon> horizon();
+	// Terra Firma: every media file by name, and where it is on disk
+	std::unordered_map<std::string, std::string> mediaPaths() const;
+
 	// Terra Firma: the planet this world is, if it is one (planet/atlas.h)
 	const planet::Atlas *atlas() const { return m_atlas ? &*m_atlas : nullptr; }
 	// Terra Firma: flight on the world's planet (core.orbit): its gravity and
@@ -564,8 +574,6 @@ private:
 	};
 
 	typedef std::unordered_map<std::pair<v3s16, u16>, std::string, SBCHash> SerializedBlockCache;
-
-	void init();
 
 	void SendMovement(session_t peer_id);
 	void SendHP(session_t peer_id, u16 hp, bool effect);

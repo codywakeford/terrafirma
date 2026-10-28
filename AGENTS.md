@@ -74,6 +74,9 @@ bun check:lab           # every Lab scenario built headless; each `expect` check
 bun check:wiki          # every wiki demo (reactions + Lab) run in the engine sandbox; reactions must make their products
 bun check:matter        # a clay fire pit lit on a live server: the world's matter burns, flames, records reactions, saves
 bun check:far           # the far view against the world: generated chunks vs core.terra.surface, column by column
+bun palette             # export the game's baked palette (apps/game/game/palette.json) after changing blocks, textures or species
+bun check:palette       # fails if the committed palette is out of date with the game's content
+.output/bin/luanti --planetarium TF5.dGVycmE   # the planet viewer alone, on a world code (in game: F7)
 arc gate release        # what a release needs, locally: build, tests, UI, a headless world (repo.config.ts)
 arc deploy release      # package.json "version" → tag v<version> → CI builds and attaches the Linux package (.github/workflows/release.yml)
 bun package:linux <version>  # the portable Linux folder + .tar.zst from the current build (scripts/release)

@@ -107,23 +107,63 @@ Done 2026-10-28, but for Cody's play test:
 
 ### 2. The palette
 
-- Export the palette from a headless server, with a check that fails when
-  the game's blocks change and the palette is stale.
-- `far::Colours` reads a palette; the in-game host fills one from live content.
-- Gate: a tile built from the palette equals the same tile built in game,
-  colour for colour (unit test).
+Done 2026-10-28:
+- `far::Palette` (`far/palette.h`): how each block looks from afar, as
+  plain data (each face's texture average, whether it takes the node's
+  colour, the node's colour: one, or 256 by param2 for a palette, and a
+  liquid's colour over black and clarity). Replaces `far::Colours`; its
+  live builder (`Palette::live`, client: textures) is the old code.
+- `far::Horizon` split: the world's part (code, sea) and the game's
+  (`far::Content`: the generator's blocks by role, the tree species).
+- `far::Baked` (`far/baked.h`): content and palette by block name, as
+  JSON. Read back, its blocks get ids of their own, consistent across
+  content and palette.
+- The export, `luanti --export-palette <file> --world … --gameid …`
+  (`far/export.h`): the world's mods loaded by `Server::init()` (no
+  thread), the server's images given to the client's texture source on
+  the NULL video driver (no window; CEF never starts), and
+  `Palette::live`, the far view's own code. `bun palette` writes
+  `apps/game/game/palette.json` (48 blocks, 10 species); `check:palette`
+  fails if it's out of date. Regenerating is explicit: a build never
+  rewrites a committed file.
+- `Server::horizon()` is the one place a terra world's horizon is made
+  (`SendHorizon`, `core.terra.surface`, the export).
+- Tests (`TestFarPalette`): baked round trip, bit for bit (doubles at 17
+  digits: the niches); the shipped palette names a look for every block
+  its content places; `Tiles` for an eye on a small planet from the
+  shipped palette, no game: tiles come, none past the eye's reach, the
+  nearest finer than the farthest.
+- The gate (a tile from the baked palette is the tile in game, colour for
+  colour) holds by construction: both are `Palette::live` over the same
+  content and image bytes, `check:palette` holds the file to a fresh
+  export, and the round trip is exact.
+- Found on the way: `blocksIn` left out the ground blocks species grow
+  on; it names every block the content does now.
 
 ### 3. The Planetarium scene (debug host)
 
-- `planetarium/`: a scene holding one body's `Tiles`, an orbit camera
-  (drag to orbit, scroll to zoom from orbit down to about 100 m, focus on
-  the body), and lighting from the sun (`terragen/sun`).
-- The atlas layer: segment, cap and core boundaries, as lines on the tiles.
-- Opened from the menu (a debug entry: pick a world, or a code and seed)
-  and in game (a key: the world you're in, full screen).
-- Gate: Cody opens a world in both places and zooms from orbit to the ground
-  without holes or pops he'd call bugs. Frame time under 8 ms at 1080p
-  (measured, in the trace).
+Built 2026-10-28, for Cody to look at:
+- `planetarium/` (client): `Planetarium` (the palette, a body's
+  `far::Tiles`, the camera, the layers; raw input in, a frame out),
+  `OrbitCamera` (latitude, longitude, altitude over the body, looking at
+  its centre; drag orbits, slower the lower it is; the wheel zooms from 6
+  radii out to 100 blocks over the sea; doubles, camera-relative floats to
+  the GPU) and `SeamLayer` (the atlas layer: each segment's west meridian,
+  cap circle to cap circle, and the cap circles, 2 blocks over the sea).
+- Tiles drawn with the built-in solid material: their vertex colours carry
+  each face's shade, so no shader of its own yet (it runs the same in both
+  hosts). Sun lighting, day and night, wait for the layers that need a
+  shader.
+- Hosts: in game, F7 (`keymap_planetarium`) opens it over the whole
+  window and F7 or Escape closes it; while it's open it has the mouse and
+  the keyboard (`InputHandler::capture`) and the player stands still.
+  Alone, `luanti --planetarium <code>`: a window on the planet a world code
+  makes, from the baked palette; no world, no server. The menu entry
+  needs the bridge (phase 4); this is the native side it will open.
+- Tests: `TestPlanetarium` (zoom stays over the body, drag slows near the
+  ground, the centre is drawn mid-screen); the standalone host runs headless
+  on the NULL driver (8 s of building and drawing, no errors). The frame
+  time gate (under 8 ms at 1080p) needs Cody's machine: measured with him.
 
 ### 4. The bridge
 

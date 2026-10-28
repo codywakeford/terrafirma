@@ -14,7 +14,7 @@ export function useMenuMusic(enabled: boolean) {
         if (!player || !audioLevels.value) return
         const levels = audioLevels.value
         const focus = document.hasFocus() ? 1 : levels.background
-        player.volume = levels.muted ? 0 : Math.min(1, levels.master * focus * 0.45)
+        player.volume = levels.muted ? 0 : Math.min(1, levels.master * levels.music * focus)
     }
     function clearGesture() {
         if (!pendingGesture) return

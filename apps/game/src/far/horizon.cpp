@@ -35,7 +35,7 @@ static void expect(NetworkPacket &pkt, u8 ours, const char *what)
 
 void write(NetworkPacket &pkt, const Horizon &h)
 {
-	const terra::Blocks &b = h.blocks;
+	const terra::Blocks &b = h.content.blocks;
 	pkt << h.code << h.water_level;
 	pkt << (u8)terragen::Biome::Count;
 	for (const terra::BiomeBlocks &bb : b.biomes)
@@ -49,8 +49,8 @@ void write(NetworkPacket &pkt, const Horizon &h)
 	for (content_t c : b.ore)
 		pkt << c;
 
-	pkt << (u16)h.species.size();
-	for (const terra::Species &s : h.species) {
+	pkt << (u16)h.content.species.size();
+	for (const terra::Species &s : h.content.species) {
 		const terra::Niche &n = s.niche;
 		pkt << s.name;
 		for (double v : { n.heat[0], n.heat[1], n.wet[0], n.wet[1], n.season[0], n.season[1] })
@@ -69,7 +69,7 @@ void write(NetworkPacket &pkt, const Horizon &h)
 Horizon read(NetworkPacket &pkt)
 {
 	Horizon h;
-	terra::Blocks &b = h.blocks;
+	terra::Blocks &b = h.content.blocks;
 	pkt >> h.code >> h.water_level;
 	expect(pkt, (u8)terragen::Biome::Count, "biomes");
 	for (terra::BiomeBlocks &bb : b.biomes)
@@ -85,8 +85,8 @@ Horizon read(NetworkPacket &pkt)
 
 	u16 count;
 	pkt >> count;
-	h.species.resize(count);
-	for (terra::Species &s : h.species) {
+	h.content.species.resize(count);
+	for (terra::Species &s : h.content.species) {
 		terra::Niche &n = s.niche;
 		pkt >> s.name;
 		for (double *v : { &n.heat[0], &n.heat[1], &n.wet[0], &n.wet[1], &n.season[0], &n.season[1] })

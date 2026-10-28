@@ -17,6 +17,7 @@
 #include "clientdynamicinfo.h"
 #include "clouds.h"
 #include "far/view.h"
+#include "planetarium/planetarium.h"
 #include "gui/touchcontrols.h"
 #include "irr_ptr.h"
 #include "irrlichttypes_bloated.h"
@@ -173,6 +174,9 @@ protected:
 	void toggleAutoforward();
 
 	void toggleMinimap(bool shift_pressed);
+	// Terra Firma: the Planetarium over the whole window, on a terra world
+	void openPlanetarium();
+	void closePlanetarium();
 	void toggleFog();
 	void toggleDebug();
 	void toggleUpdateCamera();
@@ -347,6 +351,9 @@ private:
 	irr_ptr<Clouds> clouds;
 	irr_ptr<Sky> sky;
 	irr_ptr<far::View> far_view; // Terra Firma: the horizon, on a terra world
+	// Terra Firma: the planet viewer, while it's open (it takes the input)
+	std::unique_ptr<planetarium::Planetarium> m_planetarium;
+	bool m_planetarium_closing = false; // asked from the input callback: closed next frame
 	Hud *hud = nullptr;
 	Minimap *mapper = nullptr;
 	GameFormSpec m_game_formspec;

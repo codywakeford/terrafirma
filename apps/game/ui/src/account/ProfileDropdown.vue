@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import type { Account, Friend, Player, Social } from "../bridge"
-import { Button, Field, Notice, Toggle } from "../kit"
+import { Button, Field, Notice } from "../kit"
 import { byPresence, presenceDot, presenceLine } from "../social/presence"
 
-type Page = "friends" | "activity" | "account" | "add"
+type Page = "friends" | "friend" | "activity" | "account" | "add"
 const props = defineProps<{ account: Account; social: Social | null; error: string | null; busy: boolean; joining: string | null; initialPage?: Page }>()
 const emit = defineEmits<{
     signIn: []; cancel: []; signOut: []; retry: []; openUrl: [url: string]
@@ -15,8 +15,10 @@ const emit = defineEmits<{
 const page = ref<Page>(props.initialPage ?? "friends")
 const username = ref("")
 const confirming = ref<string | null>(null)
+const selectedId = ref<string | null>(null)
 const view = computed(() => props.social?.view)
 const friends = computed(() => [...(view.value?.friends ?? [])].sort(byPresence))
+const selected = computed(() => friends.value.find((friend) => friend.id === selectedId.value) ?? null)
 const online = computed(() => friends.value.filter((friend) => friend.presence).length)
 const waiting = computed(() => (view.value?.incoming.length ?? 0) + (view.value?.invites.length ?? 0))
 const activity = computed(() => waiting.value + (view.value?.outgoing.length ?? 0))
@@ -25,18 +27,7 @@ const displayName = computed(() => {
     const name = props.account.name?.trim()
     return name && name.toLowerCase() !== props.account.username.toLowerCase() ? name : props.account.username
 })
-const open = computed({
-    get: () => props.social?.me.open ?? false,
-    set: (value: boolean) => emit("openWorld", value),
-})
 const inMenu = computed(() => props.social?.me.state === "menu")
-const myPresence = computed(() => {
-    const me = props.social?.me
-    if (!me) return "Connecting to ArcLabs"
-    if (me.state === "menu") return "Main menu"
-    if (me.state === "hosting") return "Hosting"
-    return "Playing"
-})
 const joinable = (friend: Friend) => friend.presence?.state === "hosting" && friend.presence.open
 const invitable = (friend: Friend) =>
     props.social?.joinable && friend.presence !== null && friend.presence.world !== props.social.me.world
@@ -54,7 +45,18 @@ function remove(friend: Friend) {
         return
     }
     confirming.value = null
+    page.value = "friends"
+    selectedId.value = null
     emit("remove", friend.id)
+}
+function focus(friend: Friend) {
+    selectedId.value = friend.id
+    confirming.value = null
+    page.value = "friend"
+}
+function backToFriends() {
+    page.value = "friends"
+    confirming.value = null
 }
 </script>
 
@@ -71,8 +73,8 @@ function remove(friend: Friend) {
 
             <div class="hub">
                 <nav class="rail" aria-label="Social sections">
-                    <button :class="{ selected: page === 'friends' || page === 'add' }" aria-label="Friends"
-                        :aria-current="page === 'friends' || page === 'add' ? 'page' : undefined" @click="page = 'friends'">
+                    <button :class="{ selected: page === 'friends' || page === 'friend' || page === 'add' }" aria-label="Friends"
+                        :aria-current="page === 'friends' || page === 'friend' || page === 'add' ? 'page' : undefined" @click="page = 'friends'">
                         <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2h5v1h1v4H9v1H4V7H3V3h1zm-2 8h9v1h2v4H0v-4h2zm10-6h2v1h1v3h-1v1h-2V8h1V5h-1z" /></svg>
                         <span>Friends</span>
                     </button>
@@ -101,23 +103,44 @@ function remove(friend: Friend) {
                             <p v-if="!social" class="empty">Connecting to friends…</p>
                             <p v-else-if="!view" class="empty">Loading friends…</p>
                             <p v-else-if="!friends.length" class="empty">Your friends will appear here. Add someone by their ArcLabs username.</p>
-                            <div v-if="friends.length" class="list">
-                                <div v-for="friend in friends" :key="friend.id" class="friend">
-                                    <span class="presence" :class="presenceDot(friend.presence)" />
+                            <div v-if="friends.length" class="friend-list">
+                                <button v-for="friend in friends" :key="friend.id" class="friend" @click="focus(friend)">
                                     <div class="friend-copy">
                                         <strong>{{ friend.name || friend.username }}</strong>
                                         <small><span v-if="friend.name">@{{ friend.username }} · </span>{{ presenceLine(friend.presence) }}</small>
                                     </div>
-                                    <Button v-if="joinable(friend)" size="sm" variant="primary" :disabled="busy || !inMenu"
-                                        :title="inMenu ? undefined : 'Leave your world first'" @click="emit('join', friend)">
-                                        {{ joining === friend.id ? "Joining…" : "Join" }}
-                                    </Button>
-                                    <Button v-if="invitable(friend)" size="sm" :disabled="busy" @click="emit('invite', friend.id)">Invite</Button>
-                                    <button class="row-more" :class="{ danger: confirming === friend.id }" :disabled="busy"
-                                        :aria-label="confirming === friend.id ? `Confirm removing ${friend.username}` : `Friend options for ${friend.username}`"
-                                        :title="confirming === friend.id ? 'Press again to remove friend' : 'Friend options'"
-                                        @click="remove(friend)">{{ confirming === friend.id ? "Remove" : "•••" }}</button>
-                                </div>
+                                    <span v-if="joinable(friend)" class="row-tag">Joinable</span>
+                                    <span class="row-chevron">»</span>
+                                </button>
+                            </div>
+                        </template>
+
+                        <template v-else-if="page === 'friend' && selected">
+                            <button class="back" @click="backToFriends">← Friends</button>
+                            <div class="friend-hero">
+                                <div class="friend-avatar">{{ selected.username.slice(0, 1).toUpperCase() }}</div>
+                                <div><span class="kicker">Friend profile</span><h2>{{ selected.name || selected.username }}</h2><p v-if="selected.name">@{{ selected.username }}</p></div>
+                            </div>
+                            <dl class="details friend-details">
+                                <div><dt>Status</dt><dd><span class="presence" :class="presenceDot(selected.presence)" />{{ presenceLine(selected.presence) }}</dd></div>
+                                <div v-if="selected.presence?.world"><dt>World</dt><dd>{{ selected.presence.world }}</dd></div>
+                                <div><dt>Connection</dt><dd>{{ selected.presence ? "Online now" : "Offline" }}</dd></div>
+                            </dl>
+                            <div class="friend-actions">
+                                <Button v-if="joinable(selected)" variant="primary" :disabled="busy || !inMenu"
+                                    :title="inMenu ? undefined : 'Leave your world first'" @click="emit('join', selected)">
+                                    {{ joining === selected.id ? "Joining…" : "Join world »" }}
+                                </Button>
+                                <Button v-if="invitable(selected)" :disabled="busy" @click="emit('invite', selected.id)">Invite to my world</Button>
+                                <p v-if="!joinable(selected) && !invitable(selected)" class="empty action-note">
+                                    {{ selected.presence ? "No shared-world action is available right now." : "They’re offline. You can invite or join when you’re both online." }}
+                                </p>
+                            </div>
+                            <div class="danger-zone">
+                                <p>Removing a friend also removes their worlds from your friends list.</p>
+                                <Button size="sm" :variant="confirming === selected.id ? 'danger' : 'plain'" :disabled="busy" @click="remove(selected)">
+                                    {{ confirming === selected.id ? "Confirm remove friend" : "Remove friend" }}
+                                </Button>
                             </div>
                         </template>
 
@@ -175,10 +198,6 @@ function remove(friend: Friend) {
                             <div class="account-actions"><Button size="sm" @click="emit('signOut')">Sign out on this device</Button></div>
                         </template>
                     </div>
-                    <footer class="presence-footer">
-                        <div><span class="live" /><strong>{{ myPresence }}</strong><small v-if="social?.me.world">{{ social.me.world }}</small></div>
-                        <Toggle v-if="social?.joinable" v-model="open" label="Friends may join" />
-                    </footer>
                 </div>
             </div>
         </template>
@@ -243,36 +262,32 @@ function remove(friend: Friend) {
 .rail .account-tab { margin-top: auto; }
 .rail-badge { position: absolute; top: 3px; right: 2px; min-width: 15px; height: 15px; padding: 0 2px; border: 1px solid var(--edge); background: var(--accent); color: var(--ink); font: 8px/13px var(--font-display); }
 .workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.content { min-height: 0; flex: 1; overflow-y: auto; padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 10px; background: var(--stone-1); }
-.presence-footer { flex: none; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: var(--b) solid var(--edge); background: var(--stone-2); box-shadow: var(--raised); }
-.presence-footer > div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
-.presence-footer .live { grid-row: 1 / span 2; }
-.presence-footer strong, .presence-footer small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.presence-footer strong { font-size: 10px; }
-.presence-footer small { color: var(--ink-faint); font-size: 9px; }
-.presence-footer :deep(.toggle) { flex: none; width: auto; gap: 7px; font-size: 9px; }
+.content { min-height: 0; flex: 1; overflow-y: auto; padding: 8px 16px 18px; display: flex; flex-direction: column; gap: 10px; background: var(--stone-1); }
 .section-head { display: flex; justify-content: space-between; align-items: end; gap: 10px; margin-bottom: 4px; }
 .section-head:not(:first-child) { margin-top: 8px; }
 .section-head > div { min-width: 0; }
 .section-head :deep(.btn) { flex: none; }
 .kicker { color: var(--accent-hi); font: 9px var(--font-display); text-transform: uppercase; }
 h2 { margin: 2px 0 0; font: 15px var(--font-display); text-transform: uppercase; }
-.list { border-top: 1px solid var(--stone-4); border-bottom: 1px solid var(--stone-4); }
+.list, .friend-list { border-top: 1px solid var(--stone-4); border-bottom: 1px solid var(--stone-4); }
 .friend, .activity { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 50px; padding: 8px 2px; background: transparent; }
+.friend { width: 100%; min-height: 54px; padding: 10px 12px; border: 0; color: var(--ink); text-align: left; }
 .friend + .friend, .activity + .activity, .activity + .friend { border-top: 1px solid var(--stone-3); }
-.friend:hover, .activity:hover { background: rgb(255 255 255 / 0.025); }
+.friend:hover { background: var(--stone-2); box-shadow: inset 3px 0 0 var(--accent); }
+.friend:focus-visible { outline: var(--b) solid var(--accent-hi); outline-offset: -2px; }
+.activity:hover { background: rgb(255 255 255 / 0.025); }
 .presence { flex: none; width: 9px; height: 9px; margin: 0 3px 0 0; }
 .presence.online { background: #5fae5a; }
 .presence.offline { background: var(--stone-4); }
-.friend-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.friend-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.3; }
 .friend-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .friend-copy small { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .activity-mark { color: var(--accent-hi); font: 16px var(--font-display); }
 .activity-mark.muted { color: var(--ink-faint); }
-.friend :deep(.btn), .activity :deep(.btn) { padding: 0 9px; height: 28px; font-size: 10px; }
-.row-more { flex: none; border: 0; background: none; color: var(--ink-faint); padding: 4px; font-size: 17px; line-height: 1; }
-.row-more:hover, .row-more.danger { color: var(--danger); }
-.row-more.danger { font: 10px var(--font-display); }
+.activity :deep(.btn) { padding: 0 9px; height: 28px; font-size: 10px; }
+.row-tag { flex: none; padding: 3px 5px; border: 1px solid var(--accent); color: var(--accent-hi); font: 8px var(--font-display); text-transform: uppercase; }
+.row-chevron { flex: none; color: var(--ink-faint); font: 16px var(--font-display); }
+.friend:hover .row-chevron { color: var(--accent-hi); }
 .back, .text-action { align-self: start; border: 0; background: none; padding: 2px; color: var(--accent-hi); font: 10px var(--font-display); text-transform: uppercase; }
 .back:hover, .text-action:hover { text-decoration: underline; }
 .copy, .empty { margin: 2px 0 8px; color: var(--ink-dim); font-size: 12px; line-height: 1.55; }
@@ -284,6 +299,17 @@ h2 { margin: 2px 0 0; font: 15px var(--font-display); text-transform: uppercase;
 .details dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .details dd.muted { color: var(--ink-faint); font-weight: 400; }
 .account-actions { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--stone-4); }
+.friend-hero { display: flex; align-items: center; gap: 12px; padding: 6px 0 10px; }
+.friend-hero h2 { font-size: 17px; }
+.friend-hero p { margin: 3px 0 0; color: var(--ink-dim); font-size: 10px; }
+.friend-avatar { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border: var(--b) solid var(--edge); background: var(--stone-3); box-shadow: var(--raised); color: var(--accent-hi); font: 20px var(--font-display); }
+.friend-details dd { display: flex; align-items: center; }
+.friend-details .presence { margin-right: 7px; }
+.friend-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.friend-actions :deep(.btn) { flex: 1; min-width: 140px; }
+.action-note { margin: 0; }
+.danger-zone { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--stone-4); }
+.danger-zone p { margin: 0 0 9px; color: var(--ink-faint); font-size: 10px; line-height: 1.45; }
 .signed-out { display: grid; gap: 14px; padding: 24px; }
 .signed-out h2 { margin: -8px 0 0; font-size: 22px; }
 .signed-out p { margin: 0; color: var(--ink-dim); font-size: 12px; }

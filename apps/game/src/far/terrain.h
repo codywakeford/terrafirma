@@ -3,10 +3,11 @@
 
 #pragma once
 
-#include "far/globe.h"
+#include "far/tiling.h"
 #include "planet/atlas.h"
 #include <optional>
 
+#include "mapgen/atlas_land.h"
 #include "mapgen/terra_column.h"
 #include "mapgen/terra_species.h"
 #include "terragen/world.h"
@@ -26,14 +27,23 @@
 */
 namespace far {
 
+// The game's part of a planet's land: every block the generator places, by
+// role, and the tree species. The same for every world of the game (only
+// their content ids are a server's).
+struct Content
+{
+	terra::Blocks blocks;
+	std::vector<terra::Species> species;
+};
+
 // What the server sends a client of a terra world (TOCLIENT_HORIZON): all
-// the far view needs to build it.
+// the far view needs to build it. The world's part (its code and sea) and
+// the game's.
 struct Horizon
 {
 	std::string code;
 	s16 water_level;
-	terra::Blocks blocks;
-	std::vector<terra::Species> species;
+	Content content;
 };
 
 
@@ -69,7 +79,7 @@ constexpr s32 TILE = 32;
 struct TileKey
 {
 	s32 level, x, z; // tile coordinates at its level
-	s32 face = 0;    // on a globe (far/globe.h), the cube's face it's on
+	s32 face = 0;    // on an atlas (far/tiling.h), the region: its grid in terragen::Atlas::grids
 	s32 cell() const { return 1 << level; }
 	s32 span() const { return TILE << level; }
 	bool operator==(const TileKey &o) const { return level == o.level && x == o.x && z == o.z && face == o.face; }
@@ -97,8 +107,8 @@ class Generator
 public:
 	// A flat world's (the Lab's): columns are the world model's, block for block
 	explicit Generator(const Horizon &horizon);
-	// An atlas planet's: its tiles are a globe's (far/globe.h), each cell
-	// the column the atlas's generator builds at that latitude and longitude
+	// An atlas planet's: its tiles are its regions' (far/tiling.h), each cell
+	// the column the generator builds in the atlas cell it stands for
 	Generator(const Horizon &horizon, const planet::Atlas &atlas);
 	~Generator();
 
@@ -109,6 +119,8 @@ public:
 
 	// The column at (x, z) without its trees: what level 0 starts from.
 	Cell column(s32 x, s32 z) const;
+	// An atlas planet's cells as the generator fills them; throws on a flat world.
+	const terra::AtlasLand &land() const;
 
 private:
 	struct Crown
@@ -117,7 +129,7 @@ private:
 	};
 
 	void growCrowns();
-	Tile buildOnGlobe(const TileKey &key) const;
+	Tile buildOnAtlas(const TileKey &key) const;
 	void growExact(Tile &tile) const;
 	void growCoarse(Tile &tile) const;
 	const terra::Species *speciesAt(const terra::Column &c, s32 x, s32 z) const;
@@ -127,8 +139,9 @@ private:
 
 	std::unique_ptr<terragen::World> m_world;
 	std::optional<planet::Atlas> m_atlas;
-	std::optional<Globe> m_globe; // an atlas's tiles
+	std::unique_ptr<Tiling> m_tiling; // an atlas's tiles
 	std::unique_ptr<terra::Columns> m_columns;
+	std::unique_ptr<terra::AtlasLand> m_land; // an atlas's
 	std::vector<Crown> m_crowns; // per species
 };
 

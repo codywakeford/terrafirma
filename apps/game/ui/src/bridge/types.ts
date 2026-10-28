@@ -390,9 +390,9 @@ export type Intents = {
     /** An event for game Lua (src/shell/ui.cpp). */
     "ui.send": { request: UiEvent; response: null }
     quit: { request: {}; response: null }
-    "settings.get": { request: {}; response: Record<string, number | boolean> }
-    "settings.set": { request: { key: string; value: number | boolean }; response: null }
-    "settings.apply": { request: { values: Record<string, number | boolean> }; response: null }
+    "settings.get": { request: {}; response: Record<string, number | boolean | string> }
+    "settings.set": { request: { key: string; value: number | boolean | string }; response: null }
+    "settings.apply": { request: { values: Record<string, number | boolean | string> }; response: null }
     "settings.bindings.get": { request: {}; response: Record<string, string> }
     "settings.bindings.set": { request: { key: string; scancode: number; replace: boolean }; response: null }
     "settings.bindings.reset": { request: {}; response: null }

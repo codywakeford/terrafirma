@@ -11,7 +11,7 @@
 
 namespace shell {
 
-enum class Kind { Number, Flag };
+enum class Kind { Number, Flag, Choice };
 
 struct Option
 {
@@ -19,6 +19,7 @@ struct Option
 	Kind kind;
 	float min;
 	float max;
+	const char *choices = nullptr;
 };
 
 // Labels and grouping are the page's (ui/src/settings/options.ts); ranges are ours.
@@ -27,22 +28,79 @@ static const Option OPTIONS[] = {
 	{ "fov", Kind::Number, 45, 160 },
 	{ "fps_max", Kind::Number, 30, 360 },
 	{ "fps_max_unfocused", Kind::Number, 5, 60 },
+	{ "undersampling", Kind::Number, 1, 4 },
+	{ "display_gamma", Kind::Number, 0.33f, 3.0f },
+	{ "fog_start", Kind::Number, 0, 0.99f },
 	{ "mouse_sensitivity", Kind::Number, 0.05f, 1.0f },
 	{ "sound_volume", Kind::Number, 0, 1 },
+	{ "music_volume", Kind::Number, 0, 1 },
 	{ "sound_volume_unfocused", Kind::Number, 0, 1 },
 	{ "hud_scaling", Kind::Number, 0.5f, 2.0f },
+	{ "gui_scaling", Kind::Number, 0.5f, 2.0f },
+	{ "chat_font_size", Kind::Number, 0, 36 },
+	{ "recent_chat_messages", Kind::Number, 2, 20 },
+	{ "hud_hotbar_max_width", Kind::Number, 0.25f, 1.0f },
+	{ "crosshair_alpha", Kind::Number, 0, 255 },
 	{ "view_bobbing_amount", Kind::Number, 0, 2 },
+	{ "camera_smoothing", Kind::Number, 0, 1 },
+	{ "repeat_place_time", Kind::Number, 0.16f, 2.0f },
+	{ "joystick_frustum_sensitivity", Kind::Number, 1, 720 },
+	{ "joystick_inner_deadzone", Kind::Number, 0, 1 },
+	{ "joystick_outer_deadzone", Kind::Number, 0, 1 },
+	{ "shadow_map_max_distance", Kind::Number, 10, 1000 },
+	{ "shadow_soft_radius", Kind::Number, 1, 15 },
+	{ "shadow_strength_gamma", Kind::Number, 0.1f, 10 },
+	{ "exposure_compensation", Kind::Number, -1, 1 },
+	{ "water_wave_height", Kind::Number, 0, 4 },
+	{ "screenshot_quality", Kind::Number, 0, 100 },
 	{ "fullscreen", Kind::Flag, 0, 0 },
 	{ "vsync", Kind::Flag, 0, 0 },
+	{ "pause_on_lost_focus", Kind::Flag, 0, 0 },
 	{ "enable_dynamic_shadows", Kind::Flag, 0, 0 },
+	{ "shadow_map_texture_32bit", Kind::Flag, 0, 0 },
+	{ "shadow_map_color", Kind::Flag, 0, 0 },
 	{ "enable_bloom", Kind::Flag, 0, 0 },
 	{ "enable_fog", Kind::Flag, 0, 0 },
+	{ "directional_colored_fog", Kind::Flag, 0, 0 },
 	{ "enable_3d_clouds", Kind::Flag, 0, 0 },
+	{ "soft_clouds", Kind::Flag, 0, 0 },
+	{ "smooth_lighting", Kind::Flag, 0, 0 },
+	{ "mip_map", Kind::Flag, 0, 0 },
+	{ "bilinear_filter", Kind::Flag, 0, 0 },
+	{ "trilinear_filter", Kind::Flag, 0, 0 },
+	{ "anisotropic_filter", Kind::Flag, 0, 0 },
+	{ "fxaa", Kind::Flag, 0, 0 },
+	{ "connected_glass", Kind::Flag, 0, 0 },
+	{ "translucent_liquids", Kind::Flag, 0, 0 },
+	{ "performance_tradeoffs", Kind::Flag, 0, 0 },
+	{ "enable_raytraced_culling", Kind::Flag, 0, 0 },
+	{ "enable_dig_particles", Kind::Flag, 0, 0 },
+	{ "enable_waving_leaves", Kind::Flag, 0, 0 },
+	{ "enable_waving_plants", Kind::Flag, 0, 0 },
+	{ "enable_waving_water", Kind::Flag, 0, 0 },
+	{ "enable_post_processing", Kind::Flag, 0, 0 },
+	{ "tone_mapping", Kind::Flag, 0, 0 },
+	{ "enable_auto_exposure", Kind::Flag, 0, 0 },
+	{ "debanding", Kind::Flag, 0, 0 },
+	{ "enable_volumetric_lighting", Kind::Flag, 0, 0 },
+	{ "enable_water_reflections", Kind::Flag, 0, 0 },
+	{ "enable_translucent_foliage", Kind::Flag, 0, 0 },
 	{ "invert_mouse", Kind::Flag, 0, 0 },
 	{ "doubletap_jump", Kind::Flag, 0, 0 },
 	{ "toggle_sneak_key", Kind::Flag, 0, 0 },
+	{ "toggle_aux1_key", Kind::Flag, 0, 0 },
+	{ "autojump", Kind::Flag, 0, 0 },
+	{ "always_fly_fast", Kind::Flag, 0, 0 },
+	{ "aux1_descends", Kind::Flag, 0, 0 },
+	{ "enable_hotbar_mouse_wheel", Kind::Flag, 0, 0 },
+	{ "invert_hotbar_mouse_wheel", Kind::Flag, 0, 0 },
+	{ "safe_dig_and_place", Kind::Flag, 0, 0 },
 	{ "mute_sound", Kind::Flag, 0, 0 },
 	{ "hurt_flash_enabled", Kind::Flag, 0, 0 },
+	{ "arm_inertia", Kind::Flag, 0, 0 },
+	{ "show_nametag_backgrounds", Kind::Flag, 0, 0 },
+	{ "smooth_scrolling", Kind::Flag, 0, 0 },
+	{ "inventory_items_animations", Kind::Flag, 0, 0 },
 	{ "far_view", Kind::Flag, 0, 0 },
 	{ "far_view_detail", Kind::Number, 1, 4 },
 	{ "far_view_max", Kind::Number, 2000, 64000 },
@@ -54,7 +112,30 @@ static const Option OPTIONS[] = {
 	{ "widget_map_zoom", Kind::Number, 1, 5 },
 	{ "widget_world_controls", Kind::Flag, 0, 0 },
 	{ "widget_world_controls_corner", Kind::Number, 0, 3 },
+	{ "antialiasing", Kind::Choice, 0, 0, "none,fsaa,ssaa" },
+	{ "fsaa", Kind::Choice, 0, 0, "2,4,8,16" },
+	{ "leaves_style", Kind::Choice, 0, 0, "fancy,simple,opaque" },
+	{ "shadow_filters", Kind::Choice, 0, 0, "0,1,2" },
+	{ "shadow_map_texture_size", Kind::Choice, 0, 0, "1024,2048,4096,8192" },
+	{ "occlusion_culler", Kind::Choice, 0, 0, "bfs,loops" },
+	{ "node_highlighting", Kind::Choice, 0, 0, "box,halo,none" },
+	{ "screenshot_format", Kind::Choice, 0, 0, "png,jpg" },
 };
+
+static bool isChoice(const Option &option, const std::string &value)
+{
+	const std::string choices = option.choices;
+	size_t start = 0;
+	while (start <= choices.size()) {
+		size_t end = choices.find(',', start);
+		if (choices.substr(start, end - start) == value)
+			return true;
+		if (end == std::string::npos)
+			break;
+		start = end + 1;
+	}
+	return false;
+}
 
 static const Option &find(const std::string &key)
 {
@@ -130,8 +211,10 @@ Json::Value Options::get() const
 	for (const Option &option : OPTIONS) {
 		if (option.kind == Kind::Flag)
 			out[option.key] = g_settings->getBool(option.key);
-		else
+		else if (option.kind == Kind::Number)
 			out[option.key] = g_settings->getFloat(option.key);
+		else
+			out[option.key] = g_settings->get(option.key);
 	}
 	return out;
 }
@@ -154,21 +237,26 @@ void Options::apply(const Json::Value &values) const
 		if (option.kind == Kind::Flag) {
 			if (!value.isBool())
 				throw Refused(key + " takes true or false");
-		} else {
+		} else if (option.kind == Kind::Number) {
 			if (!value.isNumeric() || !std::isfinite(value.asDouble()))
 				throw Refused(key + " takes a finite number");
 			double v = value.asDouble();
 			if (v < option.min || v > option.max)
 				throw Refused(key + " must be between " + std::to_string(option.min) +
 						" and " + std::to_string(option.max));
+		} else {
+			if (!value.isString() || !isChoice(option, value.asString()))
+				throw Refused(key + " is not a supported choice");
 		}
 	}
 	for (const std::string &key : keys) {
 		const Option &option = find(key);
 		if (option.kind == Kind::Flag)
 			g_settings->setBool(key, values[key].asBool());
-		else
+		else if (option.kind == Kind::Number)
 			g_settings->setFloat(key, values[key].asFloat());
+		else
+			g_settings->set(key, values[key].asString());
 	}
 	save();
 	infostream << "shell: set " << keys.size() << " setting(s)" << std::endl;

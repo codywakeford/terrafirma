@@ -15,12 +15,12 @@ export const widgetConfig = reactive({
     worldControlsCorner: 1 as WidgetCorner,
 })
 
-function corner(value: number | boolean | undefined): WidgetCorner {
+function corner(value: number | boolean | string | undefined): WidgetCorner {
     if (value === 0 || value === 1 || value === 2 || value === 3) return value
     throw new Error("Invalid widget corner setting")
 }
 
-export function applyWidgetSettings(values: Record<string, number | boolean>) {
+export function applyWidgetSettings(values: Record<string, number | boolean | string>) {
     const map = values.widget_map
     const controls = values.widget_world_controls
     const scale = values.widget_map_scale

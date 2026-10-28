@@ -19,6 +19,10 @@
 #include "util/quicktune.h"
 #include "httpfetch.h"
 #include "gameparams.h"
+#if CHECK_CLIENT_BUILD()
+#include "far/export.h" // Terra Firma
+#include "planetarium/standalone.h" // Terra Firma
+#endif
 #include "database/database.h"
 #include "config.h"
 #include "player.h"
@@ -270,6 +274,15 @@ int main(int argc, char *argv[])
 #endif
 	}
 
+#if CHECK_CLIENT_BUILD()
+	// Terra Firma: the Planetarium alone, on a world code (planetarium/standalone.h)
+	if (cmd_args.exists("planetarium")) {
+		const std::string code = cmd_args.get("planetarium");
+		planetarium::runStandalone(code.empty() ? "TF5.dGVycmE" : code);
+		return 0;
+	}
+#endif
+
 	GameParams game_params;
 #if !CHECK_CLIENT_BUILD()
 	porting::attachOrCreateConsole();
@@ -285,6 +298,15 @@ int main(int argc, char *argv[])
 		return 1;
 
 	sanity_check(!game_params.world_path.empty());
+
+#if CHECK_CLIENT_BUILD()
+	// Terra Firma: the game's baked palette (far/export.h), then out: nothing
+	// of this run is kept (its video driver is the NULL one)
+	if (cmd_args.exists("export-palette")) {
+		far::exportPalette(game_params, cmd_args.get("export-palette"));
+		return 0;
+	}
+#endif
 
 	if (game_params.is_dedicated_server)
 		return run_dedicated_server(game_params, cmd_args) ? 0 : 1;
@@ -380,6 +402,10 @@ static void set_allowed_options(OptionList *allowed_options)
 			_("Load configuration from specified file"))));
 	allowed_options->insert(std::make_pair("port", ValueSpec(VALUETYPE_STRING,
 			_("Set network port (UDP)"))));
+	allowed_options->insert(std::make_pair("planetarium", ValueSpec(VALUETYPE_STRING,
+			_("Open the Planetarium (Terra Firma) on the planet world code <value>, and nothing else"))));
+	allowed_options->insert(std::make_pair("export-palette", ValueSpec(VALUETYPE_STRING,
+			_("Write the game's baked palette (Terra Firma) to <value>, from --world, and exit"))));
 	allowed_options->insert(std::make_pair("run-unittests", ValueSpec(VALUETYPE_FLAG,
 			_("Run legacy unit tests and Catch2 tests and exit"))));
 	allowed_options->insert(std::make_pair("run-tests", ValueSpec(VALUETYPE_FLAG,

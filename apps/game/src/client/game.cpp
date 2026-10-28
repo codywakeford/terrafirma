@@ -655,6 +655,8 @@ void Game::shutdown()
 	}
 
 	clouds.reset();
+	if (m_planetarium)
+		closePlanetarium(); // its input callback holds the game
 	if (far_view)
 		far_view->remove(); // the scene manager holds it too
 	far_view.reset();
@@ -1521,6 +1523,8 @@ void Game::processKeyInput()
 	} else if (wasKeyDown(KeyType::WIKI)) {
 		m_shell_session->screens().open("wiki");
 #endif
+	} else if (wasKeyDown(KeyType::PLANETARIUM)) {
+		openPlanetarium();
 	} else if (input->cancelPressed()) {
 #ifdef __ANDROID__
 		m_android_chat_open = false;
@@ -1865,6 +1869,41 @@ void Game::toggleAutoforward()
 		m_game_ui->showTranslatedStatusText("Automatic forward disabled");
 }
 
+// Terra Firma: the planet this world is, in the Planetarium, over the
+// whole window. Its key or Escape closes it; while it's open it has the
+// mouse and the keyboard (the player stands still).
+void Game::openPlanetarium()
+{
+	const planet::Atlas *atlas = client->getAtlas();
+	const std::optional<far::Horizon> &horizon = client->getHorizon();
+	if (!atlas || !horizon) {
+		m_game_ui->showTranslatedStatusText("The Planetarium shows a planet: this world isn't one");
+		return;
+	}
+	far::Palette palette = far::Palette::live(client->ndef(), texture_src, far::blocksIn(horizon->content));
+	m_planetarium = std::make_unique<planetarium::Planetarium>(
+			planetarium::Planetarium::Opts{ *atlas, *horizon, std::move(palette) });
+	const std::vector<KeyPress> keys = getKeySetting("keymap_planetarium"); // a copy: the reference may not last
+	input->capture([this, keys](const SEvent &event) {
+		if (event.EventType == EET_KEY_INPUT_EVENT) {
+			const bool ours = std::find(keys.begin(), keys.end(), KeyPress(event.KeyInput)) != keys.end();
+			if (event.KeyInput.PressedDown && (ours || event.KeyInput.Key == KEY_ESCAPE))
+				m_planetarium_closing = true;
+			return true; // the player stands still meanwhile
+		}
+		return m_planetarium->handle(event);
+	});
+	input->releaseAllKeys();
+}
+
+void Game::closePlanetarium()
+{
+	input->capture({});
+	m_planetarium.reset();
+	m_planetarium_closing = false;
+	m_first_loop_after_window_activation = true; // the mouse moved while it was open
+}
+
 void Game::toggleMinimap(bool shift_pressed)
 {
 	if (!mapper || !m_game_ui->m_flags.show_hud || !g_settings->getBool("enable_minimap"))
@@ -2043,10 +2082,10 @@ void Game::updateCameraDirection(CameraOrientation *cam, float dtime)
 	this results in duplicated input. To avoid that, we don't enable relative
 	mouse mode if we're in touchscreen mode. */
 	if (cur_control)
-		cur_control->setRelativeMode(!g_touchcontrols && !isMenuActive());
+		cur_control->setRelativeMode(!g_touchcontrols && !isMenuActive() && !m_planetarium);
 
 	if ((device->isWindowActive() && device->isWindowFocused()
-			&& !isMenuActive()) || input->isRandom()) {
+			&& !isMenuActive() && !m_planetarium) || input->isRandom()) {
 
 		if (cur_control && !input->isRandom()) {
 			// Mac OSX gets upset if this is set every frame
@@ -3831,8 +3870,13 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 	}
 #endif
 
-	this->m_rendering_engine->draw_scene(sky_color, this->m_game_ui->m_flags.show_hud,
-			draw_wield_tool, draw_crosshair);
+	if (m_planetarium_closing)
+		closePlanetarium();
+	if (m_planetarium)
+		m_planetarium->draw(this->driver); // Terra Firma: over the whole window
+	else
+		this->m_rendering_engine->draw_scene(sky_color, this->m_game_ui->m_flags.show_hud,
+				draw_wield_tool, draw_crosshair);
 
 	/*
 		Profiler graph

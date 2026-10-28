@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <functional>
+#include "exceptions.h"
+
 #include "irrlichttypes.h"
 #include "irr_v2d.h"
 #include <array>
@@ -50,6 +53,10 @@ public:
 	bool WasKeyReleased(GameKeyType key) const { return keyWasReleased[key]; }
 
 	void reloadKeybindings();
+
+	// Terra Firma: a full-screen view (the Planetarium) takes every event the
+	// page doesn't, before the game sees it, while one is set; empty for none.
+	std::function<bool(const SEvent &)> capture;
 
 	// Returns whole mouse wheel revolutions since the last call and resets it.
 	// Incomplete cycles are kept to not break high resolution mouse wheels.
@@ -232,6 +239,10 @@ public:
 
 	virtual void step(float dtime) {}
 
+	// Terra Firma: events to a full-screen view first (MyEventReceiver::capture);
+	// empty gives them back to the game
+	virtual void capture(std::function<bool(const SEvent &)> to) = 0;
+
 	virtual void clear() {}
 	virtual void releaseAllKeys() {}
 
@@ -297,6 +308,8 @@ public:
 		return m_receiver->getMouseMovement();
 	}
 
+	void capture(std::function<bool(const SEvent &)> to) override { m_receiver->capture = std::move(to); }
+
 	virtual s32 getMouseWheel()
 	{
 		return m_receiver->getMouseWheel();
@@ -342,6 +355,10 @@ public:
 		return a;
 	}
 
+	void capture(std::function<bool(const SEvent &)>) override
+	{
+		throw BaseException("RandomInputHandler: capturing input is not wired yet");
+	}
 	virtual s32 getMouseWheel() { return 0; }
 
 	virtual void step(float dtime);

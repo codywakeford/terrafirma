@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "mesh.h"
-#include "client/node_visuals.h"
-#include "client/texturesource.h"
 #include "constants.h"
 #include "exceptions.h"
 #include "light.h"
-#include "nodedef.h"
 #include <algorithm>
 #include <cmath>
 
@@ -17,81 +14,6 @@ namespace far {
 static const float SHADE[6] = { 1.0f, 0.447213f, 0.670820f, 0.670820f, 0.836660f, 0.836660f };
 static const v3f NORMAL[6] = { { 0, 1, 0 }, { 0, -1, 0 }, { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
 
-static video::SColorf toColorf(video::SColor c)
-{
-	return video::SColorf(c.getRed() / 255.0f, c.getGreen() / 255.0f, c.getBlue() / 255.0f, 1.0f);
-}
-
-Colours::Colours(const NodeDefManager *ndef, ITextureSource *tsrc, const std::vector<content_t> &blocks) :
-	m_ndef(ndef)
-{
-	for (content_t id : blocks) {
-		if (id == CONTENT_IGNORE || id == CONTENT_AIR || m_entries.count(id))
-			continue;
-		const ContentFeatures &f = ndef->get(id);
-		Entry e{};
-		for (int k = 0; k < 6; k++) {
-			const TileDef &t = f.tiledef[k];
-			if (t.name.empty())
-				throw BaseException("far view: block '" + f.name + "' has a face with no texture");
-			const std::string &overlay = f.tiledef_overlay[k].name;
-			std::string name = overlay.empty() ? t.name : t.name + "^(" + overlay + ")";
-			e.face[k] = toColorf(tsrc->getTextureAverageColor(name));
-			e.tile_colour[k] = t.has_color;
-			if (t.has_color) {
-				video::SColorf c = toColorf(t.color);
-				e.face[k] = video::SColorf(e.face[k].r * c.r, e.face[k].g * c.g, e.face[k].b * c.b, 1);
-			}
-		}
-		// the average leaves alpha out: over black and over white, what shows through is the difference
-		const std::string &top = f.tiledef[0].name;
-		video::SColorf on_black = toColorf(tsrc->getTextureAverageColor("[fill:1x1:#000000^(" + top + ")"));
-		video::SColorf on_white = toColorf(tsrc->getTextureAverageColor("[fill:1x1:#ffffff^(" + top + ")"));
-		e.clarity = std::clamp(((on_white.r - on_black.r) + (on_white.g - on_black.g) + (on_white.b - on_black.b)) / 3.0f,
-				0.0f, 1.0f);
-		e.over_black = on_black;
-		m_entries.emplace(id, e);
-	}
-}
-
-video::SColorf Colours::face(MapNode n, Face f) const
-{
-	auto it = m_entries.find(n.getContent());
-	if (it == m_entries.end())
-		throw BaseException("far view: no colour for block " + std::to_string(n.getContent()));
-	const Entry &e = it->second;
-	video::SColorf c = e.face[f];
-	if (!e.tile_colour[f]) {
-		const ContentFeatures &cf = m_ndef->get(n);
-		video::SColorf tint = toColorf(cf.visuals->getColor(cf, n.param2));
-		c = video::SColorf(c.r * tint.r, c.g * tint.g, c.b * tint.b, 1);
-	}
-	return c;
-}
-
-video::SColorf Colours::through(MapNode liquid, video::SColorf floor, float lit) const
-{
-	auto it = m_entries.find(liquid.getContent());
-	if (it == m_entries.end())
-		throw BaseException("far view: no colour for block " + std::to_string(liquid.getContent()));
-	const Entry &e = it->second;
-	// colour × opacity, plus what shows through
-	return video::SColorf(e.over_black.r + floor.r * lit * e.clarity, e.over_black.g + floor.g * lit * e.clarity,
-			e.over_black.b + floor.b * lit * e.clarity, 1);
-}
-
-std::vector<content_t> blocksIn(const Horizon &h)
-{
-	const terra::Blocks &b = h.blocks;
-	std::vector<content_t> out = { b.stone, b.water, b.ice, b.lava, b.placer, b.soil };
-	for (const terra::BiomeBlocks &bb : b.biomes)
-		out.insert(out.end(), { bb.top, bb.filler, bb.riverbed, bb.water_top });
-	out.insert(out.end(), std::begin(b.rock), std::end(b.rock));
-	out.insert(out.end(), std::begin(b.ore), std::end(b.ore));
-	for (const terra::Species &s : h.species)
-		out.insert(out.end(), { s.trunk, s.leaves });
-	return out;
-}
 
 namespace {
 
@@ -162,7 +84,13 @@ public:
 };
 
 // Top faces along a row, merged where neighbours are the same height and
-// colour: seas, plains and beaches become strips, not a quad a cell.
+// colour: seas, plains and beaches become strips, not a quad a cell. A strip
+// is at most a few cells long: on the planet a row bends (its region's
+// chart), and a long quad's straight edges would leave slits beside the next
+// row's shorter pieces.
+static constexpr float STRIP = 4; // cells
+// How far a tile's skirt hangs below its edge cells' ground, in its cells.
+static constexpr s32 SKIRT = 2;
 class Row
 {
 public:
@@ -172,7 +100,7 @@ public:
 	void add(float x0, float x1, float y, video::SColorf colour, Layer layer)
 	{
 		video::SColor c = colour.toSColor();
-		if (m_open && m_y == y && m_colour == c && m_layer == layer && m_x1 == x0) {
+		if (m_open && m_y == y && m_colour == c && m_layer == layer && m_x1 == x0 && x1 - m_x0 <= STRIP * (x1 - x0)) {
 			m_x1 = x1;
 			return;
 		}
@@ -225,7 +153,7 @@ static int subtract(Span s, Span cover, Span out[2])
 
 } // namespace
 
-Mesh mesh(const Tile &tile, const Colours &colours)
+Mesh mesh(const Tile &tile, const Palette &palette)
 {
 	Builder b;
 	const s32 cell = tile.key.cell();
@@ -236,9 +164,13 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 	// Under water, light falls a level per block of it (water passes light,
 	// not sunlight), on the engine's light curve. At height y (a face's edge)
 	// under a surface at `water`.
-	auto lightAt = [](float y, s32 water) {
+	// (The curve is the client's: set_light_curve. Unset, every level is 0.)
+	const float sun = (float)decode_light(LIGHT_SUN);
+	if (sun == 0)
+		throw BaseException("far mesh: the light curve isn't set (set_light_curve)");
+	auto lightAt = [sun](float y, s32 water) {
 		s32 depth = (s32)std::ceil((float)water + 0.5f - y);
-		return (float)decode_light((u8)std::clamp(LIGHT_SUN - depth, 0, (int)LIGHT_SUN)) / (float)decode_light(LIGHT_SUN);
+		return (float)decode_light((u8)std::clamp(LIGHT_SUN - depth, 0, (int)LIGHT_SUN)) / sun;
 	};
 
 	for (s32 j = 0; j < TILE; j++) {
@@ -258,18 +190,26 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 			};
 
 			if (!wet) {
-				put(surface, top(c.ground), colours.face(c.top, UP), Layer::SOLID);
+				put(surface, top(c.ground), palette.face(c.top, UP), Layer::SOLID);
 			} else {
 				float lit = lightAt(top(c.ground), c.water);
-				video::SColorf floor = colours.face(c.top, UP);
+				video::SColorf floor = palette.face(c.top, UP);
 				// the liquid, seen through as the near world's is; and the floor
 				// alone, for where the near world lays its own liquid over it
-				put(surface, top(c.water), colours.through(c.liquid, floor, lit), Layer::LIQUID);
+				put(surface, top(c.water), palette.through(c.liquid, floor, lit), Layer::LIQUID);
 				put(floors, top(c.ground), video::SColorf(floor.r * lit, floor.g * lit, floor.b * lit, 1), Layer::UNDER);
 			}
 
 			for (int k = 0; k < 4; k++) {
-				const Cell &n = tile.at(i + DI[k], j + DJ[k]);
+				const s32 ni = i + DI[k], nj = j + DJ[k];
+				Cell n = tile.at(ni, nj);
+				// at the tile's edge, a skirt: the next tile may be coarser or finer,
+				// its edge not meeting ours vertex for vertex; a wall hung below the
+				// ground fills what would show through (none toward a gap)
+				if ((ni < 0 || ni >= TILE || nj < 0 || nj >= TILE) && !n.space) {
+					n.ground = std::min(n.ground, c.ground - SKIRT * cell);
+					n.water = std::min(n.water, std::max(n.ground, c.water) - SKIRT * cell);
+				}
 				Face face = SIDE[k];
 				// a cliff: the soil's bands, then rock
 				if (n.ground < c.ground) {
@@ -282,7 +222,7 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 					bool under = n.water > n.ground;
 					for (int band = 0; band < 3 && upper > low; band++) {
 						float lower = std::max(bands[band], low);
-						b.side(x0, x1, z0, z1, lower, upper, face, colours.face(nodes[band], face),
+						b.side(x0, x1, z0, z1, lower, upper, face, palette.face(nodes[band], face),
 								under ? Layer::UNDER : Layer::SOLID,
 								under ? lightAt(lower, n.water) : 1.0f, under ? lightAt(upper, n.water) : 1.0f);
 						upper = std::min(upper, lower);
@@ -292,7 +232,7 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 				if (wet) {
 					float beyond = top(std::max(n.ground, n.water));
 					b.side(x0, x1, z0, z1, std::max(beyond, top(c.ground)), top(c.water), face,
-							colours.face(c.liquid, face), Layer::LIQUID);
+							palette.face(c.liquid, face), Layer::LIQUID);
 				}
 			}
 
@@ -301,9 +241,9 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 				if (run->empty())
 					continue;
 				Span s{ (float)run->low - 0.5f, top(run->high) };
-				b.flat(x0, x1, z0, z1, s.high, UP, colours.face(run->node, UP));
+				b.flat(x0, x1, z0, z1, s.high, UP, palette.face(run->node, UP));
 				if (run->low > c.ground + 1)
-					b.flat(x0, x1, z0, z1, s.low, DOWN, colours.face(run->node, DOWN));
+					b.flat(x0, x1, z0, z1, s.low, DOWN, palette.face(run->node, DOWN));
 				for (int k = 0; k < 4; k++) {
 					const Cell &n = tile.at(i + DI[k], j + DJ[k]);
 					Span pieces[4] = { s };
@@ -320,7 +260,7 @@ Mesh mesh(const Tile &tile, const Colours &colours)
 						count = m;
 					}
 					for (int p = 0; p < count; p++)
-						b.side(x0, x1, z0, z1, pieces[p].low, pieces[p].high, SIDE[k], colours.face(run->node, SIDE[k]));
+						b.side(x0, x1, z0, z1, pieces[p].low, pieces[p].high, SIDE[k], palette.face(run->node, SIDE[k]));
 				}
 			}
 			};

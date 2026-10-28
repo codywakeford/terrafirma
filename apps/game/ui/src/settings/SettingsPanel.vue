@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { BridgeError } from "../bridge/index.ts"
 import { useBridge } from "../bridge/use.ts"
-import { Button, Choice, ListEmpty, ListGroup, ListItem, Notice, Slider, Toggle, WorkbenchPanel } from "../kit/index.ts"
-import { CATEGORIES, GRAPHICS_PRESETS, type Page, type Category } from "./options.ts"
+import { Button, Choice, ListEmpty, ListGroup, ListItem, Notice, Segmented, Slider, Toggle, WorkbenchPanel } from "../kit/index.ts"
+import { CATEGORIES, GRAPHICS_PRESETS, type Page, type Category, type Option, type SettingValue } from "./options.ts"
 import { BINDINGS } from "./bindings.ts"
 import Keybindings from "./Keybindings.vue"
 import { publishAudioLevels } from "./audio.ts"
@@ -12,13 +12,14 @@ import { applyWidgetSettings } from "../game/widgets/config.ts"
 const bridge = useBridge()
 defineProps<{ closeLabel?: string }>()
 const emit = defineEmits<{ close: [] }>()
-const values = ref<Record<string, number | boolean> | null>(null)
+const values = ref<Record<string, SettingValue> | null>(null)
 const categoryId = ref("graphics")
 const pageId = ref("presets")
 const query = defineModel<string>("query", { required: true })
 const selectedKey = ref<string | null>(null)
 const problem = ref<string | null>(null)
 const busy = ref(false)
+const panel = ref<{ $el: HTMLElement } | null>(null)
 
 const category = computed(() => CATEGORIES.find((c) => c.id === categoryId.value)!)
 const page = computed(() => category.value.pages.find((p) => p.id === pageId.value) ?? category.value.pages[0]!)
@@ -40,8 +41,6 @@ const RAIL = [
         rows: ["AAAAAAAAA", "ABBBBBBBA", "AB.....BA", "ABAAAAABA", "AB.....BA", "ABAAAAABA", "AB.....BA", "ABBBBBBBA", "AAAAAAAAA"] },
     { id: "hud", label: "HUD", palette: { A: "#c9d4dc", B: "#40b8ec" },
         rows: ["AAAAAAAAA", "A.......A", "A.AAA.A.A", "A.ABA.A.A", "A.AAA.A.A", "A.......A", "A.AAA.A.A", "A.......A", "AAAAAAAAA"] },
-    { id: "accessibility", label: "Accessibility", shortLabel: "Access", palette: { A: "#c9d4dc", B: "#40b8ec" },
-        rows: ["...AAA...", "...ABA...", "...AAA...", "AAAAAAAAA", ".AAABAAA.", "..A.A.A..", ".AA...AA.", ".A.....A.", "A.......A"] },
 ]
 const pageGroups = computed(() => {
     const groups: { title: string; pages: Page[] }[] = []
@@ -78,7 +77,10 @@ const chosenPreset = computed({
 })
 
 watch(categoryId, () => { pageId.value = category.value.pages[0]!.id }, { flush: "sync" })
-watch(pageId, () => { selectedKey.value = null }, { flush: "sync" })
+watch(pageId, () => {
+    selectedKey.value = null
+    void nextTick(() => panel.value?.$el.querySelector<HTMLElement>(".workbench-content")?.scrollTo({ top: 0 }))
+}, { flush: "sync" })
 
 function numberValue(key: string) {
     const value = values.value?.[key]
@@ -90,6 +92,14 @@ function flagValue(key: string) {
     if (typeof value !== "boolean") throw new Error(`setting ${key} is not a flag`)
     return value
 }
+function choiceValue(key: string) {
+    const value = values.value?.[key]
+    if (typeof value !== "string") throw new Error(`setting ${key} is not a choice`)
+    return value
+}
+function available(option: Option) {
+    return !option.requires || values.value?.[option.requires.key] === option.requires.value
+}
 function stage(key: string, value: number) {
     values.value = { ...values.value, [key]: value }
 }
@@ -97,7 +107,7 @@ function report(err: unknown) {
     if (!(err instanceof BridgeError && err.refused)) console.error(err)
     problem.value = err instanceof Error ? err.message : String(err)
 }
-async function save(key: string, value: number | boolean) {
+async function save(key: string, value: SettingValue) {
     if (busy.value) return
     busy.value = true
     problem.value = null
@@ -134,7 +144,7 @@ onMounted(async () => {
 </script>
 
 <template>
-    <WorkbenchPanel v-model:group="railChoice" v-model:query="query" class="settings"
+    <WorkbenchPanel ref="panel" v-model:group="railChoice" v-model:query="query" class="settings"
         title="Settings" :section="panelSection" :groups="RAIL" rail-label="Settings categories"
         search-label="Search settings" search-placeholder="Search settings…">
         <template #actions><Button v-if="closeLabel" size="sm" @click="emit('close')">{{ closeLabel }}</Button></template>
@@ -170,14 +180,19 @@ onMounted(async () => {
             </template>
             <Keybindings v-if="page.bindings" :focus-key="focusBinding" />
             <div v-if="values && page.options.length" class="options">
-                <div v-for="o in page.options" :key="o.key" class="option" :class="{ on: selectedKey === o.key }"
+                <div v-for="o in page.options" :key="o.key" class="option" :class="{ on: selectedKey === o.key, unavailable: !available(o) }"
                     @pointerdown="selectedKey = o.key" @focusin="selectedKey = o.key">
                     <Slider v-if="o.kind === 'slider'" :model-value="numberValue(o.key)" :label="o.label"
-                        :min="o.min" :max="o.max" :step="o.step" :format="o.format"
+                        :min="o.min" :max="o.max" :step="o.step" :format="o.format" :disabled="busy || !available(o)"
                         @update:model-value="stage(o.key, $event)" @change="save(o.key, $event)" />
-                    <Toggle v-else :model-value="flagValue(o.key)" :label="o.label"
+                    <Toggle v-else-if="o.kind === 'toggle'" :model-value="flagValue(o.key)" :label="o.label" :disabled="busy || !available(o)"
                         @update:model-value="save(o.key, $event)" />
-                    <p class="option-note">{{ o.note }}</p>
+                    <template v-else>
+                        <h3 class="option-label">{{ o.label }}</h3>
+                        <Segmented :model-value="choiceValue(o.key)" :options="o.choices"
+                            @update:model-value="$event !== null && save(o.key, $event)" />
+                    </template>
+                    <p class="option-note">{{ !available(o) && o.requires?.note ? o.requires.note : o.note }}<span v-if="o.restart"> Restart required.</span></p>
                 </div>
             </div>
         </template>
@@ -191,5 +206,9 @@ onMounted(async () => {
 .options { display: grid; }
 .option { padding: 12px 10px; border: var(--b) solid transparent; border-bottom-color: var(--stone-3); }
 .option.on { border-color: var(--edge); background: var(--stone-1); box-shadow: var(--sunk); }
+.option.unavailable { opacity: 0.45; }
+.option.unavailable :deep(.segmented) { pointer-events: none; }
+.option-label { margin: 0 0 8px; font: 12px var(--font-display); text-transform: uppercase; }
 .option-note { max-width: 68ch; padding-top: 6px; }
+.settings :deep(.workbench-content-inner) { padding-bottom: 48px; }
 </style>

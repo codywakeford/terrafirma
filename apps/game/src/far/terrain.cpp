@@ -6,6 +6,7 @@
 #include "mapgen/treegen.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <tuple>
 
@@ -40,7 +41,7 @@ terragen::Cover Generator::coverAt(s32 x, s32 z, const terragen::Ground &ground)
 Generator::Generator(const Horizon &horizon) :
 	m_horizon(horizon),
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, nullptr))
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, nullptr))
 {
 	growCrowns();
 }
@@ -49,8 +50,9 @@ Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas) :
 	m_horizon(horizon),
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
 	m_atlas(atlas),
-	m_globe(Globe(atlas.atlas().params().radius)),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.blocks, horizon.water_level, &*m_atlas))
+	m_tiling(std::make_unique<Tiling>(atlas.atlas())),
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, &*m_atlas)),
+	m_land(std::make_unique<terra::AtlasLand>(*m_columns, *m_atlas))
 {
 	growCrowns();
 }
@@ -58,7 +60,7 @@ Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas) :
 void Generator::growCrowns()
 {
 	// each species' typical crown, from growing a few of its trees
-	for (const terra::Species &s : m_horizon.species) {
+	for (const terra::Species &s : m_horizon.content.species) {
 		treegen::TreeDef def = terra::treeDef(s);
 		s32 lows = 0, highs = 0, grown = 0;
 		for (s32 k = 0; k < 8; k++) {
@@ -69,7 +71,7 @@ void Generator::growCrowns()
 			for (s32 z = a.MinEdge.Z; z <= a.MaxEdge.Z; z++)
 			for (s32 y = a.MinEdge.Y; y <= a.MaxEdge.Y; y++)
 			for (s32 x = a.MinEdge.X; x <= a.MaxEdge.X; x++)
-				vm.m_data[a.index(x, y, z)] = MapNode(y < base.Y ? m_horizon.blocks.stone : CONTENT_AIR);
+				vm.m_data[a.index(x, y, z)] = MapNode(y < base.Y ? m_horizon.content.blocks.stone : CONTENT_AIR);
 			treegen::make_ltree(vm, base, def);
 			s32 low = TALLEST, high = -1;
 			for (s32 z = a.MinEdge.Z; z <= a.MaxEdge.Z; z++)
@@ -129,6 +131,13 @@ static Cell cellOf(const terra::Columns &columns, const terra::Column &c, s32 x,
 	return cell;
 }
 
+const terra::AtlasLand &Generator::land() const
+{
+	if (!m_land)
+		throw BaseException("far: a flat world has no atlas land");
+	return *m_land;
+}
+
 Cell Generator::column(s32 x, s32 z) const
 {
 	terra::Column c = m_columns->at(x, z, m_columns->sunlight(z));
@@ -141,13 +150,13 @@ const terra::Species *Generator::speciesAt(const terra::Column &c, s32 x, s32 z)
 		return nullptr;
 	Cover cover = coverAt(x, z, c.ground);
 	content_t ground = m_columns->node(c, x, c.height, z).getContent();
-	return terra::choose(m_horizon.species, terra::spotAt(c.ground, cover), ground);
+	return terra::choose(m_horizon.content.species, terra::spotAt(c.ground, cover), ground);
 }
 
 Tile Generator::build(const TileKey &key) const
 {
-	if (m_globe)
-		return buildOnGlobe(key);
+	if (m_tiling)
+		return buildOnAtlas(key);
 	Tile tile;
 	tile.key = key;
 	tile.cells.resize((size_t)(TILE + 2) * (TILE + 2));
@@ -166,7 +175,7 @@ Tile Generator::build(const TileKey &key) const
 			const terra::Species *s = speciesAt(c, x, z);
 			if (!s)
 				continue;
-			const Crown &crown = m_crowns[s - m_horizon.species.data()];
+			const Crown &crown = m_crowns[s - m_horizon.content.species.data()];
 			Cover cover = coverAt(x, z, c.ground);
 			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
 				continue;
@@ -181,33 +190,46 @@ Tile Generator::build(const TileKey &key) const
 }
 
 /*
-	A globe's tile: each cell the column at its middle's latitude and
-	longitude, and its species' crown wherever the forest is dense enough (at
-	every level: the game's trees are planted per map chunk, and a globe's
-	cells aren't the map's). Noise that wants a column's map position (ores,
-	caves at a cliff) gets the cell's place on its face, fine cells across.
+	An atlas tile (far/tiling.h): each cell the column of the atlas cell it
+	stands for at the surface layer, as the generator builds it there
+	(terra::AtlasLand's rule: the column at the cell's place; noise at its
+	stored node), and its species' crown wherever the forest is dense enough
+	(at every level: the game's trees are planted per map chunk, which a
+	region's cells aren't). A cell the atlas has none of (trimmed, or past the
+	grid) is space: nothing drawn, and its neighbours draw no cliff toward it
+	(the region across the seam draws that ground).
 */
-Tile Generator::buildOnGlobe(const TileKey &key) const
+Tile Generator::buildOnAtlas(const TileKey &key) const
 {
 	Tile tile;
 	tile.key = key;
 	tile.cells.resize((size_t)(TILE + 2) * (TILE + 2));
-	const s32 cell = key.cell();
+	const terragen::Atlas &atlas = m_atlas->atlas();
 	for (s32 j = -1; j <= TILE; j++)
 		for (s32 i = -1; i <= TILE; i++) {
-			const s32 fx = key.x * key.span() + i * cell + cell / 2, fz = key.z * key.span() + j * cell + cell / 2;
-			const std::array<double, 2> at = Globe::place(m_globe->direction(key.face, fx, fz));
+			const terragen::Atlas::Cell cell = m_tiling->cell(key, i, j);
+			Cell &out = tile.at(i, j);
+			// past its grid's box a region's chart only carries on (and can come
+			// back round into its territory): no cell, whatever exists() says
+			if (!m_tiling->inGrid(key, cell) || !atlas.exists(cell)) {
+				out = Cell{};
+				out.space = true;
+				out.ground = out.water = std::numeric_limits<s32>::max() / 2;
+				continue;
+			}
+			const planet::Atlas::Node node = m_atlas->node(cell);
+			const std::array<double, 2> at = *m_atlas->place(node);
 			const terra::Column c = m_columns->atPlace(at[0], at[1]);
-			Cell &out = tile.at(i, j) = cellOf(*m_columns, c, fx, fz);
+			out = cellOf(*m_columns, c, node.x, node.z);
 			if (c.beyond || c.water > c.height)
 				continue;
 			const std::array<s16, 2> w = m_columns->onWorldAt(at[0], at[1]);
 			const Cover cover = m_world->cover(w[0], w[1], c.ground);
-			const content_t ground = m_columns->node(c, fx, c.height, fz).getContent();
-			const terra::Species *s = terra::choose(m_horizon.species, terra::spotAt(c.ground, cover), ground);
+			const content_t ground = m_columns->node(c, node.x, c.height, node.z).getContent();
+			const terra::Species *s = terra::choose(m_horizon.content.species, terra::spotAt(c.ground, cover), ground);
 			if (!s)
 				continue;
-			const Crown &crown = m_crowns[s - m_horizon.species.data()];
+			const Crown &crown = m_crowns[s - m_horizon.content.species.data()];
 			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
 				continue;
 			out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s->leaves) };
@@ -270,8 +292,8 @@ void Generator::growExact(Tile &tile) const
 		for (s32 vx = lo.X; vx <= hi.X; vx++) {
 			const terra::Column &g = at(vx, vz);
 			for (s32 vy = lo.Y; vy <= hi.Y; vy++)
-				vm.m_data[vm.m_area.index(vx, vy, vz)] = MapNode(vy <= g.height ? m_horizon.blocks.stone
-						: vy <= g.water ? m_horizon.blocks.water : CONTENT_AIR);
+				vm.m_data[vm.m_area.index(vx, vy, vz)] = MapNode(vy <= g.height ? m_horizon.content.blocks.stone
+						: vy <= g.water ? m_horizon.content.blocks.water : CONTENT_AIR);
 		}
 		for (const Planted &t : trees)
 			treegen::make_ltree(vm, t.base, terra::treeDef(*t.species));
@@ -279,7 +301,7 @@ void Generator::growExact(Tile &tile) const
 		// each column's tree blocks: the run at the top, and the one under it
 		auto tree = [&](s32 vx, s32 vy, s32 vz) {
 			content_t id = vm.m_data[vm.m_area.index(vx, vy, vz)].getContent();
-			for (const terra::Species &s : m_horizon.species)
+			for (const terra::Species &s : m_horizon.content.species)
 				if (id == s.leaves || id == s.trunk)
 					return true;
 			return false;

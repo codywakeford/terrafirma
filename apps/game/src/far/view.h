@@ -23,7 +23,7 @@ namespace planet { class Atlas; }
 
 namespace far {
 
-class Colours;
+class Palette;
 class Tiles;
 struct DrawState;
 class Uniforms;
@@ -75,8 +75,8 @@ private:
 
 	const s16 m_water_level;
 	const double m_radius; // blocks
-	std::unique_ptr<Colours> m_colours;
-	std::unique_ptr<Tiles> m_tiles; // after the colours it reads
+	std::unique_ptr<Palette> m_palette;
+	std::unique_ptr<Tiles> m_tiles; // after the palette it reads
 	std::shared_ptr<DrawState> m_state;
 	irr_ptr<Uniforms> m_uniforms;
 	video::SMaterial m_material;

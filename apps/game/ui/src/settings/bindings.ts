@@ -11,15 +11,20 @@ export const BINDING_GROUPS = [
         ["keymap_dig", "Dig / attack"], ["keymap_place", "Place / use"],
         ["keymap_inventory", "Inventory"], ["keymap_drop", "Drop item"],
         ["keymap_zoom", "Zoom"], ["keymap_chat", "Chat"],
+        ["keymap_hotbar_next", "Next hotbar slot"], ["keymap_hotbar_previous", "Previous hotbar slot"],
+        ["keymap_autoforward", "Automatic forward"],
     ] },
     { title: "Screens", bindings: [
-        ["keymap_lab", "Lab"], ["keymap_wiki", "Wiki"],
+        ["keymap_lab", "Lab"], ["keymap_wiki", "Wiki"], ["keymap_planetarium", "Planetarium"],
         ["keymap_minimap", "Map"], ["keymap_toggle_hud", "Toggle HUD"],
         ["keymap_camera_mode", "Camera mode"],
     ] },
     { title: "System", bindings: [
         ["keymap_fullscreen", "Fullscreen"], ["keymap_screenshot", "Screenshot"],
-        ["keymap_mute", "Mute sound"],
+        ["keymap_mute", "Mute sound"], ["keymap_increase_volume", "Increase volume"],
+        ["keymap_decrease_volume", "Decrease volume"],
+        ["keymap_increase_viewing_range_min", "Increase view distance"],
+        ["keymap_decrease_viewing_range_min", "Decrease view distance"],
     ] },
 ] as const
 

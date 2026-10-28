@@ -455,15 +455,11 @@ static const far::Generator &surfaceGenerator(Server *server)
 {
 	ServerTerra &t = server->terra();
 	if (!t.surface) {
-		const World &w = world(server);
-		const MapgenParams *params = server->getEmergeManager()->mgparams;
-		far::Horizon h;
-		h.code = w.code().text;
-		h.water_level = params->water_level;
-		h.blocks = terraBlocks(server->getEmergeManager()->getBiomeManager(), server->getNodeDefManager());
-		h.species = t.resolve(server->getNodeDefManager());
+		const std::optional<far::Horizon> h = server->horizon();
+		if (!h)
+			throw LuaError("core.terra: this world wasn't made by terra");
 		const planet::Atlas *atlas = server->atlas();
-		t.surface = atlas ? std::make_unique<far::Generator>(h, *atlas) : std::make_unique<far::Generator>(h);
+		t.surface = atlas ? std::make_unique<far::Generator>(*h, *atlas) : std::make_unique<far::Generator>(*h);
 	}
 	return *t.surface;
 }
@@ -583,6 +579,40 @@ int ModApiTerra::l_soil_points(lua_State *L)
 	return 1;
 }
 
+// core.terra.land(minp, maxp) → for every node of the area (as VoxelArea
+// indexes it: x inner, then y, then z, from 1) the name of the block the
+// generator places there on an atlas planet (terra::AtlasLand: what the far
+// view draws), or false where it stores no cell (seam). Before the game's
+// own planting. At most 2²⁴ nodes; raises on another world.
+int ModApiTerra::l_land(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	Server *server = getServer(L);
+	if (!server->atlas())
+		throw LuaError("core.terra.land: this world isn't an atlas planet");
+	const v3s16 a = check_v3s16(L, 1), b = check_v3s16(L, 2);
+	if (b.X < a.X || b.Y < a.Y || b.Z < a.Z)
+		throw LuaError("core.terra.land: the area must run min to max");
+	const s64 sx = b.X - a.X + 1, sy = b.Y - a.Y + 1, sz = b.Z - a.Z + 1;
+	if (sx * sy * sz > (1 << 24))
+		throw LuaError("core.terra.land: at most 2^24 nodes at once");
+	const NodeDefManager *ndef = server->getNodeDefManager();
+	terra::AtlasLand::Reader reader(surfaceGenerator(server).land());
+	lua_createtable(L, (int)(sx * sy * sz), 0);
+	// column by column, bottom up: the reader keeps a column while it lasts
+	for (s16 z = a.Z; z <= b.Z; z++)
+		for (s16 x = a.X; x <= b.X; x++)
+			for (s16 y = a.Y; y <= b.Y; y++) {
+				const std::optional<MapNode> n = reader.node({ x, y, z });
+				if (n)
+					lua_pushstring(L, ndef->get(*n).name.c_str());
+				else
+					lua_pushboolean(L, false);
+				lua_rawseti(L, -2, (int)((z - a.Z) * sy * sx + (y - a.Y) * sx + (x - a.X) + 1));
+			}
+	return 1;
+}
+
 // core.terra.world_column(pos) → { x, z }: the world model's column a
 // position is (on a planet, the one at its latitude and longitude).
 int ModApiTerra::l_world_column(lua_State *L)
@@ -614,6 +644,7 @@ void ModApiTerra::Initialize(lua_State *L, int top)
 		{ "weather", l_weather },
 		{ "soil_points", l_soil_points },
 		{ "world_column", l_world_column },
+		{ "land", l_land },
 	};
 	for (const luaL_Reg &f : functions) {
 		lua_pushcfunction(L, f.func);

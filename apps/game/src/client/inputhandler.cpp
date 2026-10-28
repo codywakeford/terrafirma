@@ -55,6 +55,7 @@ void MyEventReceiver::reloadKeybindings()
 	keybindings[KeyType::INVENTORY] = getKeySetting("keymap_inventory");
 	keybindings[KeyType::LAB] = getKeySetting("keymap_lab");
 	keybindings[KeyType::WIKI] = getKeySetting("keymap_wiki");
+	keybindings[KeyType::PLANETARIUM] = getKeySetting("keymap_planetarium");
 	keybindings[KeyType::CHAT] = getKeySetting("keymap_chat");
 	keybindings[KeyType::CMD] = getKeySetting("keymap_cmd");
 	keybindings[KeyType::CMD_LOCAL] = getKeySetting("keymap_cmd_local");
@@ -266,6 +267,9 @@ bool MyEventReceiver::OnEvent(const SEvent &event)
 	if (g_shell && g_shell->onEvent(event))
 		return true;
 #endif
+	// Terra Firma: then a full-screen view, if one is open
+	if (capture && capture(event))
+		return true;
 
 	if (event.EventType == EET_MOUSE_INPUT_EVENT && !event.MouseInput.Simulated)
 		last_pointer_type = PointerType::Mouse;

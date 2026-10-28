@@ -112,6 +112,7 @@ void set_default_settings()
 	// input method used.
 	settings->setDefault("touch_gui", bool_to_cstr(has_touch));
 	settings->setDefault("sound_volume", "0.8");
+	settings->setDefault("music_volume", "0.45");
 	settings->setDefault("sound_volume_unfocused", "0.3");
 	settings->setDefault("mute_sound", "false");
 	settings->setDefault("sound_extensions_blacklist", "");
@@ -157,6 +158,7 @@ void set_default_settings()
 	settings->setDefault("keymap_zoom", "SYSTEM_SCANCODE_29|GAMEPAD_BUTTON_11"); // KEY_KEY_Z|D-Pad Up
 	settings->setDefault("keymap_inventory", "SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3"); // KEY_KEY_E|Gamepad North
 	settings->setDefault("keymap_lab", "SYSTEM_SCANCODE_15"); // KEY_KEY_L (Terra Firma: the Lab panel)
+	settings->setDefault("keymap_planetarium", "SYSTEM_SCANCODE_64"); // KEY_F7 (Terra Firma: the planet viewer)
 	settings->setDefault("keymap_wiki", "SYSTEM_SCANCODE_10"); // KEY_KEY_G (Terra Firma: the wiki)
 	settings->setDefault("keymap_pause", "GAMEPAD_BUTTON_6"); // Gamepad Start
 	settings->setDefault("keymap_aux1", "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2"); // KEY_LCONTROL|Gamepad West (Terra Firma: sprint, as Minecraft; E is the inventory)
