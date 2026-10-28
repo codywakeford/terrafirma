@@ -42,7 +42,6 @@ const group = ref<Group>("start")
 const page = ref<Page>("quick")
 const problem = ref<string | null>(null)
 const busy = ref(false)
-const view = ref<"globe" | "map">("globe")
 // how much of the window the panel takes: the planet is framed in the rest
 const covers = ref({ left: 0, right: 0 })
 const code = computed(() => encodeWorldCode(draft.config))
@@ -147,9 +146,9 @@ async function create() {
     </Dock>
     <!-- over the planet, in what the panel leaves free -->
     <div class="visual" :style="{ left: `${covers.left + 16}px` }">
-        <Viewer v-model:view="view" :draft="draft" :frame="covers" />
+        <Viewer :draft="draft" :frame="covers" />
         <!-- the bodies to go to, bottom right over space -->
-        <BodyNavigator v-model:view="view" class="bodies" :system="draft.system" :star="draft.config.star" />
+        <BodyNavigator class="bodies" :system="draft.system" :star="draft.config.star" />
     </div>
     </div>
 </template>
@@ -167,11 +166,10 @@ async function create() {
 .page-head h2 { margin: 0; font: 18px var(--font-display); text-transform: uppercase; }
 .page-head p { margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.5; }
 /* the body strip, the views and overlays, the date: floating over the planet */
-.visual { position: fixed; top: 16px; right: 16px; bottom: 16px; display: flex; flex-direction: column; min-width: 0; pointer-events: none; }
-.visual > * { pointer-events: auto; }
-.visual .bodies { align-self: flex-end; }
-.visual :deep(.viewer) { flex: 1; min-height: 0; padding: 12px 0; pointer-events: none; }
-.visual :deep(.viewer) :is(button, input, nav, .concept-note, .date, .spawn, .square > :not(.native)) { pointer-events: auto; }
+.visual { position: fixed; top: 16px; right: 16px; bottom: 16px; min-width: 0; }
+.visual :deep(.viewer) { position: absolute; inset: 0; }
+/* pinned to the free space's bottom right, under nothing */
+.visual .bodies { position: absolute; right: 0; bottom: 0; max-width: 58%; }
 .save-status { margin-right: auto; color: var(--ink-faint); font-size: 10px; }
 .save-status strong { color: var(--ink-dim); font-weight: 400; }
 .save-status span { padding: 0 4px; }

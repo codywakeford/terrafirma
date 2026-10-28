@@ -17,6 +17,7 @@ private:
 	static int l_atlas_cell(lua_State *L);
 	static int l_atlas_place(lua_State *L);
 	static int l_atlas_node(lua_State *L);
+	static int l_spawn_level(lua_State *L);
 	static int l_atlas_point(lua_State *L);
 
 public:

@@ -17,16 +17,16 @@ Columns::Columns(const World &world, const Blocks &blocks, s16 water_level, cons
 {
 }
 
-std::array<s16, 2> equirect(double lat, double lon, int32_t size)
+std::array<int32_t, 2> equirect(double lat, double lon, int32_t size)
 {
 	const double half = size / 2.0;
 	double wx = std::round(lon / (2 * M_PI) * size);
 	wx -= std::floor((wx + half) / size) * size; // into −half … half
 	const double wz = std::clamp(std::round(lat / M_PI * size), 1 - half, half);
-	return { (s16)wx, (s16)wz };
+	return { (int32_t)wx, (int32_t)wz };
 }
 
-std::array<s16, 2> Columns::onWorld(s16 x, s16 z) const
+std::array<int32_t, 2> Columns::onWorld(s16 x, s16 z) const
 {
 	if (m_atlas) {
 		// the surface shell's column (its storage y is its layer)
@@ -44,7 +44,7 @@ Column Columns::at(s16 x, s16 z, fix sun) const
 	if (m_atlas) {
 		if (!m_atlas->place({ x, 0, z }))
 			return nothing(); // seam in the surface shell: the generator fills nodes by their own place
-		const std::array<s16, 2> w = onWorld(x, z);
+		const std::array<int32_t, 2> w = onWorld(x, z);
 		return column(w[0], w[1], sunlight(w[1]));
 	}
 	return column(x, z, sun);
@@ -52,11 +52,11 @@ Column Columns::at(s16 x, s16 z, fix sun) const
 
 Column Columns::atPlace(double latitude, double longitude) const
 {
-	const std::array<s16, 2> w = onWorldAt(latitude, longitude);
+	const std::array<int32_t, 2> w = onWorldAt(latitude, longitude);
 	return column(w[0], w[1], sunlight(w[1]));
 }
 
-std::array<s16, 2> Columns::onWorldAt(double latitude, double longitude) const
+std::array<int32_t, 2> Columns::onWorldAt(double latitude, double longitude) const
 {
 	return equirect(latitude, longitude, m_world.code().size);
 }
@@ -74,13 +74,13 @@ Column Columns::nothing() const
 	return c;
 }
 
-fix Columns::sunlight(s16 z) const
+fix Columns::sunlight(int32_t z) const
 {
 	fix v = m_world.v(z);
 	return v < 0 || v >= ONE ? 0 : m_world.sunlight(v, std::nullopt);
 }
 
-Column Columns::column(s16 x, s16 z, fix sun) const
+Column Columns::column(int32_t x, int32_t z, fix sun) const
 {
 	Column c{};
 	fix v = m_world.v(z);
@@ -131,7 +131,7 @@ Column Columns::column(s16 x, s16 z, fix sun) const
 	return c;
 }
 
-MapNode Columns::node(const Column &c, s16 x, s32 y, s16 z) const
+MapNode Columns::node(const Column &c, s32 x, s32 y, s32 z) const
 {
 	const Blocks &b = m_blocks;
 	if (y > c.height) {

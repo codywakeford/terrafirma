@@ -47,6 +47,10 @@ public:
 	virtual void makeChunk(BlockMakeData *data);
 	int getSpawnLevelAtPoint(v2s16 p);
 	int getGroundLevelAtPoint(v2s16 p);
+	// Terra Firma: the same at a place on the planet (radians), with no node
+	// of the map: a planet's spawn is looked for before its tile is in the
+	// window. MAX_MAP_GENERATION_LIMIT where no one spawns.
+	int spawnLevelAt(double latitude, double longitude) const;
 
 private:
 	// Fills stone, water and air from terragen; records each column. Returns
@@ -57,6 +61,7 @@ private:
 	void paintSurface();
 	// The finished column at (x, z), or false beyond the polar edge.
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
+	bool groundOnWorld(std::array<int32_t, 2> w, terragen::Ground &ground) const; // the world model's block
 
 	terragen::World m_world;
 	std::optional<planet::Atlas> m_atlas;   // the world's, if it's a planet (planet_atlas)

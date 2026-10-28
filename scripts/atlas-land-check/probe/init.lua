@@ -17,7 +17,7 @@ local function box(name, p, below, above, half)
 		max = { x = p.x + half - 1, y = p.y + above, z = p.z + half - 1 } }
 end
 local segment, inner
-for _, r in ipairs(atlas.regions) do
+for _, r in ipairs(atlas.tiles) do
 	if r.kind == "segment" and not segment then segment = r end
 	if r.kind == "core" then inner = r end
 end

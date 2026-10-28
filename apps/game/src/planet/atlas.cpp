@@ -4,6 +4,7 @@
 #include "atlas.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -24,67 +25,314 @@ bool inside(const Atlas::Rect &r, int32_t x, int32_t z)
 	return x >= r.x && x < r.x + r.width && z >= r.z && z < r.z + r.depth;
 }
 
-} // namespace
-
-// Each region's grid a box, in rows across the map, a gap apart; y the layer.
-Atlas::Atlas(const terragen::Atlas::Params &params) : m_atlas(params)
+uint64_t idKey(const Atlas::TileId &t)
 {
-	const auto refuse = [&](const std::string &what) {
-		throw std::invalid_argument("planet::Atlas: " + what + " doesn't fit the map (" + m_atlas.code() + ")");
-	};
-	int32_t x = ORIGIN, z = ORIGIN, depth = 0;
-	for (const terragen::Atlas::Grid &g : m_atlas.grids()) {
-		Region r{ g.region, g.index, {}, (int32_t)g.low[2], (int32_t)g.high[2], g.low[0], g.low[1] };
-		r.rect.width = (int32_t)(g.high[0] - g.low[0] + 1);
-		r.rect.depth = (int32_t)(g.high[1] - g.low[1] + 1);
-		if (r.rect.width > SPAN || r.rect.depth > SPAN || r.k0 < Y_LOW || r.k1 >= Y_HIGH)
-			refuse("a region");
-		if (x + r.rect.width > ORIGIN + SPAN) {
-			x = ORIGIN;
-			z += depth + GAP;
-			depth = 0;
-		}
-		r.rect.x = x;
-		r.rect.z = z;
-		if (z + r.rect.depth > ORIGIN + SPAN)
-			refuse("the regions, packed");
-		x += r.rect.width + GAP;
-		depth = std::max(depth, r.rect.depth);
-		m_regions.push_back(r);
-	}
+	return ((uint64_t)(uint8_t)t.region << 48) | ((uint64_t)(uint32_t)(t.ti & 0xffffff) << 24) |
+			(uint64_t)(uint32_t)(t.tj & 0xffffff);
 }
 
-const Atlas::Region *Atlas::regionAt(Node node) const
+int64_t tileFloor(int64_t v)
 {
-	for (const Region &r : m_regions)
-		if (inside(r.rect, node.x, node.z) && node.y >= r.k0 && node.y <= r.k1)
-			return &r;
-	return nullptr;
+	return v >= 0 ? v / Atlas::TILE : -((-v + Atlas::TILE - 1) / Atlas::TILE);
+}
+
+} // namespace
+
+Atlas::Atlas(const terragen::Atlas::Params &params) : m_atlas(params)
+{
+	// the shell's lowest layer, the same for every segment and cap
+	const std::vector<terragen::Atlas::Grid> &grids = m_atlas.grids();
+	const auto lowest = std::find_if(grids.begin(), grids.end(), [](const auto &g) { return g.region != Kind::Core; });
+	m_coreStored = lowest->low[2] >= -CRUST;
+	for (const terragen::Atlas::Grid &g : grids)
+		if ((g.region != Kind::Core || m_coreStored) &&
+				(std::max<int64_t>(g.low[2], -CRUST) < Y_LOW || g.high[2] >= Y_HIGH))
+			throw std::invalid_argument("planet::Atlas: a region's layers don't fit the map (" + m_atlas.code() + ")");
+	auto empty = std::make_unique<Layout>();
+	empty->slots.resize((size_t)SLOTS * SLOTS);
+	empty->ids.resize((size_t)SLOTS * SLOTS);
+	m_shared->current = empty.get();
+	m_shared->layouts.push_back(std::move(empty));
+}
+
+// Each region's grid cut into tiles, a tile a slot, in rows across the map.
+Atlas Atlas::resident(const terragen::Atlas::Params &params)
+{
+	Atlas a(params);
+	const std::vector<TileId> all = a.allTiles();
+	if (all.size() > (size_t)SLOTS * SLOTS)
+		throw std::invalid_argument("planet::Atlas: the tiles (" + std::to_string(all.size()) + " of " +
+				std::to_string(SLOTS * SLOTS) + " slots) don't fit the map (" + a.m_atlas.code() + ")");
+	for (size_t s = 0; s < all.size(); s++)
+		a.put((int)s, all[s]);
+	return a;
+}
+
+std::vector<Atlas::TileId> Atlas::allTiles() const
+{
+	std::vector<TileId> out;
+	for (const terragen::Atlas::Grid &g : m_atlas.grids()) {
+		if (g.region == Kind::Core && !m_coreStored)
+			continue;
+		for (int64_t tj = tileFloor(g.low[1]); tj <= tileFloor(g.high[1]); tj++)
+			for (int64_t ti = tileFloor(g.low[0]); ti <= tileFloor(g.high[0]); ti++) {
+				out.push_back({ regionNumber(g.region, g.index), (int32_t)ti, (int32_t)tj });
+				if (out.size() > (size_t)SLOTS * SLOTS * 4)
+					return out; // far more than fit: enough to say so
+			}
+	}
+	return out;
+}
+
+int Atlas::regionNumber(Kind kind, int index) const
+{
+	const int segments = m_atlas.params().segments;
+	return kind == Kind::Segment ? index : kind == Kind::Cap ? segments + (index > 0 ? 0 : 1) : segments + 2;
+}
+
+std::pair<Kind, int> Atlas::regionOfNumber(int number) const
+{
+	const int segments = m_atlas.params().segments;
+	if (number >= 0 && number < segments)
+		return { Kind::Segment, number };
+	if (number == segments || number == segments + 1)
+		return { Kind::Cap, number == segments ? 1 : -1 };
+	if (number == segments + 2)
+		return { Kind::Core, 0 };
+	throw std::invalid_argument("planet::Atlas: no region " + std::to_string(number));
+}
+
+namespace {
+
+const terragen::Atlas::Grid &gridOf(const terragen::Atlas &atlas, Kind kind, int index)
+{
+	for (const terragen::Atlas::Grid &g : atlas.grids())
+		if (g.region == kind && g.index == index)
+			return g;
+	throw std::invalid_argument("planet::Atlas: no such grid");
+}
+
+} // namespace
+
+Atlas::Tile Atlas::tileIn(int slot, const TileId &id) const
+{
+	const auto [kind, index] = regionOfNumber(id.region);
+	if (kind == Kind::Core && !m_coreStored)
+		throw std::invalid_argument("planet::Atlas: the core isn't stored at this radius");
+	const terragen::Atlas::Grid &g = gridOf(m_atlas, kind, index);
+	const int64_t i0 = std::max(g.low[0], (int64_t)id.ti * TILE), i1 = std::min(g.high[0], (int64_t)id.ti * TILE + TILE - 1);
+	const int64_t j0 = std::max(g.low[1], (int64_t)id.tj * TILE), j1 = std::min(g.high[1], (int64_t)id.tj * TILE + TILE - 1);
+	if (i0 > i1 || j0 > j1)
+		throw std::invalid_argument("planet::Atlas: tile " + std::to_string(id.ti) + "," + std::to_string(id.tj) +
+				" isn't on region " + std::to_string(id.region) + "'s grid");
+	// in its slot as in its square of the grid
+	const int32_t x = ORIGIN + (slot % SLOTS) * SLOT + (int32_t)(i0 - (int64_t)id.ti * TILE);
+	const int32_t z = ORIGIN + (slot / SLOTS) * SLOT + (int32_t)(j0 - (int64_t)id.tj * TILE);
+	return { kind, index, { x, z, (int32_t)(i1 - i0 + 1), (int32_t)(j1 - j0 + 1) },
+		(int32_t)std::max<int64_t>(g.low[2], -CRUST), (int32_t)g.high[2], i0, j0 };
+}
+
+const Atlas::Layout &Atlas::layout() const
+{
+	return *m_shared->current.load(std::memory_order_acquire);
+}
+
+Atlas::Found &Atlas::kept() const
+{
+	return layout().found;
+}
+
+std::vector<Atlas::Tile> Atlas::tiles() const
+{
+	std::vector<Tile> out;
+	for (const std::optional<Tile> &t : layout().slots)
+		if (t)
+			out.push_back(*t);
+	return out;
+}
+
+std::vector<std::optional<Atlas::TileId>> Atlas::window() const
+{
+	return layout().ids;
+}
+
+uint64_t Atlas::generation() const
+{
+	return layout().generation;
+}
+
+std::optional<int> Atlas::slotOf(const TileId &tile) const
+{
+	const Layout &l = layout();
+	const auto it = l.slotOf.find(idKey(tile));
+	return it == l.slotOf.end() ? std::nullopt : std::optional(it->second);
+}
+
+std::optional<int> Atlas::slotAt(Node node)
+{
+	const int64_t dx = (int64_t)node.x - ORIGIN, dz = (int64_t)node.z - ORIGIN;
+	if (dx < 0 || dz < 0 || dx >= (int64_t)SLOTS * SLOT || dz >= (int64_t)SLOTS * SLOT)
+		return std::nullopt;
+	return (int)((dz / SLOT) * SLOTS + dx / SLOT);
+}
+
+void Atlas::put(int slot, std::optional<TileId> tile)
+{
+	if (slot < 0 || slot >= SLOTS * SLOTS)
+		throw std::invalid_argument("planet::Atlas: no slot " + std::to_string(slot));
+	std::lock_guard<std::mutex> hold(m_shared->changing);
+	const Layout &was = layout();
+	if (tile) {
+		const auto it = was.slotOf.find(idKey(*tile));
+		if (it != was.slotOf.end() && it->second != slot)
+			throw std::invalid_argument("planet::Atlas: tile already in slot " + std::to_string(it->second));
+	}
+	auto next = std::make_unique<Layout>();
+	next->slots = was.slots;
+	next->ids = was.ids;
+	next->slotOf = was.slotOf;
+	next->generation = was.generation + 1;
+	if (const std::optional<TileId> &old = next->ids[slot])
+		next->slotOf.erase(idKey(*old));
+	next->slots[slot] = tile ? std::optional(tileIn(slot, *tile)) : std::nullopt;
+	next->ids[slot] = tile;
+	if (tile)
+		next->slotOf[idKey(*tile)] = slot;
+	m_shared->current.store(next.get(), std::memory_order_release);
+	m_shared->layouts.push_back(std::move(next));
+	if (m_shared->layouts.size() > KEPT)
+		m_shared->layouts.pop_front();
+}
+
+// "tiles-v1 slot:region,ti,tj;…", the slots holding a tile
+std::string Atlas::windowCode() const
+{
+	std::string out = "tiles-v1";
+	const std::vector<std::optional<TileId>> &ids = layout().ids;
+	for (size_t s = 0; s < ids.size(); s++)
+		if (ids[s])
+			out += " " + std::to_string(s) + ":" + std::to_string(ids[s]->region) + "," +
+					std::to_string(ids[s]->ti) + "," + std::to_string(ids[s]->tj);
+	return out;
+}
+
+void Atlas::setWindow(const std::string &code)
+{
+	const auto refuse = [&]() { throw std::invalid_argument("planet::Atlas: a window code that can't be read: " + code); };
+	if (code.rfind("tiles-v1", 0) != 0)
+		refuse();
+	std::vector<std::pair<int, TileId>> placed;
+	size_t at = 8;
+	while (at < code.size()) {
+		if (code[at] != ' ')
+			refuse();
+		int slot, region;
+		long ti, tj;
+		int used = 0;
+		if (std::sscanf(code.c_str() + at, " %d:%d,%ld,%ld%n", &slot, &region, &ti, &tj, &used) != 4 || used <= 0)
+			refuse();
+		placed.push_back({ slot, TileId{ region, (int32_t)ti, (int32_t)tj } });
+		at += used;
+	}
+	for (int s = 0; s < SLOTS * SLOTS; s++)
+		if (layout().ids[s])
+			put(s, std::nullopt);
+	for (const auto &[slot, id] : placed)
+		put(slot, id);
+}
+
+Atlas::TileId Atlas::tileOf(const Cell &c) const
+{
+	if (c.region == Kind::Core && !m_coreStored)
+		throw std::invalid_argument("planet::Atlas: the core isn't stored at this radius");
+	if (c.region != Kind::Core && c.k < -CRUST)
+		throw std::invalid_argument("planet::Atlas: a cell below the crust");
+	return { regionNumber(c.region, c.index), (int32_t)tileFloor(c.i), (int32_t)tileFloor(c.j) };
+}
+
+std::vector<Atlas::TileId> Atlas::tilesNear(const terragen::Atlas::Vec &point, double radius) const
+{
+	// a square of points round it on the sphere through it, STEP apart
+	constexpr double STEP = 256;
+	const double r = std::sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
+	const terragen::Atlas::Vec up{ point.x / r, point.y / r, point.z / r };
+	// any two directions square to up
+	const terragen::Atlas::Vec a = std::abs(up.y) < 0.9 ? terragen::Atlas::Vec{ up.z, 0, -up.x } : terragen::Atlas::Vec{ 0, -up.z, up.y };
+	const double al = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+	const terragen::Atlas::Vec e{ a.x / al, a.y / al, a.z / al };
+	const terragen::Atlas::Vec n{ up.y * e.z - up.z * e.y, up.z * e.x - up.x * e.z, up.x * e.y - up.y * e.x };
+	const double surface = m_atlas.params().radius - 1;
+	std::vector<TileId> out;
+	const int steps = (int)std::ceil(radius / STEP);
+	for (int v = -steps; v <= steps; v++)
+		for (int u = -steps; u <= steps; u++) {
+			const double du = u * STEP, dv = v * STEP;
+			if (du * du + dv * dv > radius * radius + STEP * STEP)
+				continue;
+			const terragen::Atlas::Vec d{ up.x * r + e.x * du + n.x * dv, up.y * r + e.y * du + n.y * dv,
+				up.z * r + e.z * du + n.z * dv };
+			const double dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+			const TileId t = tileOf(m_atlas.locate({ d.x / dl * surface, d.y / dl * surface, d.z / dl * surface }));
+			if (std::find(out.begin(), out.end(), t) == out.end())
+				out.push_back(t);
+		}
+	return out;
+}
+
+Atlas::Spot Atlas::spotOf(const Cell &c) const
+{
+	return { (int32_t)(c.i + (int64_t)regionNumber(c.region, c.index) * STRIDE), (int32_t)c.k, (int32_t)c.j };
+}
+
+std::optional<Atlas::Spot> Atlas::spot(Node node) const
+{
+	const Tile *t = tileAt(node);
+	if (!t)
+		return std::nullopt;
+	return spotOf({ t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y });
+}
+
+std::optional<Atlas::Spot> Atlas::blockSpot(Block block) const
+{
+	const Node corner{ block.x * BLOCK, block.y * BLOCK, block.z * BLOCK };
+	const std::optional<int> slot = slotAt(corner);
+	if (!slot)
+		return std::nullopt;
+	const std::optional<TileId> &id = layout().ids[*slot];
+	const int32_t lx = (corner.x - ORIGIN - (*slot % SLOTS) * SLOT) / BLOCK;
+	const int32_t lz = (corner.z - ORIGIN - (*slot / SLOTS) * SLOT) / BLOCK;
+	if (!id || lx >= TILE / BLOCK || lz >= TILE / BLOCK)
+		return std::nullopt;
+	return Spot{ (int32_t)(((int64_t)id->region * STRIDE + (int64_t)id->ti * TILE) / BLOCK) + lx, block.y,
+		(int32_t)((int64_t)id->tj * TILE / BLOCK) + lz };
+}
+
+const Atlas::Tile *Atlas::tileAt(Node node) const
+{
+	const std::optional<int> slot = slotAt(node);
+	if (!slot)
+		return nullptr;
+	const std::optional<Tile> &tile = layout().slots[*slot];
+	if (!tile)
+		return nullptr;
+	return inside(tile->rect, node.x, node.z) && node.y >= tile->k0 && node.y <= tile->k1 ? &*tile : nullptr;
 }
 
 std::optional<Atlas::Cell> Atlas::cell(Node node) const
 {
-	const Region *r = regionAt(node);
-	if (!r)
+	const Tile *t = tileAt(node);
+	if (!t)
 		return std::nullopt;
-	const Cell c{ r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), node.y };
+	const Cell c{ t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y };
 	return m_atlas.exists(c) ? std::optional(c) : std::nullopt;
-}
-
-int Atlas::regionOf(const Cell &c) const
-{
-	for (size_t n = 0; n < m_regions.size(); n++)
-		if (m_regions[n].kind == c.region && m_regions[n].index == c.index)
-			return (int)n;
-	return -1;
 }
 
 Atlas::Node Atlas::node(const Cell &c) const
 {
-	const int index = regionOf(c);
-	if (index < 0)
-		throw std::invalid_argument("planet::Atlas: cell has no region");
-	const Region &r = m_regions[index];
+	const std::optional<int> slot = slotOf(tileOf(c));
+	if (!slot)
+		throw std::invalid_argument("planet::Atlas: cell's tile isn't in the window");
+	const Tile &r = *layout().slots[*slot];
 	const Node n{ (int32_t)(r.rect.x + c.i - r.i0), (int32_t)c.k, (int32_t)(r.rect.z + c.j - r.j0) };
 	const std::optional<Cell> back = cell(n);
 	if (!back || !(*back == c))
@@ -94,19 +342,24 @@ Atlas::Node Atlas::node(const Cell &c) const
 
 std::optional<std::array<double, 2>> Atlas::place(Node node) const
 {
-	const Region *r = regionAt(node);
+	const Tile *r = tileAt(node);
 	if (!r || r->kind == Kind::Core)
 		return std::nullopt;
-	const Cell surface{ r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 };
-	const terragen::Atlas::Vec p = m_atlas.centre(surface);
-	const double l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-	return std::array<double, 2>{ std::asin(p.y / l), std::atan2(p.z, p.x) };
+	return place(Cell{ r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 });
 }
 
-int Atlas::regionIndex(Node node) const
+std::array<double, 2> Atlas::place(const Cell &cell) const
 {
-	const Region *r = regionAt(node);
-	return r ? (int)(r - m_regions.data()) : -2;
+	if (cell.region == Kind::Core)
+		throw std::invalid_argument("planet::Atlas: the core has no place on the ground");
+	const terragen::Atlas::Vec p = m_atlas.centre({ cell.region, cell.index, cell.i, cell.j, 0 });
+	const double l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+	return { std::asin(p.y / l), std::atan2(p.z, p.x) };
+}
+
+int Atlas::tileIndex(Node node) const
+{
+	return tileAt(node) ? *slotAt(node) : -2;
 }
 
 std::optional<terragen::Atlas::Vec> Atlas::point(Node from, double x, double y, double z) const
@@ -174,6 +427,7 @@ static uint64_t blockKey(const Atlas::Block &b)
 
 std::optional<Atlas::Step> Atlas::step(Node from, int axis, int sign) const
 {
+	Found &cache = kept();
 	if (interior(blockOf(from)))
 		return std::nullopt;
 	const std::optional<Cell> c = cell(from);
@@ -192,14 +446,14 @@ std::optional<Atlas::Step> Atlas::step(Node from, int axis, int sign) const
 	// at a seam: found once, kept (the planet never changes)
 	const std::array<int32_t, 4> key{ from.x, from.y, from.z, axis * 2 + (sign > 0) };
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->steps.find(key);
-		if (it != m_found->steps.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.steps.find(key);
+		if (it != cache.steps.end())
 			return it->second;
 	}
 	const std::optional<Step> found = findStep(from, *c, axis, sign);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->steps.emplace(key, found).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.steps.emplace(key, found).first->second;
 }
 
 std::optional<Atlas::Step> Atlas::findStep(Node from, const Cell &c, int axis, int sign) const
@@ -220,7 +474,7 @@ std::optional<Atlas::Step> Atlas::findStep(Node from, const Cell &c, int axis, i
 
 std::optional<Atlas::Seen> Atlas::see(Node from, Node p) const
 {
-	if (!cell(from) || (regionIndex(p) == regionIndex(from) && cell(p)))
+	if (!cell(from) || (tileIndex(p) == tileIndex(from) && cell(p)))
 		return std::nullopt;
 	return seeAt(from, p.x, p.y, p.z);
 }
@@ -318,43 +572,46 @@ std::optional<Atlas::BlockChart> Atlas::findChart(Block block) const
 
 std::vector<Atlas::Block> Atlas::blocksAt(Node from, double x, double y, double z) const
 {
-	// a grid carried on is the same from any of its cells: keyed by the region
-	const std::array<int64_t, 4> key{ regionIndex(from), std::llround(x * 2), std::llround(y * 2), std::llround(z * 2) };
+	Found &cache = kept();
+	// a grid carried on is the same from any of a tile's cells: keyed by the tile (its storage frame)
+	const std::array<int64_t, 4> key{ tileIndex(from), std::llround(x * 2), std::llround(y * 2), std::llround(z * 2) };
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->at.find(key);
-		if (it != m_found->at.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.at.find(key);
+		if (it != cache.at.end())
 			return it->second;
 	}
 	std::vector<Block> found = findAt(from, x, y, z);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->at.emplace(key, std::move(found)).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.at.emplace(key, std::move(found)).first->second;
 }
 
 const std::vector<Atlas::Block> &Atlas::blocksAcross(Block block) const
 {
+	Found &cache = kept();
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->across.find(blockKey(block));
-		if (it != m_found->across.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.across.find(blockKey(block));
+		if (it != cache.across.end())
 			return it->second;
 	}
 	std::vector<Block> found = findAcross(block);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->across.emplace(blockKey(block), std::move(found)).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.across.emplace(blockKey(block), std::move(found)).first->second;
 }
 
 const std::vector<Atlas::RimNode> &Atlas::rim(Block block) const
 {
+	Found &cache = kept();
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->rims.find(blockKey(block));
-		if (it != m_found->rims.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.rims.find(blockKey(block));
+		if (it != cache.rims.end())
 			return it->second;
 	}
 	std::vector<RimNode> found = findRim(block);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->rims.emplace(blockKey(block), std::move(found)).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.rims.emplace(blockKey(block), std::move(found)).first->second;
 }
 
 std::vector<Atlas::RimNode> Atlas::findRim(Block block) const
@@ -388,7 +645,9 @@ std::vector<Atlas::RimNode> Atlas::findRim(Block block) const
 						break; // past the top: nothing across
 					const Cell straight = m_atlas.locate(there);
 					std::vector<Cell> cells{ straight };
-					for (int k = 0; k < 8; k++) {
+					// across a tile's edge the grid goes on: the cell straight across is the one
+					const bool sameGrid = straight.region == c.region && straight.index == c.index;
+					for (int k = 0; k < 8 && !sameGrid; k++) {
 						const double e = 0.45;
 						const terragen::Atlas::Vec p = chart(c, ox + (k & 1 ? e : -e), oy + (k & 2 ? e : -e), oz + (k & 4 ? e : -e));
 						if (std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z) >= m_atlas.params().radius + m_atlas.params().height)
@@ -409,23 +668,31 @@ std::vector<Atlas::RimNode> Atlas::findRim(Block block) const
 
 bool Atlas::interior(Block block) const
 {
+	Found &cache = kept();
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->interior.find(blockKey(block));
-		if (it != m_found->interior.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.interior.find(blockKey(block));
+		if (it != cache.interior.end())
 			return it->second;
 	}
-	// its middle's cell more than the block's half diagonal and a step in
+	// its middle's cell more than the block's half diagonal and a step in,
+	// and the block and a step round it inside its tile (a tile's edge is a
+	// seam too: the crust's floor, the gap to the next tile)
 	const Node middle{ block.x * BLOCK + BLOCK / 2, block.y * BLOCK + BLOCK / 2, block.z * BLOCK + BLOCK / 2 };
 	const std::optional<Cell> c = cell(middle);
+	const Tile *t = tileAt(middle);
+	const Node low{ block.x * BLOCK - 1, block.y * BLOCK - 1, block.z * BLOCK - 1 };
+	const Node high{ low.x + BLOCK + 1, low.y + BLOCK + 1, low.z + BLOCK + 1 };
 	const bool found = c && m_atlas.clearance(*c) > BLOCK + 2 &&
-			c->k + BLOCK < m_atlas.params().height;
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->interior.emplace(blockKey(block), found).first->second;
+			c->k + BLOCK < m_atlas.params().height &&
+			inside(t->rect, low.x, low.z) && inside(t->rect, high.x, high.z) && low.y >= t->k0 && high.y <= t->k1;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.interior.emplace(blockKey(block), found).first->second;
 }
 
 std::optional<Atlas::Cut> Atlas::cut(Node n) const
 {
+	Found &cache = kept();
 	if (interior(blockOf(n)))
 		return std::nullopt;
 	const std::optional<Cell> c = cell(n);
@@ -434,21 +701,22 @@ std::optional<Atlas::Cut> Atlas::cut(Node n) const
 		return std::nullopt;
 	const std::array<int32_t, 3> key{ n.x, n.y, n.z };
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->cuts.find(key);
-		if (it != m_found->cuts.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.cuts.find(key);
+		if (it != cache.cuts.end())
 			return it->second;
 	}
 	const std::optional<Cut> found = findCut(*c);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->cuts.emplace(key, found).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.cuts.emplace(key, found).first->second;
 }
 
 bool Atlas::prepared(Block block) const
 {
-	std::lock_guard<std::mutex> hold(m_found->lock);
+	Found &cache = kept();
+	std::lock_guard<std::mutex> hold(cache.lock);
 	const uint64_t key = blockKey(block);
-	return m_found->rims.count(key) && m_found->blockCuts.count(key) && m_found->charts.count(key);
+	return cache.rims.count(key) && cache.blockCuts.count(key) && cache.charts.count(key);
 }
 
 void Atlas::prepare(Block block) const
@@ -460,10 +728,11 @@ void Atlas::prepare(Block block) const
 
 const Atlas::Cuts &Atlas::cutsIn(Block block) const
 {
+	Found &cache = kept();
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->blockCuts.find(blockKey(block));
-		if (it != m_found->blockCuts.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.blockCuts.find(blockKey(block));
+		if (it != cache.blockCuts.end())
 			return *it->second;
 	}
 	auto found = std::make_shared<Cuts>();
@@ -475,8 +744,8 @@ const Atlas::Cuts &Atlas::cutsIn(Block block) const
 					if (const std::optional<Cut> c = cut(n))
 						found->push_back({ n, *c, findAcross(n, *c) });
 				}
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return *m_found->blockCuts.emplace(blockKey(block), std::move(found)).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return *cache.blockCuts.emplace(blockKey(block), std::move(found)).first->second;
 }
 
 // The nodes just past each of a cut cell's faces (cutsIn)
@@ -598,15 +867,16 @@ std::vector<Atlas::Cut::Box> Atlas::Cut::boxes(int n) const
 
 std::optional<Atlas::BlockChart> Atlas::blockChart(Block block) const
 {
+	Found &cache = kept();
 	{
-		std::lock_guard<std::mutex> hold(m_found->lock);
-		const auto it = m_found->charts.find(blockKey(block));
-		if (it != m_found->charts.end())
+		std::lock_guard<std::mutex> hold(cache.lock);
+		const auto it = cache.charts.find(blockKey(block));
+		if (it != cache.charts.end())
 			return it->second;
 	}
 	std::optional<BlockChart> found = findChart(block);
-	std::lock_guard<std::mutex> hold(m_found->lock);
-	return m_found->charts.emplace(blockKey(block), found).first->second;
+	std::lock_guard<std::mutex> hold(cache.lock);
+	return cache.charts.emplace(blockKey(block), found).first->second;
 }
 
 std::vector<bool> Atlas::cellsAround(Block block) const
@@ -616,11 +886,11 @@ std::vector<bool> Atlas::cellsAround(Block block) const
 	// Its corners' cells all one region's, well inside its territory (two
 	// blocks clear: a box this small bulges no further into the core's
 	// sphere, and a region's territory is otherwise convex): every node is.
-	const Region *region = regionAt(low);
+	const Tile *region = tileAt(low);
 	bool whole = region != nullptr;
 	for (int k = 0; whole && k < 8; k++) {
 		const Node corner{ low.x + (k & 1 ? W - 1 : 0), low.y + (k & 2 ? W - 1 : 0), low.z + (k & 4 ? W - 1 : 0) };
-		const std::optional<Cell> c = regionAt(corner) == region ? cell(corner) : std::nullopt;
+		const std::optional<Cell> c = tileAt(corner) == region ? cell(corner) : std::nullopt;
 		whole = c && m_atlas.clearance(*c) >= 2;
 	}
 	if (whole)
@@ -697,7 +967,7 @@ std::optional<Atlas::Carried> Atlas::carry(double wasX, double wasY, double wasZ
 	if (!c)
 		return std::nullopt;
 	const Node now = moverNode(x, y, z);
-	if (regionIndex(now) == regionIndex(from) && cell(now))
+	if (tileIndex(now) == tileIndex(from) && cell(now))
 		return std::nullopt; // still in its grid
 	// located a centimetre up, as moverNode: a point on a face is the node above's
 	const terragen::Atlas::Vec there = chart(*c, x - from.x, y + UP - from.y, z - from.z);

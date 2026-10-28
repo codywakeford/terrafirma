@@ -37,6 +37,12 @@ public:
 	static v3s16 getIntegerAsBlock(s64 i);
 
 	virtual void listAllLoadableBlocks(std::vector<v3s16> &dst) = 0;
+
+	// Terra Firma: blocks by a 32-bit position (a planet's: its spot in
+	// blocks, database/database-planet.h). Backends that can't keep one throw.
+	virtual bool saveBlockAt(const v3s32 &pos, std::string_view data);
+	virtual void loadBlockAt(const v3s32 &pos, std::string *block);
+	virtual bool deleteBlockAt(const v3s32 &pos);
 };
 
 class PlayerSAO;

@@ -32,6 +32,7 @@ public:
 	void testShippedPaletteIsWhole();
 	void testTilesForAnEye();
 	void testSeaIsWater();
+	void testTintPaintsTheLand();
 };
 
 static TestFarPalette g_test_instance;
@@ -43,6 +44,7 @@ void TestFarPalette::runTests(IGameDef *gamedef)
 	TEST(testShippedPaletteIsWhole);
 	TEST(testTilesForAnEye);
 	TEST(testSeaIsWater);
+	TEST(testTintPaintsTheLand);
 }
 
 namespace {
@@ -165,7 +167,7 @@ void TestFarPalette::testTilesForAnEye()
 {
 	const Baked b = shipped();
 	const Horizon h{ "TF5.dGVycmE", 1, b.content };
-	const planet::Atlas atlas({ 300, 12, 80, 60, 0.95, 32 });
+	const planet::Atlas atlas = planet::Atlas::resident({ 300, 12, 80, 60, 0.95, 32 });
 	Tiles tiles(atlas, h, b.palette, 2);
 	const double sea = 300 + h.water_level + 1;
 	const Eye eye{ { sea, 0, 0 }, 40, 0, 500, 2 };
@@ -224,3 +226,50 @@ void TestFarPalette::testSeaIsWater()
 }
 
 
+
+// A layer over the land (Tiles::tint): every drawn vertex takes the tint's
+// colour for where it is (north red, south blue here), its alpha kept;
+// tiles built after it take it too; taken off, every vertex is its own again.
+void TestFarPalette::testTintPaintsTheLand()
+{
+	const Baked b = shipped();
+	const Horizon h{ "TF5.dGVycmE", 1, b.content };
+	const planet::Atlas atlas = planet::Atlas::resident({ 300, 12, 80, 60, 0.95, 32 });
+	Tiles tiles(atlas, h, b.palette, 2);
+	tiles.tint(std::make_shared<const Tiles::Tint>([](video::SColor, const Tiling::Vec &at) {
+		return at.y >= 0 ? video::SColor(255, 255, 0, 0) : video::SColor(255, 0, 0, 255);
+	}));
+	const double sea = 300 + h.water_level + 1;
+	const Eye eye{ { sea, 0, 0 }, 40, 0, 500, 2 };
+	std::vector<Tiles::Drawn> drawn;
+	for (int i = 0; i < 600 && (drawn.empty() || i < 100); i++) {
+		tiles.update(eye);
+		drawn = tiles.drawn();
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+	UASSERT(!drawn.empty());
+	size_t red = 0, blue = 0, other = 0;
+	const auto count = [&](bool tinted) {
+		red = blue = other = 0;
+		for (const Tiles::Drawn &t : drawn)
+			for (const auto &part : t.parts)
+				for (const video::S3DVertex &v : part->Vertices->Data) {
+					const video::SColor c = v.Color;
+					if (c.getRed() == 255 && c.getGreen() == 0 && c.getBlue() == 0)
+						red++;
+					else if (c.getRed() == 0 && c.getGreen() == 0 && c.getBlue() == 255)
+						blue++;
+					else
+						other++;
+				}
+		(void)tinted;
+	};
+	count(true);
+	UTEST(other == 0 && red > 0 && blue > 0, "tinted: %zu red, %zu blue, %zu untinted", red, blue, other);
+	tiles.tint(nullptr);
+	for (int i = 0; i < 600 && tiles.unpainted(); i++) // swept over a few each update
+		tiles.update(eye);
+	UTEST(tiles.unpainted() == 0, "%zu tiles still in the old tint's colours", tiles.unpainted());
+	count(false);
+	UTEST(red + blue < other / 100 + 1, "untinted, %zu vertices still red or blue (of %zu)", red + blue, red + blue + other);
+}

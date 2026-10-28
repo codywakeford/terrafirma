@@ -278,7 +278,9 @@ int main(int argc, char *argv[])
 	// Terra Firma: the Planetarium alone, on a world code (planetarium/standalone.h)
 	if (cmd_args.exists("planetarium")) {
 		const std::string code = cmd_args.get("planetarium");
-		planetarium::runStandalone(code.empty() ? "TF5.dGVycmE" : code);
+		const std::optional<double> bench = cmd_args.exists("planetarium-bench")
+				? std::optional<double>(cmd_args.getFloat("planetarium-bench")) : std::nullopt;
+		planetarium::runStandalone(code.empty() ? "TF5.dGVycmE" : code, bench);
 		return 0;
 	}
 #endif
@@ -404,6 +406,8 @@ static void set_allowed_options(OptionList *allowed_options)
 			_("Set network port (UDP)"))));
 	allowed_options->insert(std::make_pair("planetarium", ValueSpec(VALUETYPE_STRING,
 			_("Open the Planetarium (Terra Firma) on the planet world code <value>, and nothing else"))));
+	allowed_options->insert(std::make_pair("planetarium-bench", ValueSpec(VALUETYPE_STRING,
+			_("With --planetarium: run <value> seconds on a script (layers switched each second), print the worst frames, and exit"))));
 	allowed_options->insert(std::make_pair("export-palette", ValueSpec(VALUETYPE_STRING,
 			_("Write the game's baked palette (Terra Firma) to <value>, from --world, and exit"))));
 	allowed_options->insert(std::make_pair("run-unittests", ValueSpec(VALUETYPE_FLAG,

@@ -507,6 +507,18 @@ void RemoteClient::SetBlocksNotSent(const std::vector<v3s16> &blocks, bool low_p
 	}
 }
 
+void RemoteClient::forgetArea(v3s16 low, v3s16 high)
+{
+	const auto in = [&](v3s16 p) {
+		return p.X >= low.X && p.X <= high.X && p.Y >= low.Y && p.Y <= high.Y && p.Z >= low.Z && p.Z <= high.Z;
+	};
+	for (auto it = m_blocks_sent.begin(); it != m_blocks_sent.end();)
+		it = in(*it) ? m_blocks_sent.erase(it) : std::next(it);
+	for (auto it = m_blocks_sending.begin(); it != m_blocks_sending.end();)
+		it = in(*it) ? m_blocks_sending.erase(it) : std::next(it);
+	m_nearest_unsent_d = 0;
+}
+
 void RemoteClient::fixupNodePrediction(InteractAction action,
 	const PointedThing &pointed, bool prediction_success)
 {
@@ -762,6 +774,13 @@ void ClientInterface::markBlocksNotSent(const std::vector<v3s16> &positions, boo
 		if (client.second->getState() >= CS_Active)
 			client.second->SetBlocksNotSent(positions, low_priority);
 	}
+}
+
+void ClientInterface::forgetArea(v3s16 low, v3s16 high)
+{
+	RecursiveMutexAutoLock clientslock(m_clients_mutex);
+	for (const auto &client : m_clients)
+		client.second->forgetArea(low, high);
 }
 
 bool ClientInterface::isUserLimitReached()

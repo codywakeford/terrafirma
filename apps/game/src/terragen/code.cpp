@@ -14,7 +14,11 @@ const Star STARS[5] = {
 	{ "blue", ratio(50, 100), ratio(250, 100) },
 };
 
-static const int32_t SIZES[] = { 2048, 4096, 8192, 16384 };
+// Blocks round the equator (an atlas of radius size / 2π: radii 2.6k, 10k,
+// 25k, 50k, 100k, 250k, 500k, 1M, 2M, 3.2M and the Earth's 6.371M). Must
+// match ui/src/worldgen/config.ts SIZES.
+static const int32_t SIZES[] = { 16384, 62832, 157088, 314160, 628320, 1570800, 3141600, 6283184, 12566368,
+	20106192, 40030176 };
 
 /*
 	The quantized fields, in the order the code stores them, each with its
@@ -43,7 +47,7 @@ static const Field FIELDS[FIELD_COUNT] = {
 	{ 0, 45, 130 },  // tilt 23
 	{ 8, 128, 85 },  // year 48
 };
-static const uint8_t DEFAULT_SIZE = 2; // 8192
+static const uint8_t DEFAULT_SIZE = 0; // 16384: ui/src/worldgen/config.ts DEFAULTS
 static const uint8_t DEFAULT_STAR = 2; // yellow
 
 // min + b/255 · (max − min), in fixed point

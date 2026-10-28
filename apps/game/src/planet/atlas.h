@@ -5,6 +5,9 @@
 
 #include "terragen/atlas.h"
 #include <array>
+#include <atomic>
+#include <deque>
+#include <string>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -25,8 +28,24 @@ namespace planet {
 	other cell. Every region's grid (a segment, a cap, the core) is one box
 	of the map, walled by a map block of seam: x its i (east), y its k (up:
 	the layer, so the sea is where the engine expects it), z its j (north).
-	A grid's trimmed cells are seam too. Boxes are packed in rows across
-	the map.
+	A grid's trimmed cells are seam too.
+
+	Tiles (planning/sprint-39-tiles.md): a grid is stored in tiles of TILE ×
+	TILE cells (i, j; on the grid's own multiples of TILE, so a tile is the
+	same whatever the planet's extent). The map is a window onto them: SLOTS
+	× SLOTS slots, a map block of seam between, each holding a tile or
+	none (the window: which tile is where, shared by every copy of the
+	atlas; the server moves tiles in and out as players go, clients
+	follow). A tile sits in its slot as it sits in its square of the grid,
+	so a map block is the same 16 cells wherever the tile is. Crossing from
+	tile to tile is crossing a seam, with no turn. Down, a tile keeps the
+	crust: CRUST layers under the sea; below, seam (the planet's floor). The
+	core is stored only where the crust reaches it.
+
+	A node's spot is where it is on the planet whatever slot it's in: its
+	region's grid at a fixed origin in a plane of 32-bit positions. What's
+	made at a node (its rock, its caves) and where a block is saved are
+	found from its spot, never from where the window put it.
 
 	Crossing between regions is the atlas's (terragen::Atlas::neighbours):
 	Map::next and Map::see go through it, never p + dir.
@@ -38,7 +57,11 @@ public:
 
 	static constexpr int32_t ORIGIN = -30912; // the lowest node the map generator makes
 	static constexpr int32_t SPAN = 61808;    // nodes it makes across, from there
-	static constexpr int32_t GAP = 16;        // seam between regions: a map block
+	static constexpr int32_t GAP = 16;        // seam between tiles: a map block
+	static constexpr int32_t TILE = 4096;     // cells a tile side (i, j)
+	static constexpr int32_t SLOT = TILE + GAP;
+	static constexpr int32_t SLOTS = SPAN / SLOT; // slots a side of the map
+	static constexpr int32_t CRUST = 30000;   // layers kept under the sea
 
 	// A node of the map (the engine's v3s16).
 	struct Node
@@ -51,9 +74,9 @@ public:
 		int32_t x, z, width, depth;
 	};
 
-	// One region's grid's storage: its box (x, z; y is the layer, k0 to k1
-	// inclusive) and the grid cell at its corner.
-	struct Region
+	// A tile of a region's grid, as stored: its box (x, z; y is the layer,
+	// k0 to k1 inclusive) and the grid cell at its corner.
+	struct Tile
 	{
 		terragen::Atlas::Region kind;
 		int index;
@@ -62,10 +85,66 @@ public:
 		int64_t i0, j0;
 	};
 
-	explicit Atlas(const terragen::Atlas::Params &params); // throws if it doesn't fit
+	// A tile of the planet: its region (regionNumber), and which of the
+	// grid's TILE squares it is.
+	struct TileId
+	{
+		int region;
+		int32_t ti, tj;
+		bool operator==(const TileId &o) const { return region == o.region && ti == o.ti && tj == o.tj; }
+	};
+	// A node's place on the planet whatever slot holds it (see above).
+	struct Spot
+	{
+		int32_t x, y, z;
+	};
+	static constexpr int32_t STRIDE = 1 << 22; // spots between regions' origins (x)
+
+	// An empty window: no tile in the map until placed.
+	explicit Atlas(const terragen::Atlas::Params &params);
+	// Every tile in the window at once, slot by slot; throws if they don't fit.
+	static Atlas resident(const terragen::Atlas::Params &params);
+	// Every tile of the planet, in the order resident() places them.
+	std::vector<TileId> allTiles() const;
 
 	const terragen::Atlas &atlas() const { return m_atlas; }
-	const std::vector<Region> &regions() const { return m_regions; }
+	// The tiles in the window now.
+	std::vector<Tile> tiles() const;
+
+	/*
+		The window. Which tile each slot holds (none: empty), and changing it:
+		a tile in a slot (none empties it). Every copy of the atlas sees the
+		change at once; what was found about blocks is found again. Throws
+		for a slot out of range, a tile that isn't one, or a tile already in
+		another slot.
+	*/
+	std::vector<std::optional<TileId>> window() const;
+	void put(int slot, std::optional<TileId> tile);
+	// How many times the window has changed.
+	uint64_t generation() const;
+	// The window as text (what a world records), and back.
+	std::string windowCode() const;
+	void setWindow(const std::string &code);
+	// The slot a tile is in, if it's in the window.
+	std::optional<int> slotOf(const TileId &tile) const;
+	// The slot a node is in (whether or not it holds a tile); none off the slots.
+	static std::optional<int> slotAt(Node node);
+
+	// The tile a cell is in (the core's when it's stored; throws for a cell
+	// below the crust, or of a core that isn't stored).
+	TileId tileOf(const Cell &cell) const;
+	// The tiles a ball round a point of the planet reaches into (`radius`,
+	// blocks): those of every cell sampled within it, a few blocks apart
+	// along the ground.
+	std::vector<TileId> tilesNear(const terragen::Atlas::Vec &point, double radius) const;
+	// The region's number: segments 0.., then the north cap, the south, the core.
+	int regionNumber(terragen::Atlas::Region kind, int index) const;
+	// And back: a region number's kind and index (throws for no region).
+	std::pair<terragen::Atlas::Region, int> regionOfNumber(int number) const;
+
+	// A node's spot (none where no tile is), and a cell's.
+	std::optional<Spot> spot(Node node) const;
+	Spot spotOf(const Cell &cell) const;
 
 	// The cell a node stores, or none (seam, or off the atlas).
 	std::optional<Cell> cell(Node node) const;
@@ -136,6 +215,10 @@ public:
 		const auto f = [](int32_t v) { return (int32_t)std::floor(v / (double)BLOCK); };
 		return { f(n.x), f(n.y), f(n.z) };
 	}
+	// Where a map block is kept: its tile's spot, in blocks (a block is the
+	// same 16 cells a side wherever its tile is). None for a block of no
+	// tile: the seam between slots, an empty slot, off the slots.
+	std::optional<Spot> blockSpot(Block block) const;
 	// The blocks a block-sized box of `from`'s grid carried on, centred at
 	// (x, y, z), shows: those its middle and its corners fall in (a box over
 	// a seam lies across the other grid's blocks), and those across seams
@@ -299,11 +382,17 @@ public:
 	// longitude (radians) of its column (its cell at the surface layer).
 	// What the generator builds the column from. None in seam and the core.
 	std::optional<std::array<double, 2>> place(Node node) const;
+	// The same for a cell of a segment or a cap (throws for the core's).
+	std::array<double, 2> place(const Cell &cell) const;
 
 private:
-	const Region *regionAt(Node node) const; // its box's region, or none
-	int regionOf(const Cell &cell) const;   // m_regions index
-	int regionIndex(Node node) const;       // m_regions index, −2 none
+	struct Layout;
+	struct Found;
+	const Layout &layout() const;
+	Found &kept() const; // what's found about blocks, for the window as it is
+	const Tile *tileAt(Node node) const;  // the tile whose box it's in, or none
+	int tileIndex(Node node) const;       // its slot, −2 none
+	Tile tileIn(int slot, const TileId &id) const; // a tile of the grid, placed in a slot
 
 	// A cell's chart: its grid continued, d (storage axes) from its centre.
 	terragen::Atlas::Vec chart(const Cell &c, double dx, double dy, double dz) const;
@@ -313,7 +402,7 @@ private:
 	int face(const Cell &c, int axis, int sign) const; // storage axis → terragen face
 
 	terragen::Atlas m_atlas;
-	std::vector<Region> m_regions;
+	bool m_coreStored; // the crust reaches the core
 
 	// Which nodes of a block and its rim (BLOCK + 2 a side) are cells.
 	std::vector<bool> cellsAround(Block block) const;
@@ -324,8 +413,8 @@ private:
 	std::vector<RimNode> findRim(Block block) const;
 	std::optional<Cut> findCut(const Cell &c) const;
 	std::vector<std::vector<Node>> findAcross(Node n, const Cut &cut) const;
-	// What's found about blocks, kept (the planet never changes; shared by
-	// copies of the atlas, and between threads)
+	// What's found about blocks, kept (shared by copies of the atlas, and
+	// between threads) while the window doesn't change
 	struct Found
 	{
 		std::mutex lock;
@@ -338,7 +427,25 @@ private:
 		std::unordered_map<uint64_t, std::shared_ptr<const Cuts>> blockCuts; // by block
 		std::unordered_map<uint64_t, bool> interior;                 // by block
 	};
-	std::shared_ptr<Found> m_found = std::make_shared<Found>();
+	// The window as it is: each slot's tile, placed. A change makes a new
+	// one; the old are kept a while (KEPT changes), as what they found may
+	// still be in use on another thread.
+	struct Layout
+	{
+		std::vector<std::optional<Tile>> slots; // SLOTS × SLOTS
+		std::vector<std::optional<TileId>> ids;
+		std::unordered_map<uint64_t, int> slotOf; // by tile
+		uint64_t generation = 0;
+		mutable Found found;
+	};
+	static constexpr size_t KEPT = 64;
+	struct Shared
+	{
+		std::mutex changing;
+		std::atomic<const Layout *> current{ nullptr };
+		std::deque<std::unique_ptr<Layout>> layouts; // the newest last
+	};
+	std::shared_ptr<Shared> m_shared = std::make_shared<Shared>();
 };
 
 } // namespace planet

@@ -253,6 +253,9 @@ public:
 
 	void SetBlockNotSent(v3s16 p, bool low_priority = false);
 	void SetBlocksNotSent(const std::vector<v3s16> &blocks, bool low_priority = false);
+	// Terra Firma: forget every block sent or sending in a box (block
+	// positions, inclusive): what's there is another place now
+	void forgetArea(v3s16 low, v3s16 high);
 
 	/**
 	 * Trigger block sending to undo client-side predicted node changes
@@ -449,6 +452,8 @@ public:
 
 	/* mark blocks as not sent on all active clients */
 	void markBlocksNotSent(const std::vector<v3s16> &positions, bool low_priority = false);
+	// Terra Firma: RemoteClient::forgetArea for every client
+	void forgetArea(v3s16 low, v3s16 high);
 
 	/* verify if server user limit was reached */
 	bool isUserLimitReached();

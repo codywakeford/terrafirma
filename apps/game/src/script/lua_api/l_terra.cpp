@@ -113,7 +113,7 @@ static std::optional<std::array<int32_t, 2>> placeColumn(Server *server, const W
 				atlas->point(planet::Atlas::moverNode(pos.X, pos.Y, pos.Z), pos.X, pos.Y, pos.Z);
 		if (!p)
 			return std::nullopt;
-		const std::array<s16, 2> c = terra::equirect(std::atan2(p->y, std::hypot(p->x, p->z)),
+		const std::array<int32_t, 2> c = terra::equirect(std::atan2(p->y, std::hypot(p->x, p->z)),
 				std::atan2(p->z, p->x), w.code().size);
 		return std::array<int32_t, 2>{ c[0], c[1] };
 	}
@@ -297,7 +297,7 @@ int ModApiTerra::l_cover(lua_State *L)
 				const std::optional<std::array<double, 2>> at = atlas->place({ mx, 0, mz });
 				column = at.has_value();
 				if (at) {
-					const std::array<s16, 2> c = terra::equirect((*at)[0], (*at)[1], w.code().size);
+					const std::array<int32_t, 2> c = terra::equirect((*at)[0], (*at)[1], w.code().size);
 					x = c[0];
 					z = c[1];
 				}

@@ -38,7 +38,9 @@ const card = ref<HTMLElement | null>(null)
 function measure() {
     const left = dock.value?.getBoundingClientRect().right ?? 0
     const cardLeft = card.value?.getBoundingClientRect().left
-    covers.value = { left: left, right: cardLeft === undefined ? 0 : window.innerWidth - cardLeft }
+    const right = cardLeft === undefined ? 0 : window.innerWidth - cardLeft
+    // only a real change: a new object every time re-renders the parent, which measures again
+    if (covers.value.left !== left || covers.value.right !== right) covers.value = { left: left, right: right }
 }
 const sizes = new ResizeObserver(measure)
 onMounted(() => {
@@ -50,12 +52,14 @@ onBeforeUnmount(() => {
     sizes.disconnect()
     window.removeEventListener("resize", measure)
 })
-// the card comes and goes with its content
+// the card comes and goes with its content (a function ref is called on
+// every render: only a different element is news)
 function cardRef(el: unknown) {
-    const was = card.value
-    card.value = el instanceof HTMLElement ? el : null
-    if (was) sizes.unobserve(was)
-    if (card.value) sizes.observe(card.value)
+    const now = el instanceof HTMLElement ? el : null
+    if (now === card.value) return
+    if (card.value) sizes.unobserve(card.value)
+    card.value = now
+    if (now) sizes.observe(now)
     measure()
 }
 </script>

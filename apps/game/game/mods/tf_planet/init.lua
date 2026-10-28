@@ -47,17 +47,13 @@ end
 tf_planet = {}
 
 -- On land on the equator, east from longitude 0. The spawn level is a
--- layer (the ground's height); the node there is the atlas's (the
--- column's own grid, at that layer).
+-- layer (the ground's height), found at the place itself; only the one
+-- chosen gets a node (its tile put in the map's window).
 function tf_planet.spawn_position()
 	for lon = 0, 359, 2 do
-		local column = core.planet.atlas_node(0, math.rad(lon), 0)
-		local layer = column and core.get_spawn_level(column.x, column.z)
-		if layer then
-			local lat, at = core.planet.atlas_place(column)
-			local node = core.planet.atlas_node(lat, at, layer)
-			if node then return node end
-		end
+		local layer = core.planet.spawn_level(0, math.rad(lon))
+		local node = layer and core.planet.atlas_node(0, math.rad(lon), layer)
+		if node then return node end
 	end
 	error("tf_planet: no land on the equator to spawn on")
 end

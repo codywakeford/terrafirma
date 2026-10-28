@@ -1,7 +1,8 @@
 import { FailureCode, type EngineMessage, type IntentKind, type Intents } from "./types"
 
 export type { Account, Friend, Invite, Player, Presence, Social, BodyCard, BodyCausesWire, BodyKind, CommunityCatalog, CommunityMod, CommunityTexture, CommunityWorld, CreativeItem, EngineMessage, FlightNear, FlightSpace, IntentKind, Intents, ItemInfo, LabControl, LabScenario, LabValue, MatterElement, MatterMixture, MatterReaction, MatterRock, MatterState, MatterStructure, MatterSubstance, Mode, PlanetariumBody, PlanetariumCell, PlanetariumMarker,
-    PlanetariumFlight, PlanetariumMessage, PlanetariumPlace, PlanetariumViewport, PublicServer, SandboxBlock, SandboxFrame, SandboxSpec, ScreenName, ServerDirectory, SlotRef, Stack, StateSections, UiEvent, UiEvents, UiValues, World } from "./types"
+    PlanetariumFlight,
+    PlanetariumLayer, PlanetariumMessage, PlanetariumPlace, PlanetariumViewport, PublicServer, SandboxBlock, SandboxFrame, SandboxSpec, ScreenName, ServerDirectory, SlotRef, Stack, StateSections, UiEvent, UiEvents, UiValues, World } from "./types"
 export { FailureCode } from "./types"
 
 type Listener = (message: EngineMessage) => void

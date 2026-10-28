@@ -26,11 +26,11 @@ static void pushRect(lua_State *L, const planet::Atlas::Rect &r)
 // The region kinds, by terragen::Atlas::Region.
 static const char *const REGIONS[] = { "segment", "cap", "core" };
 
-// core.planet.atlas() → nil, or { code, radius, core, top, regions }: the
+// core.planet.atlas() → nil, or { code, radius, core, top, tiles }: the
 // atlas's mapping code; its radius and the core's (blocks); one past its
-// highest layer; and where each region's grid is stored: regions, each
-// { kind = "segment" | "cap" | "core", index, x, z, width, depth, y0, y1 }
-// (y0..y1 storage y, exclusive).
+// highest layer; and where each region's grid is stored, tile by tile: tiles, each
+// { kind = "segment" | "cap" | "core", index, x, z, width, depth, y0, y1,
+// i0, j0 } (y0..y1 storage y, exclusive; i0, j0 the grid's cell at x, z).
 int ModApiPlanet::l_atlas(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
@@ -49,9 +49,9 @@ int ModApiPlanet::l_atlas(lua_State *L)
 	lua_setfield(L, -2, "core");
 	lua_pushinteger(L, atlas.params().height);
 	lua_setfield(L, -2, "top");
-	lua_createtable(L, (int)a->regions().size(), 0);
+	lua_createtable(L, (int)a->tiles().size(), 0);
 	int n = 1;
-	for (const planet::Atlas::Region &r : a->regions()) {
+	for (const planet::Atlas::Tile &r : a->tiles()) {
 		pushRect(L, r.rect);
 		lua_pushstring(L, REGIONS[(int)r.kind]);
 		lua_setfield(L, -2, "kind");
@@ -61,9 +61,13 @@ int ModApiPlanet::l_atlas(lua_State *L)
 		lua_setfield(L, -2, "y0");
 		lua_pushinteger(L, r.k1 + 1);
 		lua_setfield(L, -2, "y1");
+		lua_pushinteger(L, r.i0);
+		lua_setfield(L, -2, "i0");
+		lua_pushinteger(L, r.j0);
+		lua_setfield(L, -2, "j0");
 		lua_rawseti(L, -2, n++);
 	}
-	lua_setfield(L, -2, "regions");
+	lua_setfield(L, -2, "tiles");
 	return 1;
 }
 
@@ -108,12 +112,13 @@ int ModApiPlanet::l_atlas_point(lua_State *L)
 	return 1;
 }
 
-// core.planet.atlas_node(latitude, longitude, layer) → pos, or nil if the
-// cell there isn't stored: the node of the cell at that place, that layer up
-// (every grid's layer k is the sphere R + k, so the cell is that layer's).
+// core.planet.atlas_node(latitude, longitude, layer) → pos, or nil above the
+// atlas: the node of the cell at that place, that layer up (every grid's
+// layer k is the sphere R + k, so the cell is that layer's). Its tile is put
+// in the map's window if it isn't.
 int ModApiPlanet::l_atlas_node(lua_State *L)
 {
-	NO_MAP_LOCK_REQUIRED;
+	MAP_LOCK_REQUIRED; // the window may change: tiles leave the map
 	const planet::Atlas *a = getServer(L)->atlas();
 	if (!a)
 		throw LuaError("core.planet.atlas_node: this world isn't an atlas planet");
@@ -131,8 +136,22 @@ int ModApiPlanet::l_atlas_node(lua_State *L)
 	}
 	const planet::Atlas::Cell c = atlas.locate({ r * std::cos(lat) * std::cos(lon), r * std::sin(lat),
 			r * std::cos(lat) * std::sin(lon) });
-	const planet::Atlas::Node n = a->node(c);
+	const planet::Atlas::Node n = getServer(L)->planetNode(c); // its tile put in the window
 	push_v3s16(L, v3s16(n.x, n.y, n.z));
+	return 1;
+}
+
+// core.planet.spawn_level(latitude, longitude) → layer, or nil where no one
+// spawns (the sea, a lake, a river): core.get_spawn_level at a place,
+// without a node of the map (so without putting its tile in the window).
+int ModApiPlanet::l_spawn_level(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	const int level = getServer(L)->getEmergeManager()->getSpawnLevelAt(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+	if (level >= MAX_MAP_GENERATION_LIMIT)
+		lua_pushnil(L);
+	else
+		lua_pushinteger(L, level + 1); // as core.get_spawn_level
 	return 1;
 }
 
@@ -170,6 +189,7 @@ void ModApiPlanet::Initialize(lua_State *L, int top)
 		{ "atlas_cell", l_atlas_cell },
 		{ "atlas_place", l_atlas_place },
 		{ "atlas_node", l_atlas_node },
+		{ "spawn_level", l_spawn_level },
 		{ "atlas_point", l_atlas_point },
 	};
 	for (const luaL_Reg &f : functions) {

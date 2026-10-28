@@ -529,6 +529,40 @@ void Map::unloadUnreferencedBlocks(std::vector<v3s16> *unloaded_blocks)
 	timerUpdate(0, -1, 0, unloaded_blocks);
 }
 
+bool Map::unloadArea(v3s16 low, v3s16 high, bool save)
+{
+	bool all = true;
+	std::vector<v2s16> emptied;
+	MapBlockVect blocks;
+	beginSave();
+	for (s16 z = low.Z; z <= high.Z; z++)
+		for (s16 x = low.X; x <= high.X; x++) {
+			const auto it = m_sectors.find(v2s16(x, z));
+			if (it == m_sectors.end())
+				continue;
+			MapSector *sector = it->second;
+			blocks.clear();
+			sector->getBlocks(blocks);
+			for (MapBlock *block : blocks) {
+				const v3s16 p = block->getPos();
+				if (p.Y < low.Y || p.Y > high.Y)
+					continue;
+				if (block->refGet() != 0) {
+					all = false;
+					continue;
+				}
+				if (save && block->getModified() != MOD_STATE_CLEAN && !saveBlock(block))
+					throw BaseException("Map::unloadArea: a block couldn't be saved");
+				sector->deleteBlock(block);
+			}
+			if (sector->empty())
+				emptied.push_back(it->first);
+		}
+	endSave();
+	deleteSectors(emptied);
+	return all;
+}
+
 void Map::deleteSectors(const std::vector<v2s16> &sectorList)
 {
 	for (v2s16 j : sectorList) {

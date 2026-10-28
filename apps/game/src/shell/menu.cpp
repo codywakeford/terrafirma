@@ -268,7 +268,6 @@ std::optional<Choice> Menu::run(const std::string &error)
 		return m_planetarium.shown() && event.EventType == EET_MOUSE_INPUT_EVENT && m_planetarium.handle(event);
 	};
 	u64 last = porting::getTimeMs();
-	double days = 0; // the universe's time, run fast: a day a minute
 	volatile auto *kill = porting::signal_handler_killstatus();
 	const u64 frame_ms = 1000 / 60;
 
@@ -284,9 +283,8 @@ std::optional<Choice> Menu::run(const std::string &error)
 		}
 		u64 start = porting::getTimeMs();
 		driver->beginScene(true, true, video::SColor(255, 12, 14, 12));
-		days += (start - last) / 1000.0 / 60;
+		m_planetarium.tick((start - last) / 1000.0); // the universe's clock (the page may stop it, or set it)
 		last = start;
-		m_planetarium.day(days);
 		m_planetarium.draw(driver); // always shown: the backdrop when no page asks for another
 		m_shell.frame();
 		driver->endScene();
@@ -313,7 +311,11 @@ planetarium::Planetarium::Opts Menu::body(const Json::Value &body)
 	}
 	if (!m_baked)
 		m_baked = far::Baked::load(g_settings->get("game_id"));
-	const planet::Atlas atlas(terragen::Atlas::standard(world.size / (2 * M_PI)));
+	// laid out once a size (tens of ms): a changed seed or setting keeps the size
+	auto laid = m_atlases.find(world.size);
+	if (laid == m_atlases.end())
+		laid = m_atlases.emplace(world.size, planet::Atlas(terragen::Atlas::standard(world.size / (2 * M_PI)))).first;
+	const planet::Atlas &atlas = laid->second;
 	return { atlas, far::Horizon{ code, MapgenParams().water_level, m_baked->content }, m_baked->palette,
 		std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(world)) };
 }

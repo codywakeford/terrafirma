@@ -39,13 +39,13 @@ void TestPlanetMap::runTests(IGameDef *gamedef)
 namespace {
 
 // A small planet: few, wide segments and a thin sky.
-const planet::Atlas SMALL({ 300, 12, 80, 60, 0.95, 32 });
+const planet::Atlas SMALL = planet::Atlas::resident({ 300, 12, 80, 60, 0.95, 32 });
 
 // The last surface node of each region's middle row, east: one step on is a seam.
 std::vector<v3s16> eastEdges()
 {
 	std::vector<v3s16> out;
-	for (const planet::Atlas::Region &r : SMALL.regions())
+	for (const planet::Atlas::Tile &r : SMALL.tiles())
 		for (int32_t x = r.rect.x + r.rect.width - 1; x > r.rect.x; x--) {
 			const v3s16 n(x, 0, r.rect.z + r.rect.depth / 2);
 			if (SMALL.cell({ n.X, n.Y, n.Z })) {

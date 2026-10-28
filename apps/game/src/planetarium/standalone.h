@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 
 namespace planetarium {
@@ -14,6 +15,9 @@ namespace planetarium {
 	saved. For looking at what the generator makes. Escape closes it.
 	Throws if the code doesn't decode or the palette won't load.
 */
-void runStandalone(const std::string &code);
+// `bench`: run that many seconds on a script (a few to settle, then a layer
+// switched each second, through synthetic layers and back to none) and print
+// the worst frame overall and the worst just after a switch, then return.
+void runStandalone(const std::string &code, std::optional<double> bench = std::nullopt);
 
 } // namespace planetarium

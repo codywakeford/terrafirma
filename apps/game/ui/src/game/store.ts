@@ -25,7 +25,8 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
         /** What game Lua set for this page (player:set_ui), by key. */
         ui: noUi(),
         /** The last place clicked on the Planetarium, while it's shown. */
-        picked: null as Omit<PlanetariumMessage, "kind" | "event"> | null,
+        picked: null as Omit<Extract<PlanetariumMessage, { event: "picked" }>, "kind" | "event"> | null,
+        clock: null as { date: number; running: boolean } | null, // the planet viewer's clock, while it runs
     })
 
     // Messages carry every change after this; the first answer fills the gap
@@ -52,7 +53,8 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
                 store.screen = message.screen
                 break
             case "planetarium":
-                store.picked = { latitude: message.latitude, longitude: message.longitude, cell: message.cell }
+                if (message.event === "picked") store.picked = { latitude: message.latitude, longitude: message.longitude, cell: message.cell }
+                else store.clock = { date: message.date, running: message.running }
                 break
             case "account":
                 store.account = message.account

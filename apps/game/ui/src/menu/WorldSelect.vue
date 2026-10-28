@@ -109,10 +109,9 @@ const covers = ref({ left: 0, right: 0 })
 const code = computed(() => local.value?.code ?? null)
 const planet = usePlanetarium({
     bridge: bridge,
-    element: ref(null),
+    place: "whole",
     active: computed(() => code.value !== null),
     body: computed(() => ({ code: code.value ?? "" })),
-    whole: true,
     frame: covers,
 })
 watch(code, (now) => {

@@ -1,21 +1,20 @@
 import { onBeforeUnmount, ref, watch, type Ref } from "vue"
-import type { BridgeHandle, PlanetariumBody, PlanetariumFlight, PlanetariumMarker, PlanetariumPlace, PlanetariumViewport } from "../bridge"
+import type { BridgeHandle, PlanetariumBody, PlanetariumFlight, PlanetariumLayer, PlanetariumMarker, PlanetariumPlace, PlanetariumViewport } from "../bridge"
 
 /**
  * The native Planetarium (src/shell/planetarium.h) under a part of the page:
- * shown while `active`, drawn where `element` is (followed as it moves or
+ * shown while `active`, drawn over the whole window or where an element is (followed as it moves or
  * resizes), the body swapped in when it changes (the old one stays on
  * screen until the new one is ready), markers kept up to date. Hidden when
  * inactive or unmounted. `problem` holds the last refusal.
  */
 export function usePlanetarium(opts: {
     bridge: BridgeHandle
-    element: Ref<HTMLElement | null>
+    /** Where it's drawn: the whole window, under the page (the menu's universe), or where an element is. */
+    place: "whole" | Ref<HTMLElement | null>
     active: Ref<boolean>
     body: Ref<PlanetariumBody>
     markers?: Ref<PlanetariumMarker[]>
-    /** Drawn over the whole window, under the page (the menu's universe), not just `element`. */
-    whole?: boolean
     /** What the page covers of the window's sides (page pixels: Dock's `covers`): the planet is framed in the rest. */
     frame?: Ref<{ left: number; right: number }>
     /** Where the camera starts, the first time it's shown. */
@@ -30,12 +29,12 @@ export function usePlanetarium(opts: {
     }
     const WHOLE: PlanetariumViewport = { whole: true }
     const viewport = (): PlanetariumViewport => {
-        if (opts.whole) return WHOLE
-        const rect = opts.element.value?.getBoundingClientRect()
+        if (opts.place === "whole") return WHOLE
+        const rect = opts.place.value?.getBoundingClientRect()
         return rect && rect.width > 0 && rect.height > 0 ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : WHOLE
     }
     function show() {
-        if (!opts.active.value || !opts.element.value) return hide()
+        if (!opts.active.value || (opts.place !== "whole" && !opts.place.value)) return hide()
         const focus = started ? undefined : opts.start?.() ?? undefined
         started ||= !!focus
         shown = true
@@ -58,17 +57,34 @@ export function usePlanetarium(opts: {
     function fly(flight: PlanetariumFlight) {
         if (shown) void opts.bridge.send("planetarium.fly", flight).catch(fail("planetarium.fly"))
     }
+    /** What's over the land: a painted image (the preview's layout), the body cut open, or nothing. */
+    function layer(what: ImageData | "inside" | null) {
+        if (!shown) return
+        const request: PlanetariumLayer = what === null ? { none: true } : what === "inside" ? { inside: true }
+            : { width: what.width, height: what.height, rgba: base64(what.data) }
+        void opts.bridge.send("planetarium.layer", request).catch(fail("planetarium.layer"))
+    }
+    /** The host's clock: stopped or running, and the date (0..1 through the year). */
+    function time(clock: { running?: boolean; date?: number }) {
+        if (shown) void opts.bridge.send("planetarium.time", clock).catch(fail("planetarium.time"))
+    }
+    /** Whether the atlas's seams are drawn. */
+    function seams(shown_: boolean) {
+        if (shown) void opts.bridge.send("planetarium.seams", { shown: shown_ }).catch(fail("planetarium.seams"))
+    }
     const follow = () => { if (shown) void opts.bridge.send("planetarium.viewport", viewport()).catch(fail("planetarium.viewport")) }
     const framed = () => {
         if (shown && opts.frame) void opts.bridge.send("planetarium.frame", opts.frame.value).catch(fail("planetarium.frame"))
     }
     if (opts.frame) watch(opts.frame, framed, { deep: true })
     const resized = new ResizeObserver(follow)
-    watch(opts.element, (el, was) => {
-        if (was) resized.unobserve(was)
-        if (el) resized.observe(el)
-        show()
-    }, { immediate: true })
+    if (opts.place === "whole") show()
+    else
+        watch(opts.place, (el, was) => {
+            if (was) resized.unobserve(was)
+            if (el) resized.observe(el)
+            show()
+        }, { immediate: true })
     window.addEventListener("resize", follow)
     watch([opts.active, () => JSON.stringify(opts.body.value)], show)
     if (opts.markers)
@@ -80,5 +96,12 @@ export function usePlanetarium(opts: {
         window.removeEventListener("resize", follow)
         hide()
     })
-    return { problem, focus, fly }
+    return { problem, focus, fly, layer, time, seams }
+}
+
+// bytes as base64, in chunks (a whole image at once overflows the call stack)
+function base64(bytes: Uint8ClampedArray) {
+    let text = ""
+    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return btoa(text)
 }

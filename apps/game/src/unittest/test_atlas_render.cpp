@@ -322,13 +322,17 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 
 	// the planet along a ray: the eye's grid, flat, as the view draws it
 	const auto ef = *atlas.frame(n, { eye.X, eye.Y, eye.Z });
-	const auto solidAt = [&](const v3f &dir, f32 t) {
-		const v3f d = dir * t;
+	// the planet at a point of the eye's grid
+	const auto solidHere = [&](const v3f &d) {
 		const V p{ ef.origin.x + ef.axes[0].x * d.X + ef.axes[1].x * d.Y + ef.axes[2].x * d.Z,
 			ef.origin.y + ef.axes[0].y * d.X + ef.axes[1].y * d.Y + ef.axes[2].y * d.Z,
 			ef.origin.z + ef.axes[0].z * d.X + ef.axes[1].z * d.Y + ef.axes[2].z * d.Z };
 		const double pr = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
 		return pr < PLANET.radius + PLANET.height - 1 && solid(geometry.centre(geometry.locate(p)));
+	};
+	const auto solidAt = [&](const v3f &dir, f32 t) {
+		const v3f d = dir * t;
+		return solidHere(d);
 	};
 	const auto truth = [&](const v3f &dir) -> std::optional<f32> {
 		for (f32 t = 0.05f; t < RANGE; t += 0.05f)
@@ -350,6 +354,7 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 			{
 				f32 t, edge;
 				v3s16 block;
+				size_t tri;
 			};
 			std::vector<Hit> hits;
 			for (size_t s = 0; s < spheres.size(); s++) {
@@ -361,10 +366,19 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 				{
 					f32 edge;
 					if (const auto t = meet(dir, triangles[i], &edge))
-						hits.push_back({ *t, edge, triangles[i].block });
+						hits.push_back({ *t, edge, triangles[i].block, i });
 				}
 			}
 			std::sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) { return a.t < b.t; });
+			// a face where the planet is solid on one side and air on the other
+			// (a ray clipping a step's edge meets it where the march, a step at a
+			// time, saw only air)
+			const auto trueFace = [&](size_t tri, const v3f &at) {
+				const Triangle &t = triangles[tri];
+				v3f normal = (t.b - t.a).crossProduct(t.c - t.a);
+				normal.normalize();
+				return solidHere(at + normal * 0.1f) != solidHere(at - normal * 0.1f);
+			};
 			const std::optional<f32> drawn = hits.empty() || hits[0].t > RANGE ? std::nullopt
 				: std::optional<f32>(hits[0].t);
 			const std::optional<f32> real = truth(dir);
@@ -400,7 +414,7 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 				if (f.holes++ < 3)
 					say("hole");
 			} else if (drawn && (!real || *drawn < *real - SLACK) && !solidAt(dir, *drawn + 0.02f) &&
-					!solidAt(dir, *drawn + 0.15f)) {
+					!solidAt(dir, *drawn + 0.15f) && !trueFace(hits[0].tri, dir * *drawn)) {
 				if (f.phantoms++ < 3)
 					say("phantom");
 			}
@@ -425,7 +439,7 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 
 void TestAtlasRender::testViewsMatchThePlanet()
 {
-	const planet::Atlas atlas(PLANET);
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	GameDef def;
 	// band middles, the equator, either side of the bands' seams, the cap's
 	// edge, the cap and the pole; low over the ground and high (where the
@@ -478,7 +492,7 @@ void TestAtlasRender::testWithinBudget()
 	GameDef def;
 	int over = 0;
 	for (const Budget &b : budgets) {
-		const planet::Atlas atlas(PLANET); // nothing kept from another view
+		const planet::Atlas atlas = planet::Atlas::resident(PLANET); // nothing kept from another view
 		const Faults f = look(atlas, def, b.eye, false);
 		const double perMesh = f.meshing / std::max<size_t>(f.blocks, 1);
 		rawstream << "eye lat " << b.eye.lat << " lon " << b.eye.lon << " +" << b.eye.above << ": " << f.blocks

@@ -21,15 +21,19 @@ namespace far {
 
 // Time an update may spend putting tiles on the GPU (a frame at 60 fps is 16.7).
 static constexpr double INSTALL_MS = 3;
+// And recolouring tiles for a new tint.
+static constexpr double PAINT_MS = 3;
 // A tile not wanted for this many updates is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
 
 /*
-	The workers: build tiles and their meshes off the main thread, nearest
-	first. Each update says which tiles are wanted (want()); keys being
-	built or waiting to be taken aren't asked for twice.
+	What the workers share: copies of what they build from, the queue, the
+	results. Held by each worker thread as well as by Workers, so a world
+	dropped while its model is still being built isn't waited for: its
+	workers finish what they're on, see the stop, and go, the last one
+	freeing this.
 */
-class Workers
+class Crew
 {
 public:
 	struct Result
@@ -38,25 +42,18 @@ public:
 		Mesh mesh;
 	};
 
-	Workers(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling,
-			unsigned threads) :
+	Crew(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling) :
 		m_atlas(atlas), m_horizon(horizon), m_palette(palette), m_tiling(tiling)
 	{
-		if (threads == 0)
-			throw BaseException("far tiles: no threads to build with");
-		for (unsigned i = 0; i < threads; i++)
-			m_threads.emplace_back([this] { run(); });
 	}
 
-	~Workers()
+	void stop()
 	{
 		{
 			std::lock_guard lock(m_mutex);
 			m_stop = true;
 		}
 		m_wake.notify_all();
-		for (std::thread &t : m_threads)
-			t.join();
 	}
 
 	// the tiles wanted, nearest first; replaces what was asked before
@@ -88,23 +85,35 @@ public:
 private:
 	static std::tuple<s32, s32, s32, s32> id(const TileKey &k) { return { k.level, k.x, k.z, k.face }; }
 
+public:
 	void run()
 	{
 		{
-			// the first worker in builds the generator (the world model: a moment)
-			std::lock_guard lock(m_mutex);
-			if (!m_generator && m_error.empty()) {
+			// the first worker in builds the generator (the world model: a
+			// moment), outside the lock: the main thread asks and takes meanwhile
+			std::unique_lock lock(m_mutex);
+			if (!m_generator && !m_building && m_error.empty()) {
+				m_building = true;
+				lock.unlock();
+				std::unique_ptr<Generator> made;
+				std::string error;
 				try {
-					m_generator = std::make_unique<Generator>(m_horizon, m_atlas);
+					made = std::make_unique<Generator>(m_horizon, m_atlas);
 				} catch (const std::exception &e) {
-					m_error = std::string("the world can't be built from the server's data: ") + e.what();
+					error = std::string("the world can't be built from the server's data: ") + e.what();
 				}
+				lock.lock();
+				m_generator = std::move(made);
+				m_error = error;
+				m_building = false;
 			}
 		}
 		m_wake.notify_all();
 		std::unique_lock lock(m_mutex);
 		while (true) {
-			m_wake.wait(lock, [this] { return m_stop || (!m_queue.empty() && m_generator); });
+			m_wake.wait(lock, [this] { return m_stop || !m_error.empty() || (!m_queue.empty() && m_generator); });
+			if (!m_error.empty())
+				return; // take() reports it
 			if (m_stop)
 				return;
 			TileKey key = m_queue.front();
@@ -126,6 +135,7 @@ private:
 		}
 	}
 
+private:
 	// The tile's mesh as on a map, each vertex then put on the planet: a
 	// tile's (x, y, z) at its place in its region, round its middle; its
 	// height over the sea (blocks) in the first texture coordinate, for
@@ -154,11 +164,12 @@ private:
 		return m;
 	}
 
-	const planet::Atlas &m_atlas;
-	const Horizon &m_horizon;
-	const Palette &m_palette;
-	const Tiling &m_tiling;
+	const planet::Atlas m_atlas; // copies: the crew can outlive the tiles
+	const Horizon m_horizon;
+	const Palette m_palette;
+	const Tiling m_tiling;
 	std::unique_ptr<Generator> m_generator;
+	bool m_building = false; // a worker is making m_generator
 
 	std::mutex m_mutex;
 	std::condition_variable m_wake;
@@ -167,7 +178,36 @@ private:
 	std::set<std::tuple<s32, s32, s32, s32>> m_busy; // being built, or built and not yet taken
 	std::deque<Result> m_results;
 	std::string m_error;
-	std::vector<std::thread> m_threads; // last: started once everything above exists
+};
+
+/*
+	The workers: build tiles and their meshes off the main thread, nearest
+	first. Each update says which tiles are wanted (want()); keys being
+	built or waiting to be taken aren't asked for twice. Let go of, they're
+	stopped and not waited for (Crew).
+*/
+class Workers
+{
+public:
+	using Result = Crew::Result;
+
+	Workers(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling,
+			unsigned threads) :
+		m_crew(std::make_shared<Crew>(atlas, horizon, palette, tiling))
+	{
+		if (threads == 0)
+			throw BaseException("far tiles: no threads to build with");
+		for (unsigned i = 0; i < threads; i++)
+			std::thread([crew = m_crew] { crew->run(); }).detach();
+	}
+
+	~Workers() { m_crew->stop(); }
+
+	void want(const std::vector<std::pair<float, TileKey>> &keys) { m_crew->want(keys); }
+	std::optional<Result> take() { return m_crew->take(); }
+
+private:
+	std::shared_ptr<Crew> m_crew;
 };
 
 unsigned Tiles::threadsFor(float share)
@@ -216,6 +256,7 @@ void Tiles::update(const Eye &eye)
 	m_workers->want(keys);
 
 	install();
+	repaint();
 	if (m_frame % 60 == 0)
 		evict();
 }
@@ -315,15 +356,83 @@ void Tiles::install()
 			return;
 		Entry &e = m_tiles[Key(result->key)];
 		e.parts.clear();
+		e.own.clear();
 		for (Mesh::Part &part : result->mesh.parts) {
 			auto buffer = make_irr<scene::SMeshBuffer>();
+			std::vector<video::SColor> own;
+			own.reserve(part.vertices.size());
+			for (const video::S3DVertex &v : part.vertices)
+				own.push_back(v.Color);
+			e.own.push_back(std::move(own));
 			buffer->Vertices->Data = std::move(part.vertices);
 			buffer->Indices->Data = std::move(part.indices);
 			buffer->recalculateBoundingBox();
 			buffer->setHardwareMappingHint(scene::EHM_STATIC);
 			e.parts.push_back(std::move(buffer));
 		}
+		if (m_tint)
+			paint(Key(result->key), e);
+		e.painted = m_tints;
 		e.ready = true;
+	}
+}
+
+void Tiles::tint(std::shared_ptr<const Tint> tint)
+{
+	m_tint = std::move(tint);
+	m_tints++; // every tile out of date: update() sweeps over them
+}
+
+void Tiles::repaint()
+{
+	const auto start = std::chrono::steady_clock::now();
+	const auto spent = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); };
+	// the drawn first: what's on screen changes first
+	for (const Key &key : m_draw) {
+		if (spent() >= PAINT_MS)
+			return;
+		Entry &e = m_tiles.at(key);
+		if (e.ready && e.painted != m_tints) {
+			paint(key, e);
+			e.painted = m_tints;
+		}
+	}
+	for (auto &[key, e] : m_tiles) {
+		if (spent() >= PAINT_MS)
+			return;
+		if (e.ready && e.painted != m_tints) {
+			paint(key, e);
+			e.painted = m_tints;
+		}
+	}
+}
+
+size_t Tiles::unpainted() const
+{
+	size_t n = 0;
+	for (const auto &[key, e] : m_tiles)
+		n += e.ready && e.painted != m_tints;
+	return n;
+}
+
+void Tiles::paint(const Key &key, Entry &e) const
+{
+	const Tiling::Vec mid = m_tiling.middle(key.tile());
+	for (size_t p = 0; p < e.parts.size(); p++) {
+		auto &vertices = e.parts[p]->Vertices->Data;
+		const std::vector<video::SColor> &own = e.own.at(p);
+		for (size_t i = 0; i < vertices.size(); i++) {
+			video::S3DVertex &v = vertices[i];
+			if (!m_tint) {
+				v.Color = own[i];
+				continue;
+			}
+			const Tiling::Vec at{ mid.x + v.Pos.X / BS, mid.y + v.Pos.Y / BS, mid.z + v.Pos.Z / BS };
+			video::SColor c = (*m_tint)(own[i], at);
+			c.setAlpha(own[i].getAlpha());
+			v.Color = c;
+		}
+		e.parts[p]->setDirty(scene::EBT_VERTEX);
 	}
 }
 

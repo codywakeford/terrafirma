@@ -42,7 +42,7 @@ const here = computed(() => pose.value ? { latitude: (0.5 - pose.value.v) * Math
 const stage = ref<HTMLElement | null>(null)
 const planet = usePlanetarium({
     bridge,
-    element: stage,
+    place: stage,
     active: computed(() => view.value === "globe" && !!here.value),
     body: ref(null),
     markers: computed(() => here.value ? [{ ...here.value, colour: PLAYER }] : []),

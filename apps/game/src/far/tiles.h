@@ -8,6 +8,7 @@
 #include "irr_ptr.h"
 #include "planet/atlas.h"
 #include <CMeshBuffer.h>
+#include <functional>
 #include <map>
 #include <memory>
 #include <tuple>
@@ -73,6 +74,16 @@ public:
 	// Whether every root is built: the coarse planet is all there.
 	bool based() const;
 
+	// A layer over the land: the colour a vertex is drawn, from its own and
+	// where it is (blocks from the planet's centre). Its alpha is kept (it
+	// marks the mesh's layers: far/mesh.cpp).
+	using Tint = std::function<video::SColor(video::SColor own, const Tiling::Vec &at)>;
+	// The land recoloured by it (none: their own colours), a few tiles each
+	// update (the drawn first) so no frame stalls; each as it's built.
+	void tint(std::shared_ptr<const Tint> tint);
+	// How many held tiles aren't in the tint's colours yet: 0 once it's swept over them.
+	size_t unpainted() const;
+
 private:
 	struct Key
 	{
@@ -90,6 +101,8 @@ private:
 	struct Entry
 	{
 		std::vector<irr_ptr<scene::SMeshBuffer>> parts;
+		std::vector<std::vector<video::SColor>> own; // each part's vertices' own colours (under a tint)
+		u32 painted = 0; // the tint it's coloured by (Tiles::m_tints)
 		bool ready = false;
 		u32 used = 0; // the frame it was last wanted or drawn
 	};
@@ -98,6 +111,8 @@ private:
 	float distance(const TileKey &key, const Eye &eye) const;
 	bool choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want);
 	void install();
+	void paint(const Key &key, Entry &e) const; // its colours, tinted or its own
+	void repaint(); // tiles still in another tint's colours, within the budget
 	void evict();
 
 	const planet::Atlas m_atlas; // kept: the workers build from them
@@ -108,6 +123,8 @@ private:
 	std::vector<Key> m_draw;
 	u32 m_frame = 0;
 	size_t m_pending = 0;
+	std::shared_ptr<const Tint> m_tint;
+	u32 m_tints = 0; // tints set so far: a tile painted by this one is up to date
 };
 
 } // namespace far

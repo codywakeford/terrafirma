@@ -186,6 +186,8 @@ public:
 
 	// Mapgen helpers methods
 	int getSpawnLevelAtPoint(v2s16 p);
+	// Terra Firma: MapgenTerra::spawnLevelAt (throws for another mapgen)
+	int getSpawnLevelAt(double latitude, double longitude);
 	bool isBlockUnderground(v3s16 blockpos);
 
 	/// @return min edge of chunk in block units

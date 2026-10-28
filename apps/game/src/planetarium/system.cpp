@@ -134,6 +134,14 @@ void SystemLayer::draw(video::IVideoDriver *driver, const Camera &camera, double
 		const float near = (float)std::max({ (depth - reach) * BS, shown * 0.001 * BS, 0.1 * BS });
 		const float far = (float)std::max((depth + reach) * BS, (double)near * 2);
 		driver->setTransform(video::ETS_PROJECTION, OrbitCamera::perspective(camera.aspect, near, far, camera.shift));
+		if (m_cutaway && b.index == (int)*m_cutaway) {
+			const V p = scene(s.position((size_t)b.index, day));
+			const double d = length(p);
+			Body drawn = b;
+			drawn.radius = shown;
+			shells(driver, drawn, { -p.x / d, -p.y / d, -p.z / d });
+			continue;
+		}
 		if (b.index == (int)m_opts.focus) {
 			focused(near, far);
 			continue;
@@ -169,6 +177,63 @@ void SystemLayer::sphere(video::IVideoDriver *driver, const Body &b, video::SCol
 	world.setTranslation(v3f((f32)b.at.x, (f32)b.at.y, (f32)b.at.z) * BS);
 	driver->setTransform(video::ETS_WORLD, world);
 	driver->drawMeshBuffer(m_sphere.get());
+}
+
+// What a body's shell looks like cut open, by its name (body.h: Layer).
+static video::SColor shellColour(const std::string &name)
+{
+	static const std::pair<const char *, video::SColor> COLOURS[] = {
+		{ "core", { 255, 236, 168, 76 } },
+		{ "mantle", { 255, 176, 70, 44 } },
+		{ "crust", { 255, 120, 98, 82 } },
+		{ "ocean", { 255, 44, 96, 150 } },
+		{ "ice", { 255, 208, 226, 236 } },
+		{ "metallic hydrogen", { 255, 150, 140, 170 } },
+		{ "envelope", { 255, 214, 178, 136 } },
+	};
+	for (const auto &[n, c] : COLOURS)
+		if (name == n)
+			return c;
+	throw BaseException("planetarium: no colour for a body's '" + name + "' shell");
+}
+
+void SystemLayer::shells(video::IVideoDriver *driver, const Body &b, const V &sun)
+{
+	const auto &layers = m_opts.system->cards().at((size_t)b.index).layers;
+	// the window: the triangles facing the camera, cut away (the camera is at
+	// the origin: the way to it from the body is −at)
+	const double d = length(b.at);
+	const v3f toward((f32)(-b.at.x / d), (f32)(-b.at.y / d), (f32)(-b.at.z / d));
+	const auto &v = m_sphere->Vertices->Data;
+	const auto &all = m_sphere->Indices->Data;
+	m_window.clear();
+	for (size_t t = 0; t + 2 < all.size(); t += 3) {
+		const v3f n = (v[all[t]].Normal + v[all[t + 1]].Normal + v[all[t + 2]].Normal) / 3;
+		if (n.dotProduct(toward) < 0.55f)
+			m_window.insert(m_window.end(), { all[t], all[t + 1], all[t + 2] });
+	}
+	// outermost first; each shell lit from the star, its inside dimmer
+	for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+		Body shell = b;
+		shell.radius = b.radius * it->outer / 65536.0;
+		const video::SColor colour = shellColour(it->name);
+		for (video::S3DVertex &vx : m_sphere->Vertices->Data) {
+			const double l = std::max(0.0, vx.Normal.X * sun.x + vx.Normal.Y * sun.y + vx.Normal.Z * sun.z) * 0.6 + 0.4;
+			vx.Color = video::SColor(255, (u32)(colour.getRed() * l), (u32)(colour.getGreen() * l), (u32)(colour.getBlue() * l));
+		}
+		m_sphere->setDirty(scene::EBT_VERTEX);
+		video::SMaterial mat;
+		mat.MaterialType = video::EMT_SOLID;
+		mat.FogEnable = false;
+		mat.BackfaceCulling = false; // its inside shows through the window
+		mat.ColorMask = video::ECP_RGB;
+		driver->setMaterial(mat);
+		core::matrix4 world;
+		world.setScale((f32)(shell.radius * BS));
+		world.setTranslation(v3f((f32)b.at.x, (f32)b.at.y, (f32)b.at.z) * BS);
+		driver->setTransform(video::ETS_WORLD, world);
+		driver->drawIndexedTriangleList(v.data(), (u32)v.size(), m_window.data(), (u32)m_window.size() / 3);
+	}
 }
 
 void SystemLayer::glow(video::IVideoDriver *driver, const Camera &camera, const Body &star)

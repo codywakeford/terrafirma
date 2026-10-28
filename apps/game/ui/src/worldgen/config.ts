@@ -38,7 +38,11 @@ export function star(id: StarId) {
     return found
 }
 
-export const SIZES = [2048, 4096, 8192, 16384] as const
+/** Blocks round the equator: a planet of radius size / 2π, from 2.6k to the
+ *  Earth's 6.371M. Must match src/terragen/code.cpp SIZES (the code stores the index). */
+export const SIZES = [16384, 62832, 157088, 314160, 628320, 1570800, 3141600, 6283184, 12566368, 20106192, 40030176] as const
+/** The Earth's radius in blocks (a block a metre). */
+export const EARTH_RADIUS = 6_371_000
 
 export const DEFAULTS: Omit<WorldConfig, "seed"> = {
     size: 16384, // blocks round the planet's equator: an atlas of radius size / 2π

@@ -3,6 +3,9 @@
 // Copyright (C) 2010-2024 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "servermap.h"
+#include "database/database-planet.h"
+#include "planet/atlas.h"
+#include "staticobject.h"
 
 #include "map.h"
 #include "mapsector.h"
@@ -578,6 +581,15 @@ void ServerMap::save(ModifiedState save_level)
 	reportMetrics(end_time - start_time, block_count, block_count_all);
 }
 
+void ServerMap::layOn(const planet::Atlas &atlas)
+{
+	MutexAutoLock dblock(m_db.mutex);
+	setAtlas(&atlas);
+	m_db.dbase = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase), atlas);
+	if (m_db.dbase_ro)
+		m_db.dbase_ro = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase_ro), atlas);
+}
+
 void ServerMap::listAllLoadableBlocks(std::vector<v3s16> &dst)
 {
 	MutexAutoLock dblock(m_db.mutex);
@@ -731,6 +743,39 @@ std::pair<std::unique_ptr<std::istream>, u8> ServerMap::createBlockIStream(const
 	}
 }
 
+// Terra Firma: a planet block's stored objects, moved by however far its
+// slot is from the one they were saved in (planet::Atlas: a tile's blocks
+// are the same wherever the window puts it; their objects' positions are
+// the map's).
+static void rebaseObjects(const planet::Atlas &atlas, MapBlock &block)
+{
+	const v3s16 here = block.getPosRelative();
+	const std::optional<int> slot = planet::Atlas::slotAt({ here.X, here.Y, here.Z });
+	if (!slot)
+		return;
+	const auto origin = [](int s) {
+		return v3f(planet::Atlas::ORIGIN + (s % planet::Atlas::SLOTS) * planet::Atlas::SLOT, 0,
+				planet::Atlas::ORIGIN + (s / planet::Atlas::SLOTS) * planet::Atlas::SLOT);
+	};
+	std::vector<StaticObject> objects = block.m_static_objects.getAllStored();
+	bool moved = false;
+	for (StaticObject &o : objects) {
+		const v3f p = o.pos / BS;
+		const std::optional<int> was = planet::Atlas::slotAt(planet::Atlas::moverNode(p.X, p.Y, p.Z));
+		if (!was)
+			throw SerializationError("a planet's block holds an object off the map's slots");
+		if (*was == *slot)
+			continue;
+		o.pos += (origin(*slot) - origin(*was)) * BS;
+		moved = true;
+	}
+	if (!moved)
+		return;
+	block.m_static_objects.clearStored();
+	for (const StaticObject &o : objects)
+		block.m_static_objects.pushStored(o);
+}
+
 MapBlock *ServerMap::loadBlock(std::istream &is, v3s16 p3d, u8 version)
 {
 	ScopeProfiler sp(g_profiler, "ServerMap: load block", SPT_AVG, PRECISION_MICRO);
@@ -755,6 +800,11 @@ MapBlock *ServerMap::loadBlock(std::istream &is, v3s16 p3d, u8 version)
 			ScopeProfiler sp(g_profiler, "ServerMap: deSer block", SPT_AVG, PRECISION_MICRO);
 			block->deSerialize(is, version, true);
 		}
+
+		// Terra Firma: a planet's block may have been saved from another slot
+		// of the window: its objects come with it
+		if (const planet::Atlas *atlas = getAtlas())
+			rebaseObjects(*atlas, *block);
 
 		// If it's a new block, insert it to the map
 		if (block_created_new) {

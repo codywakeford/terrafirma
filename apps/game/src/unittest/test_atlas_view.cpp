@@ -64,7 +64,7 @@ void TestAtlasView::runTests(IGameDef *gamedef)
 // The eye's own grid round it is drawn as stored.
 void TestAtlasView::testOwnBlocksStay()
 {
-	const planet::Atlas atlas(PLANET);
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	AtlasView view(atlas);
 	const planet::Atlas::Node n = atlas.node(atlas.atlas().locate({ PLANET.radius + 3.5, 100, 200 }));
 	const v3f eye(n.x + 0.2f, n.y + 0.3f, n.z - 0.1f);
@@ -82,12 +82,12 @@ void TestAtlasView::testOwnBlocksStay()
 // half diagonal.
 void TestAtlasView::testOverASeam()
 {
-	const planet::Atlas atlas(PLANET);
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	AtlasView view(atlas);
 	int crossed = 0;
 	std::vector<v3s16> edges;
-	for (size_t r = 0; r < atlas.regions().size(); r += 5) {
-		const planet::Atlas::Region &region = atlas.regions()[r];
+	for (size_t r = 0; r < atlas.tiles().size(); r += 5) {
+		const planet::Atlas::Tile &region = atlas.tiles()[r];
 		const planet::Atlas::Rect &rect = region.rect;
 		// at the surface, and low (near the core)
 		for (const s16 y : { (s16)0, (s16)(region.k0 + 8) })
@@ -130,7 +130,7 @@ void TestAtlasView::testOverASeam()
 // the atlas's view of it (a transposed matrix would turn it the other way).
 void TestAtlasView::testTurnedGridIsTurned()
 {
-	const planet::Atlas atlas(PLANET);
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	AtlasView view(atlas);
 	const terragen::Atlas &geometry = atlas.atlas();
 	// north up a segment at longitude 52.5° (its middle) to the cap's circle
@@ -165,7 +165,7 @@ void TestAtlasView::testTurnedGridIsTurned()
 void TestAtlasView::testEveryBlockLandsWhereItIs()
 {
 	using V = terragen::Atlas::Vec;
-	const planet::Atlas atlas(PLANET);
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	const terragen::Atlas &geometry = atlas.atlas();
 	const double R = PLANET.radius;
 	struct Eye { const char *name; V at; };

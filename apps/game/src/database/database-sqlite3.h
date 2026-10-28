@@ -189,6 +189,10 @@ public:
 	bool deleteBlock(const v3s16 &pos);
 	void listAllLoadableBlocks(std::vector<v3s16> &dst);
 
+	bool saveBlockAt(const v3s32 &pos, std::string_view data) override;
+	void loadBlockAt(const v3s32 &pos, std::string *block) override;
+	bool deleteBlockAt(const v3s32 &pos) override;
+
 	PARENT_CLASS_FUNCS
 
 protected:
@@ -199,6 +203,8 @@ private:
 	/// @brief Bind block position into statement at column index
 	/// @return index of next column after position
 	int bindPos(sqlite3_stmt *stmt, v3s16 pos, int index = 1);
+	// The same for a 32-bit position: the split columns only
+	int bindPosAt(sqlite3_stmt *stmt, const v3s32 &pos);
 
 	bool m_new_format = false;
 

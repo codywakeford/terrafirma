@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { Button, Section, Segmented, Slider } from "../../kit"
-import { encodeWorldCode, SIZES } from "../../worldgen/config"
+import { Button, Section, Slider } from "../../kit"
+import { encodeWorldCode } from "../../worldgen/config"
 import { Copier } from "./copy"
 import type { WorldDraftHandle } from "./draft"
 
@@ -13,7 +13,6 @@ const signed = (v: number) => (Math.round(v * 100) === 0 ? "0" : `${v > 0 ? "+" 
 
 const code = computed(() => encodeWorldCode(props.draft.config))
 const copier = Copier()
-const sizes = SIZES.map((size) => ({ value: size, label: `${size / 1024}k` }))
 </script>
 
 <template>
@@ -44,10 +43,6 @@ const sizes = SIZES.map((size) => ({ value: size, label: `${size / 1024}k` }))
     <Section v-if="!page || page === 'land'" title="Water" hint="rain runs off, carves valleys, pools in lakes">
         <Slider v-model="draft.config.rivers" label="Rivers" :min="0" :max="1" :step="0.01"
             :format="(v) => (v < 0.33 ? 'few, large' : v < 0.66 ? 'some' : 'many, branching')" />
-    </Section>
-
-    <Section v-if="!page || page === 'land'" title="Planet size" hint="advanced · wraps east–west, polar edges north–south">
-        <Segmented v-model="draft.config.size" :options="sizes" />
     </Section>
 
     <Section v-if="!page || page === 'underground'" title="Underground" hint="saved in the code; not in the preview yet">

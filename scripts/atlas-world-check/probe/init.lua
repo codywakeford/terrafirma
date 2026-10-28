@@ -20,7 +20,7 @@ end
 
 -- a segment's box's right edge at the surface: the gap beside it
 local edge
-for _, r in ipairs(atlas.regions) do
+for _, r in ipairs(atlas.tiles) do
 	if r.kind == "segment" then
 		edge = { x = r.x + r.width, y = 0, z = r.z + math.floor(r.depth / 2) }
 		break
@@ -28,7 +28,7 @@ for _, r in ipairs(atlas.regions) do
 end
 -- the core's box: its middle
 local inner
-for _, r in ipairs(atlas.regions) do
+for _, r in ipairs(atlas.tiles) do
 	if r.kind == "core" then inner = { x = r.x + math.floor(r.width / 2), y = 0, z = r.z + math.floor(r.depth / 2) } end
 end
 assert(inner, "atlas_probe: no core")

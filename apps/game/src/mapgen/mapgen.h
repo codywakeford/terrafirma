@@ -6,6 +6,8 @@
 
 #pragma once
 
+namespace planet { class Atlas; } // Terra Firma
+
 #include "constants.h"
 #include "noise.h"
 #include "nodedef.h"
@@ -121,6 +123,9 @@ struct MapgenParams {
 	// Terra Firma: the planet's mapping code (terragen::Atlas::code,
 	// planet/atlas.h); empty unless the world is one. Any mapgen.
 	std::string planet_atlas;
+	// Terra Firma: the server's atlas, the window its map is (set before the
+	// mapgens are made; a mapgen's copy shares its window). Not saved.
+	const planet::Atlas *planet = nullptr;
 	// Terra Firma, TEMP(2026-10-27): an atlas planet with no terrain: a smooth
 	// sphere (ground below layer 0) painted by what each cell is, its regions
 	// and seams, to look at (sprint 30). Never in a production world.

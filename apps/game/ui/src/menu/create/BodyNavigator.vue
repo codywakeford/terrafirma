@@ -5,11 +5,9 @@ import { star, type StarId } from "../../worldgen/config.ts"
 import BodyIcon from "../../worldgen/BodyIcon.vue"
 
 const props = defineProps<{ system: SystemHandle; star: StarId }>()
-const view = defineModel<"globe" | "map">("view", { required: true })
 const looks = useLooks()
 function pick(id: string) {
     props.system.selected = id
-    view.value = "globe"
 }
 </script>
 

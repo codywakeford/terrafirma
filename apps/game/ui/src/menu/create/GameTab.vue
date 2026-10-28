@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import PixelIcon from "../../game/PixelIcon.vue"
-import { Button, Field, IconChoice, Section, Segmented } from "../../kit/index.ts"
-import { DEFAULTS, WORLD_PRESETS, type WorldConfig } from "../../worldgen/config.ts"
+import { Button, Field, IconChoice, Section, Segmented, Slider } from "../../kit/index.ts"
+import { DEFAULTS, EARTH_RADIUS, SIZES, WORLD_PRESETS, type WorldConfig } from "../../worldgen/config.ts"
 import { worldName } from "../../worldgen/names.ts"
 import { matching, type WorldDraftHandle } from "./draft.ts"
 import { RULE_PRESETS, type Mode } from "./rules.ts"
@@ -51,6 +51,34 @@ const land = computed({
     },
 })
 const landNote = computed(() => WORLD_PRESETS.find((p) => p.id === land.value)?.note ?? "A custom land shape")
+
+// the planet's size, a notch a size of the code's table
+const sizeIndex = computed({
+    get: () => {
+        const i = SIZES.findIndex((s) => s === props.draft.config.size)
+        if (i < 0) throw new Error(`world size ${props.draft.config.size} isn't one of this build's`)
+        return i
+    },
+    set: (i: number) => {
+        const size = SIZES[i]
+        if (size === undefined) throw new Error(`no world size ${i}`)
+        props.draft.config.size = size
+        props.draft.spawn = null
+    },
+})
+const radius = (i: number) => (SIZES[i] ?? 0) / (2 * Math.PI)
+const blocks = (r: number) => (r >= 1e6 ? `${(r / 1e6).toFixed(r >= 1e7 ? 0 : 2)}M` : `${Math.round(r / 1000)}k`)
+const sizeLabel = (i: number) => {
+    const r = radius(i)
+    const earth = r / EARTH_RADIUS
+    return `${blocks(r)} radius · ${earth > 0.99 ? "Earth" : earth >= 0.1 ? `${earth.toFixed(1)}× Earth` : `1/${Math.round(1 / earth)} Earth`}`
+}
+const sizeNote = computed(() => {
+    const r = radius(sizeIndex.value)
+    const around = (2 * Math.PI * r) / 4 / 3600 // hours to walk round, at 4 blocks a second
+    return `${around < 48 ? `${Math.round(around)} hours` : `${Math.round(around / 24)} days`} to walk round` +
+        (r > 3000 ? " · the land doesn't grow with the planet yet: bigger worlds are flatter" : "")
+})
 </script>
 
 <template>
@@ -87,6 +115,11 @@ const landNote = computed(() => WORLD_PRESETS.find((p) => p.id === land.value)?.
             <IconChoice v-model="land" label="Land preset" :options="LAND_OPTIONS" :columns="5" layout="stacked" />
             <p class="choice-note">{{ landNote }}</p>
             <button class="detail-link" type="button" @click="emit('fineTuneLand')">Fine tune land & water »</button>
+        </Section>
+
+        <Section title="Planet size">
+            <Slider v-model="sizeIndex" label="Size" :min="0" :max="SIZES.length - 1" :step="1" :format="sizeLabel" />
+            <p class="choice-note">{{ sizeNote }}</p>
         </Section>
     </div>
 </template>

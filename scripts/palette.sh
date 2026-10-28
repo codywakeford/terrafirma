@@ -16,7 +16,7 @@ world="$work/world"
 mkdir -p "$world"
 printf 'gameid = terrafirma\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n' > "$world/world.mt"
 # any terra world: the palette is the game's, not a world's
-atlas="atlas-v2 radius=1303.7972938088067 segments=24 capLatitude=85 core=325.94932345220167 rounding=0.95 height=256"
+atlas="atlas-v2 radius=2607.5945876176133 segments=24 capLatitude=85 core=651.8986469044033 rounding=0.95 height=256"
 printf 'mg_name = terra\nmgterra_code = TF5.dGVycmE\nseed = 1\nchunksize = 1\nplanet_atlas = %s\n[end_of_params]\n' "$atlas" > "$world/map_meta.txt"
 
 env -u DISPLAY -u WAYLAND_DISPLAY timeout 120 "$root/.output/bin/luanti" --config /dev/null --world "$world" \

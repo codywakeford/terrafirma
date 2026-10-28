@@ -194,6 +194,10 @@ public:
 		Saves modified blocks before unloading if possible.
 	*/
 	void unloadUnreferencedBlocks(std::vector<v3s16> *unloaded_blocks=NULL);
+	// Terra Firma: take every block in a box (block positions, inclusive) out
+	// of memory, saving those modified when `save`. False when some are in
+	// use: those stay (the rest are out).
+	bool unloadArea(v3s16 low, v3s16 high, bool save);
 
 	// Deletes sectors and their blocks from memory
 	// Takes cache into account

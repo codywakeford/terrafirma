@@ -104,7 +104,7 @@ void TestTerragen::testDecodeDefaults()
 {
 	WorldCode w = WorldCode::decode("TF5.YWJj");
 	UASSERTEQ(std::string, w.seed, "abc");
-	UASSERTEQ(int, w.size, 8192);
+	UASSERTEQ(int, w.size, 16384); // as ui/src/worldgen/config.ts DEFAULTS
 	UASSERTEQ(std::string, w.star->id, "yellow");
 	UASSERTEQ(int, w.continents, 4);
 	UASSERTEQ(int, roundInt(w.tilt), 23);
@@ -115,9 +115,10 @@ void TestTerragen::testDecodeDefaults()
 
 void TestTerragen::testDecodeParams()
 {
-	// size 4096, red dwarf, continents 6, tilt 40, everything else default
+	// size 1 (62832 round: radius 10k), red dwarf, continents 6, tilt 40,
+	// everything else default
 	WorldCode w = WorldCode::decode("TF5.YWJj.AQC2ZoCAgICAgICA41U");
-	UASSERTEQ(int, w.size, 4096);
+	UASSERTEQ(int, w.size, 62832);
 	UASSERTEQ(std::string, w.star->id, "red");
 	UASSERTEQ(int, w.continents, 6);
 	UASSERTEQ(int, roundInt(w.tilt), 40);
@@ -767,5 +768,7 @@ void TestTerragen::testDeterminismGolden()
 	for (int b = 0; b < (int)Biome::Count; b++)
 		infostream << " " << BIOME_NAMES[b] << "=" << counts[b];
 	infostream << std::endl;
-	UASSERTEQ(uint32_t, h, 2757000011u); // TF5: the climate with ocean currents
+	// TF5: the climate with ocean currents. The code's size 1 is 62832 round
+	// since sprint 39 (was 4096: 2757000011)
+	UASSERTEQ(uint32_t, h, 2496371879u);
 }

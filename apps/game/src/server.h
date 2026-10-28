@@ -71,6 +71,7 @@ struct SoundSpec;
 struct StarParams;
 struct ServerTerra; // Terra Firma
 #include "planet/atlas.h" // Terra Firma
+#include "planet/pager.h" // Terra Firma
 #include "orbit/flight.h" // Terra Firma
 struct SunParams;
 
@@ -434,6 +435,9 @@ public:
 
 	// Terra Firma: the planet this world is, if it is one (planet/atlas.h)
 	const planet::Atlas *atlas() const { return m_atlas ? &*m_atlas : nullptr; }
+	// Terra Firma: a cell's node, its tile put in the map's window if it isn't
+	// (planet::Pager). Throws if the world isn't a planet, or the window is full.
+	planet::Atlas::Node planetNode(const planet::Atlas::Cell &cell);
 	// Terra Firma: flight on the world's planet (core.orbit): its gravity and
 	// air, sized to the planet if the world is one (terragen::sphere)
 	const orbit::Flight &flight() const { return *m_flight; }
@@ -590,6 +594,10 @@ private:
 	// Terra Firma: what the far view needs, on a terra world
 	void SendHorizon(session_t peer_id);
 	void SendPlanet(session_t peer_id);
+	// the planet's window: every slot (on join), or one that changed
+	void SendWindow(session_t peer_id, const std::vector<int> &slots);
+	// the tiles round every player kept in the window (planet::Pager::keep)
+	void keepPlanetWindow();
 
 	void SendLocalPlayerAnimations(session_t peer_id, v2f animation_frames[4],
 		f32 animation_speed);
@@ -850,6 +858,8 @@ private:
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
 	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: from the world's planet_atlas
+	std::optional<planet::Pager> m_pager; // Terra Firma: the atlas's window, which tiles are in the map
+	float m_window_timer = 0;             // Terra Firma: to the next keepPlanetWindow
 	std::unique_ptr<orbit::Flight> m_flight; // Terra Firma: core.orbit's
 	std::unique_ptr<online::Gate> m_gate; // Terra Firma: null unless hosted for friends
 

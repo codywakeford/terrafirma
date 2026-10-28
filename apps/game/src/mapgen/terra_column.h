@@ -61,7 +61,7 @@ struct Column
 
 // The world model's block at a latitude and longitude (radians): its map is
 // equirectangular, x longitude from 0, z latitude, poles at ±size/2.
-std::array<s16, 2> equirect(double latitude, double longitude, int32_t size);
+std::array<int32_t, 2> equirect(double latitude, double longitude, int32_t size);
 
 class Columns
 {
@@ -81,23 +81,25 @@ public:
 	// The column at a latitude and longitude (radians): an atlas's nodes are
 	// built from their place (planet::Atlas::place), node by node.
 	Column atPlace(double latitude, double longitude) const;
-	terragen::fix sunlight(s16 z) const;
+	terragen::fix sunlight(int32_t z) const;
 
 	// The world model's block for a column of the map: itself, or on a planet
 	// the one at its latitude and longitude (the world model's map is
 	// equirectangular: x longitude, z latitude, poles at ±size/2).
-	std::array<s16, 2> onWorld(s16 x, s16 z) const;
+	std::array<int32_t, 2> onWorld(s16 x, s16 z) const;
 	// The world model's block at a latitude and longitude (radians).
-	std::array<s16, 2> onWorldAt(double latitude, double longitude) const;
+	std::array<int32_t, 2> onWorldAt(double latitude, double longitude) const;
 
 	// The block the generator leaves at (x, y, z) of column `c`: rock, ore
 	// and caves below the soil, the soil painted over it, water (frozen at
 	// the top of a cold sea) and air above. Before decorations, dust and the
 	// game's own planting.
-	MapNode node(const Column &c, s16 x, s32 y, s16 z) const;
+	// x, z: the column's place for what varies node to node (on a planet, its
+	// spot: planet::Atlas::spot).
+	MapNode node(const Column &c, s32 x, s32 y, s32 z) const;
 
 private:
-	Column column(s16 x, s16 z, terragen::fix sun) const;
+	Column column(int32_t x, int32_t z, terragen::fix sun) const;
 	Column nothing() const; // a column of no world: air, for storage that isn't a place
 
 	const terragen::World &m_world;

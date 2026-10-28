@@ -9,6 +9,7 @@
 #include <CMeshBuffer.h>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace video { class IVideoDriver; class ITexture; }
@@ -62,6 +63,10 @@ public:
 	terragen::System::Vec starCentre(double day) const;
 	double radius(size_t body) const { return m_opts.system->radius(body) * m_opts.blocksPerKm; }
 	const terragen::System &system() const { return *m_opts.system; }
+	// A body drawn cut open (none: none): its shells from its card (core,
+	// mantle, crust, ocean, …) as spheres, a window cut in them toward the
+	// camera. The focused body too: then it's drawn here, not by its owner.
+	void cutaway(std::optional<size_t> body) { m_cutaway = body; }
 
 private:
 	struct Body
@@ -73,6 +78,7 @@ private:
 	};
 	void sphere(video::IVideoDriver *driver, const Body &b, video::SColor colour, const terragen::System::Vec &sun, bool lit);
 	void glow(video::IVideoDriver *driver, const Camera &camera, const Body &star);
+	void shells(video::IVideoDriver *driver, const Body &b, const terragen::System::Vec &sun);
 	void orbits(video::IVideoDriver *driver, const Camera &camera, double day);
 
 	// a vector of the system (km, the ecliptic's axes) in the scene's (blocks)
@@ -81,6 +87,8 @@ private:
 	const Opts m_opts;
 	double m_tilt; // radians: the focused body's
 	double m_extent = 0;
+	std::optional<size_t> m_cutaway;
+	std::vector<u16> m_window; // a cut sphere's triangles, this frame
 	irr_ptr<scene::SMeshBuffer> m_sphere; // unit, its normals its points
 	video::ITexture *m_glow = nullptr;
 	video::IVideoDriver *m_driver = nullptr; // the glow's, to take it off

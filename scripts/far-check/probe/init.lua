@@ -3,17 +3,19 @@
 -- the ground (its block and height) and any water over it. Prints FAR
 -- lines; scripts/far-check.sh reads them.
 
--- one area in the middle of each of six regions: segments round the
--- equator, and a cap (in storage a region's grid is columns of the planet:
--- x east, y the layer, z north)
+-- one area by the middle of each of six regions, found by place (whatever
+-- the storage): five segments' middles on the equator, and the north pole;
+-- each a degree north-east of the middle, so it runs north-east within one
+-- tile (a grid's middle is where its tiles meet)
 local SIZE = 96
 local AREAS = {}
 local atlas = core.planet.atlas() or error("far check: the world isn't a planet")
-for _, r in ipairs(atlas.regions) do
-	if #AREAS < 6 and r.width > SIZE and r.depth > SIZE and (r.kind == "cap" or r.index % 5 == 0) then
-		AREAS[#AREAS + 1] = { r.x + math.floor((r.width - SIZE) / 2), r.z + math.floor((r.depth - SIZE) / 2) }
-	end
+for _, lon in ipairs({ 7.5, 82.5, 157.5, 232.5, 307.5 }) do
+	local n = core.planet.atlas_node(math.rad(1), math.rad(lon + 1), 0)
+	AREAS[#AREAS + 1] = { n.x, n.z }
 end
+local pole = core.planet.atlas_node(math.rad(89.5), math.rad(45), 0)
+AREAS[#AREAS + 1] = { pole.x, pole.z }
 assert(#AREAS == 6, "far check: only " .. #AREAS .. " regions to probe")
 
 local function kind(name)
@@ -39,7 +41,7 @@ local function real(data, area, x, z, top, bottom)
 	return out
 end
 
-local totals = { columns = 0, ground = 0, water = 0, rooted = 0 }
+local totals = { columns = 0, ground = 0, water = 0, rooted = 0, seam = 0 }
 local shown = 0
 local function miss(what, x, z, want, got)
 	if shown < 12 then
@@ -61,6 +63,11 @@ core.after(0, function()
 			-- the edges' trees lean in from chunks outside the area: skip a margin
 			for z = minp.z + 12, maxp.z - 12 do
 				for x = minp.x + 12, maxp.x - 12 do
+					-- a column that's no place on the planet (seam between
+					-- storage, cut away) has no land to compare
+					if not core.planet.atlas_place({ x = x, y = 0, z = z }) then
+						totals.seam = totals.seam + 1
+					else
 					local s = core.terra.surface({ x = x, y = 0, z = z })
 					local r = real(data, area, x, z, maxp.y, minp.y)
 					-- a tree's trunk stands in its column's top block: on a planet
@@ -87,11 +94,12 @@ core.after(0, function()
 						totals.water = totals.water + 1
 					elseif sw == rw then totals.water = totals.water + 1 else miss("water", x, z, sw, rw) end
 					end
+					end
 				end
 			end
 			pending = pending - 1
 			if pending == 0 then
-				print(("FAR columns %d ground %d water %d rooted %d"):format(totals.columns, totals.ground, totals.water, totals.rooted))
+				print(("FAR columns %d ground %d water %d rooted %d seam %d"):format(totals.columns, totals.ground, totals.water, totals.rooted, totals.seam))
 				core.request_shutdown()
 			end
 		end)

@@ -335,6 +335,9 @@ export type Social = {
  */
 export type PlanetariumPlace = { latitude: number; longitude: number }
 export type PlanetariumCell = { region: "segment" | "cap" | "core"; index: number; i: number; j: number; k: number }
+/** What's over a body's land (planetarium.layer). */
+export type PlanetariumLayer = { width: number; height: number; rgba: string } | { inside: true } | { none: true }
+
 /** Where `planetarium.fly` takes the camera: what's left out stays as it is. */
 export type PlanetariumFlight = {
     body?: string
@@ -350,7 +353,10 @@ export type PlanetariumMarker = PlanetariumPlace & { colour: string /* "#rrggbb"
 export type PlanetariumBody = null | { code: string }
 /** Where the planet is drawn: a part of the page (page pixels), or the whole window. (A request is spread into the message, so it's never null.) */
 export type PlanetariumViewport = { whole: true } | { x: number; y: number; width: number; height: number }
-export type PlanetariumMessage = { kind: "planetarium"; event: "picked"; latitude: number; longitude: number; cell: PlanetariumCell }
+export type PlanetariumMessage =
+    | { kind: "planetarium"; event: "picked"; latitude: number; longitude: number; cell: PlanetariumCell }
+    /** The host's clock while it runs (the menu's): the date, 0..1 through the year. */
+    | { kind: "planetarium"; event: "time"; date: number; running: boolean }
 
 /** Engine → UI */
 export type EngineMessage =
@@ -461,6 +467,12 @@ export type Intents = {
     /** Eases the camera to a body (by id), over a place on it, at an altitude (blocks) or so many of its radii up, over `seconds`. */
     "planetarium.fly": { request: PlanetariumFlight; response: null }
     /** What the page covers round the window (page pixels): the planet is framed in the rest. */
+    /** What's over the land: an image (RGBA, base64; the preview's layout: row 0 north, column 0 at −180°), the body the camera's round cut open, or nothing. */
+    "planetarium.layer": { request: PlanetariumLayer; response: null }
+    /** The host's clock (the menu's): stopped or running, and the date (0..1 through the year). */
+    "planetarium.time": { request: { running?: boolean; date?: number }; response: null }
+    /** Whether the atlas's seams are drawn. */
+    "planetarium.seams": { request: { shown: boolean }; response: null }
     "planetarium.frame": { request: { left?: number; right?: number; top?: number; bottom?: number }; response: null }
     "planetarium.focus": { request: (PlanetariumPlace & { altitude?: number }) | { body: string }; response: null }
     "planetarium.markers": { request: { markers: PlanetariumMarker[] }; response: null }

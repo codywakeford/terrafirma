@@ -1958,3 +1958,38 @@ void Client::handleCommand_Atlas(NetworkPacket *pkt)
 	m_mesh_grid = { 1 };
 }
 
+void Client::handleCommand_Window(NetworkPacket *pkt)
+{
+	if (!m_atlas)
+		throw SerializationError("TOCLIENT_WINDOW: this world isn't a planet");
+	u16 count;
+	*pkt >> count;
+	const std::vector<std::optional<planet::Atlas::TileId>> was = m_atlas->window();
+	for (u16 n = 0; n < count; n++) {
+		u16 slot;
+		u8 holds;
+		*pkt >> slot >> holds;
+		std::optional<planet::Atlas::TileId> tile;
+		if (holds) {
+			s32 region, ti, tj;
+			*pkt >> region >> ti >> tj;
+			tile = planet::Atlas::TileId{ region, ti, tj };
+		}
+		if (slot >= was.size())
+			throw SerializationError("TOCLIENT_WINDOW: no slot " + std::to_string(slot));
+		if (was[slot] == tile)
+			continue;
+		// another place now: what's here of the last one goes (a block still
+		// being meshed stays until the server's blocks of the new one come)
+		const s32 x = planet::Atlas::ORIGIN + (slot % planet::Atlas::SLOTS) * planet::Atlas::SLOT;
+		const s32 z = planet::Atlas::ORIGIN + (slot / planet::Atlas::SLOTS) * planet::Atlas::SLOT;
+		m_env.getMap().unloadArea(getNodeBlockPos(v3s16(x, -MAX_MAP_GENERATION_LIMIT, z)),
+				getNodeBlockPos(v3s16(x + planet::Atlas::TILE - 1, MAX_MAP_GENERATION_LIMIT, z + planet::Atlas::TILE - 1)), false);
+		try {
+			m_atlas->put(slot, tile);
+		} catch (const std::invalid_argument &e) {
+			throw SerializationError(std::string("TOCLIENT_WINDOW: ") + e.what());
+		}
+	}
+}
+

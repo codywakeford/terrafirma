@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 62;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 63;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 62;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 63;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -740,7 +740,20 @@ enum ToClientCommand : u16
 		std::string code: the mapping (terragen::Atlas::code)
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x6A,
+	TOCLIENT_WINDOW = 0x6A,
+	/*
+		Terra Firma: which of the planet's tiles are in the map's window
+		(planet::Atlas::window): every slot after TOCLIENT_ATLAS on join, then
+		each slot that changes. A slot that holds another tile is another
+		place: what the client has of it is gone.
+		u16 count
+		for each:
+			u16 slot
+			u8 holds a tile
+			if so: s32 region, s32 ti, s32 tj
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x6B,
 };
 
 enum ToServerCommand : u16

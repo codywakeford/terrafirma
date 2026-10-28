@@ -3,6 +3,7 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "database.h"
+#include "exceptions.h"
 #include "irrlichttypes.h"
 
 
@@ -26,4 +27,19 @@ v3s16 MapDatabase::getIntegerAsBlock(s64 i)
 	return { (s16)( (i        & 0xFFF) - 0x800),
 	         (s16)(((i >> 12) & 0xFFF) - 0x800),
 	         (s16)(((i >> 24) & 0xFFF) - 0x800) };
+}
+
+bool MapDatabase::saveBlockAt(const v3s32 &, std::string_view)
+{
+	throw BaseException("this map backend can't keep a planet's blocks (use sqlite3)");
+}
+
+void MapDatabase::loadBlockAt(const v3s32 &, std::string *)
+{
+	throw BaseException("this map backend can't keep a planet's blocks (use sqlite3)");
+}
+
+bool MapDatabase::deleteBlockAt(const v3s32 &)
+{
+	throw BaseException("this map backend can't keep a planet's blocks (use sqlite3)");
 }

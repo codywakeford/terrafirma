@@ -306,6 +306,9 @@ export function MockBridge() {
         "planetarium.viewport": () => null,
         "planetarium.fly": () => null,
         "planetarium.frame": () => null,
+        "planetarium.layer": () => null,
+        "planetarium.time": () => null,
+        "planetarium.seams": () => null,
         capture: () => null,
         "worlds.list": () => worlds,
         "worlds.create": ({ name, code, settings }) => {

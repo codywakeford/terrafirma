@@ -281,6 +281,17 @@ static void enrich_exception(BaseException &e, const NetworkPacket &pkt, bool in
 	Server
 */
 
+// Terra Firma: the map blocks of a slot of the planet's window, low and
+// high corners (every layer)
+static std::pair<v3s16, v3s16> slotBlocks(int slot)
+{
+	const s32 x = planet::Atlas::ORIGIN + (slot % planet::Atlas::SLOTS) * planet::Atlas::SLOT;
+	const s32 z = planet::Atlas::ORIGIN + (slot / planet::Atlas::SLOTS) * planet::Atlas::SLOT;
+	const v3s16 low = getNodeBlockPos(v3s16(x, -MAX_MAP_GENERATION_LIMIT, z));
+	const v3s16 high = getNodeBlockPos(v3s16(x + planet::Atlas::TILE - 1, MAX_MAP_GENERATION_LIMIT, z + planet::Atlas::TILE - 1));
+	return { low, high };
+}
+
 Server::Server(
 		const std::string &path_world,
 		const SubgameSpec &gamespec,
@@ -532,10 +543,39 @@ void Server::init()
 	if (std::string code; startup_server_map->settings_mgr.getMapSetting("planet_atlas", &code) && !code.empty()) {
 		try {
 			m_atlas.emplace(terragen::Atlas::parse(code));
-			startup_server_map->setAtlas(&*m_atlas);
+			// which tiles were in the map's window when the world was last saved
+			const std::string windowFile = m_path_world + DIR_DELIM + "planet_window";
+			if (std::string window; fs::PathExists(windowFile)) {
+				if (!fs::ReadFile(windowFile, window, true))
+					throw ServerError("This world's planet_window can't be read");
+				m_atlas->setWindow(window);
+			}
+			startup_server_map->layOn(*m_atlas);
 		} catch (const std::invalid_argument &e) {
 			throw ServerError(std::string("This world's planet_atlas can't be used: ") + e.what());
 		}
+	}
+	if (m_atlas) {
+		planet::Pager::Hooks hooks;
+		ServerMap *map = startup_server_map.get(); // the environment's, once it's made
+		hooks.empty = [this, map](int slot) {
+			const auto [low, high] = slotBlocks(slot);
+			const bool emptied = map->unloadArea(low, high, true);
+			if (!emptied)
+				infostream << "planet window: slot " << slot << " has blocks in use; it stays for now" << std::endl;
+			return emptied;
+		};
+		hooks.moved = [this](int slot) {
+			const auto [low, high] = slotBlocks(slot);
+			m_clients.forgetArea(low, high);
+			SendWindow(PEER_ID_INEXISTENT, { slot });
+			if (!fs::safeWriteToFile(m_path_world + DIR_DELIM + "planet_window", m_atlas->windowCode()))
+				throw ServerError("The planet's window can't be saved (planet_window)");
+		};
+		m_pager.emplace(*m_atlas, hooks);
+		// a new world (no planet_window yet): a small planet is all in the map
+		if (m_atlas->tiles().empty())
+			m_pager->all();
 	}
 	const double radius = m_atlas ? m_atlas->atlas().params().radius : 0;
 	m_flight = std::make_unique<orbit::Flight>(radius > 0 ? terragen::sphere(radius) : terragen::home());
@@ -593,6 +633,7 @@ void Server::init()
 	auto &servermap = m_env->getServerMap();
 	if (!servermap.settings_mgr.makeMapgenParams())
 		FATAL_ERROR("Couldn't create any mapgen type");
+	servermap.getMapgenParams()->planet = m_atlas ? &*m_atlas : nullptr;
 	m_emerge->initMapgens(servermap.getMapgenParams());
 	// every terra world is a planet; one made before planets were is refused,
 	// not played flat (only the Lab's worlds are flat)
@@ -607,9 +648,9 @@ void Server::init()
 	if (m_atlas) {
 		// every node the atlas stores must be one the generator can make
 		const auto [emin, emax] = get_mapgen_edges(m_emerge->mgparams->mapgen_limit, m_emerge->mgparams->chunksize);
-		for (const planet::Atlas::Region &region : m_atlas->regions())
-			if (const planet::Atlas::Rect &r = region.rect; r.x < emin.X || r.z < emin.Z || r.x + r.width - 1 > emax.X || r.z + r.depth - 1 > emax.Z)
-				throw ServerError("the atlas's regions reach past what the map generator makes (chunksize, mapgen_limit)");
+		for (const planet::Atlas::Tile &tile : m_atlas->tiles())
+			if (const planet::Atlas::Rect &r = tile.rect; r.x < emin.X || r.z < emin.Z || r.x + r.width - 1 > emax.X || r.z + r.depth - 1 > emax.Z)
+				throw ServerError("the atlas's tiles reach past what the map generator makes (chunksize, mapgen_limit)");
 	}
 
 	if (g_settings->getBool("enable_rollback_recording")) {
@@ -783,6 +824,12 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 
 		// Step environment
 		m_env->step(dtime);
+
+		// Terra Firma: the planet's window follows the players
+		if (m_pager && (m_window_timer -= dtime) <= 0) {
+			m_window_timer = 1;
+			keepPlanetWindow();
+		}
 
 		// Run Map's timers and unload unused data
 		constexpr float map_timer_and_unload_dtime = 2.95f;
@@ -4362,6 +4409,19 @@ std::unique_ptr<PlayerSAO> Server::emergePlayer(const char *name, session_t peer
 
 	// Load player
 	auto playersao = m_env->loadPlayer(player, peer_id);
+	// Terra Firma: back where they were on the planet, whatever slot of the
+	// map's window holds it now (keepPlanetWindow keeps it)
+	if (m_pager)
+		if (const std::string &at = playersao->getMeta().getString("planet_cell"); !at.empty()) {
+			int region;
+			long long i, j, k;
+			float ox, oy, oz;
+			if (std::sscanf(at.c_str(), "%d %lld %lld %lld %f %f %f", &region, &i, &j, &k, &ox, &oy, &oz) != 7)
+				throw ServerError("player " + std::string(name) + "'s planet_cell can't be read: " + at);
+			const auto [kind, index] = m_atlas->regionOfNumber(region);
+			const planet::Atlas::Node n = planetNode({ kind, index, i, j, k });
+			playersao->setBasePosition(v3f(n.x + ox, n.y + oy, n.z + oz) * BS);
+		}
 
 	// Complete init with server parts
 	playersao->finalize(player, getPlayerEffectivePrivs(player->getName()));
@@ -4708,7 +4768,8 @@ void Server::SendHorizon(session_t peer_id)
 	Send(&pkt);
 }
 
-// Terra Firma: the planet's atlas, so the client stores and draws it as the server does
+// Terra Firma: the planet's atlas, so the client stores and draws it as the
+// server does, and its window
 void Server::SendPlanet(session_t peer_id)
 {
 	if (!m_atlas)
@@ -4716,6 +4777,54 @@ void Server::SendPlanet(session_t peer_id)
 	NetworkPacket pkt(TOCLIENT_ATLAS, 0, peer_id);
 	pkt << m_atlas->atlas().code();
 	Send(&pkt);
+	std::vector<int> every(planet::Atlas::SLOTS * planet::Atlas::SLOTS);
+	for (int s = 0; s < (int)every.size(); s++)
+		every[s] = s;
+	SendWindow(peer_id, every);
+}
+
+void Server::SendWindow(session_t peer_id, const std::vector<int> &slots)
+{
+	const std::vector<std::optional<planet::Atlas::TileId>> window = m_atlas->window();
+	NetworkPacket pkt(TOCLIENT_WINDOW, 0, peer_id);
+	pkt << (u16)slots.size();
+	for (int s : slots) {
+		pkt << (u16)s << (u8)window.at(s).has_value();
+		if (window[s])
+			pkt << (s32)window[s]->region << (s32)window[s]->ti << (s32)window[s]->tj;
+	}
+	if (peer_id == PEER_ID_INEXISTENT)
+		m_clients.sendToAll(&pkt);
+	else
+		Send(&pkt);
+}
+
+planet::Atlas::Node Server::planetNode(const planet::Atlas::Cell &cell)
+{
+	if (!m_pager)
+		throw ServerError("this world isn't a planet");
+	return m_pager->node(cell, getUptime());
+}
+
+void Server::keepPlanetWindow()
+{
+	std::vector<terragen::Atlas::Vec> points;
+	for (RemotePlayer *player : m_env->getPlayers()) {
+		PlayerSAO *sao = player->getPlayerSAO();
+		if (!sao)
+			continue;
+		const v3f p = sao->getBasePosition() / BS;
+		const planet::Atlas::Node n = planet::Atlas::moverNode(p.X, p.Y, p.Z);
+		const std::optional<planet::Atlas::Cell> c = m_atlas->cell(n);
+		if (!c) // in seam (between slots, above the sky): no ground to keep
+			continue;
+		points.push_back(m_atlas->atlas().centre(*c));
+		// where they are on the planet, for when they're back (emergePlayer)
+		sao->getMeta().setString("planet_cell", std::to_string(m_atlas->regionNumber(c->region, c->index)) + " " +
+				std::to_string(c->i) + " " + std::to_string(c->j) + " " + std::to_string(c->k) + " " +
+				std::to_string(p.X - n.x) + " " + std::to_string(p.Y - n.y) + " " + std::to_string(p.Z - n.z));
+	}
+	m_pager->keep(points, getUptime());
 }
 
 void Server::setTimeSpeed(std::optional<float> speed)

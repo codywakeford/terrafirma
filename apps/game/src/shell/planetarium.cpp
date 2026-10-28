@@ -4,6 +4,7 @@
 #include "planetarium.h"
 #include "bridge.h"
 #include "shell.h"
+#include "util/base64.h"
 #include <IVideoDriver.h>
 #include <cmath>
 #include <cstdio>
@@ -14,7 +15,7 @@ using planetarium::MarkerLayer;
 using View = planetarium::Planetarium;
 
 static const char *const VERBS[] = { "planetarium.show", "planetarium.hide", "planetarium.focus", "planetarium.markers",
-	"planetarium.viewport", "planetarium.fly", "planetarium.frame" };
+	"planetarium.viewport", "planetarium.fly", "planetarium.frame", "planetarium.layer", "planetarium.time", "planetarium.seams" };
 
 // a finite number field, or none if it's absent; Refused if it's anything else
 static std::optional<double> number(const Json::Value &v, const char *name)
@@ -64,6 +65,9 @@ Planetarium::Planetarium(Opts opts) : m_opts(std::move(opts))
 	m_opts.shell.on("planetarium.viewport", [this](const Json::Value &intent) { return viewport(intent); });
 	m_opts.shell.on("planetarium.fly", [this](const Json::Value &intent) { return fly(intent); });
 	m_opts.shell.on("planetarium.frame", [this](const Json::Value &intent) { return frame(intent); });
+	m_opts.shell.on("planetarium.layer", [this](const Json::Value &intent) { return layer(intent); });
+	m_opts.shell.on("planetarium.time", [this](const Json::Value &intent) { return time(intent); });
+	m_opts.shell.on("planetarium.seams", [this](const Json::Value &intent) { return seams(intent); });
 }
 
 Planetarium::~Planetarium()
@@ -101,14 +105,68 @@ void Planetarium::show(View::Opts body)
 	if (const View *was = m_current ? m_current.get() : m_next.get())
 		next->keep(*was); // the same view of the new body
 	next->markers(m_markers);
+	next->layer(m_layer);
+	apply(*next);
 	m_next = std::move(next);
 }
 
-void Planetarium::day(double days)
+void Planetarium::apply(View &p) const
 {
+	p.seams(m_seams);
+	p.day(m_clock.date * p.system().period(p.system().playable()));
+}
+
+void Planetarium::tick(double seconds)
+{
+	if (m_clock.running) {
+		m_clock.date += seconds * m_clock.rate;
+		m_clock.date -= std::floor(m_clock.date); // round the year again
+	}
 	for (View *p : { m_current.get(), m_next.get() })
 		if (p)
-			p->day(days);
+			apply(*p);
+	// the page's date follows, a few times a second while it runs
+	m_clock.reported += seconds;
+	if (m_clock.running && m_clock.reported > 0.25) {
+		m_clock.reported = 0;
+		Json::Value message;
+		message["kind"] = "planetarium";
+		message["event"] = "time";
+		message["date"] = m_clock.date;
+		message["running"] = true;
+		m_opts.shell.send(message);
+	}
+}
+
+Json::Value Planetarium::time(const Json::Value &intent)
+{
+	if (!intent.isObject())
+		throw Refused("planetarium.time takes { running?, date? } (date: 0..1 of the year)");
+	if (intent.isMember("running")) {
+		if (!intent["running"].isBool())
+			throw Refused("planetarium.time: 'running' is true or false");
+		m_clock.running = intent["running"].asBool();
+	}
+	if (const std::optional<double> date = number(intent, "date")) {
+		if (*date < 0 || *date > 1)
+			throw Refused("planetarium.time: 'date' is 0 to 1, through the year");
+		m_clock.date = *date;
+	}
+	for (View *p : { m_current.get(), m_next.get() })
+		if (p)
+			apply(*p);
+	return Json::Value();
+}
+
+Json::Value Planetarium::seams(const Json::Value &intent)
+{
+	if (!intent.isObject() || !intent["shown"].isBool())
+		throw Refused("planetarium.seams takes { shown }");
+	m_seams = intent["shown"].asBool();
+	for (View *p : { m_current.get(), m_next.get() })
+		if (p)
+			p->seams(m_seams);
+	return Json::Value();
 }
 
 void Planetarium::dayIn(double worldDays, int32_t worldYear)
@@ -125,6 +183,10 @@ void Planetarium::hide()
 		m_view.reset();
 		m_insets = Insets{};
 		m_markers.clear();
+		m_layer.reset();
+		for (View *p : { m_current.get(), m_next.get() })
+			if (p)
+				p->layer(std::nullopt);
 		ask(*m_backdrop);
 		return;
 	}
@@ -196,6 +258,36 @@ Json::Value Planetarium::fly(const Json::Value &intent)
 		if (p) {
 			const size_t body = intent.isMember("body") ? bodyIndex(*p, intent["body"]) : p->target();
 			p->fly({ body, lat, lon, altitude, radii, seconds });
+		}
+	return Json::Value();
+}
+
+Json::Value Planetarium::layer(const Json::Value &intent)
+{
+	if (!intent.isObject())
+		throw Refused("planetarium.layer takes { width, height, rgba } (base64 RGBA, the preview's layout), { inside: true } or { none: true }");
+	const bool inside = intent.isMember("inside");
+	if (inside && !(intent["inside"].isBool() && intent["inside"].asBool()))
+		throw Refused("planetarium.layer: 'inside' is true or absent");
+	std::optional<View::Layer> layer;
+	if (!inside && !intent.isMember("none")) {
+		const double w = needed(intent, "width"), h = needed(intent, "height");
+		if (w < 1 || h < 1 || w > 4096 || h > 4096 || w != std::floor(w) || h != std::floor(h))
+			throw Refused("planetarium.layer: a size is 1 to 4096 whole pixels");
+		if (!intent["rgba"].isString() || !base64_is_valid(intent["rgba"].asString()))
+			throw Refused("planetarium.layer: 'rgba' is base64");
+		const std::string bytes = base64_decode(intent["rgba"].asString());
+		if (bytes.size() != (size_t)w * h * 4)
+			throw Refused("planetarium.layer: " + std::to_string(bytes.size()) + " bytes for a " + std::to_string((int)w) + "×" +
+					std::to_string((int)h) + " image");
+		layer = View::Layer{ (u32)w, (u32)h, std::vector<u8>(bytes.begin(), bytes.end()) };
+	}
+	m_layer = layer;
+	for (View *p : { m_current.get(), m_next.get() })
+		if (p) {
+			p->layer(layer);
+			// cut open: the body the camera's round (or going to)
+			p->cutaway(inside ? std::optional<size_t>(p->heading()) : std::nullopt);
 		}
 	return Json::Value();
 }

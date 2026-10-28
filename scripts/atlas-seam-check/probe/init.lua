@@ -66,7 +66,7 @@ end
 -- Seams, found from geometry: segments' meridians, every 360°/segments
 -- from longitude 0; the caps' circles.
 local segments = 0
-for _, r in ipairs(atlas.regions) do
+for _, r in ipairs(atlas.tiles) do
 	if r.kind == "segment" then segments = segments + 1 end
 end
 local WIDTH = 2 * math.pi / segments

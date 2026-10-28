@@ -73,11 +73,22 @@ terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef)
 	return blocks;
 }
 
+// The server's atlas, its window shared (a copy is the same window).
+static std::optional<planet::Atlas> sharedAtlas(const MapgenParams &params)
+{
+	if (params.planet_atlas.empty())
+		return std::nullopt;
+	if (!params.planet)
+		throw BaseException("mapgen terra: a planet's mapgen needs the server's atlas (MapgenParams::planet)");
+	if (params.planet->atlas().code() != terragen::Atlas(terragen::Atlas::parse(params.planet_atlas)).code())
+		throw BaseException("mapgen terra: the server's atlas isn't this world's");
+	return *params.planet;
+}
+
 MapgenTerra::MapgenTerra(MapgenTerraParams *params, EmergeParams *emerge) :
 	MapgenBasic(MAPGEN_TERRA, params, emerge),
 	m_world(decodeOrFail(params->code)),
-	m_atlas(params->planet_atlas.empty() ? std::nullopt : std::optional<planet::Atlas>(std::in_place,
-			terragen::Atlas::parse(params->planet_atlas))),
+	m_atlas(sharedAtlas(*params)),
 	m_columns(m_world, terraBlocks(m_bmgr, ndef), water_level, m_atlas ? &*m_atlas : nullptr)
 {
 	if (m_atlas) {
@@ -108,14 +119,26 @@ bool MapgenTerra::groundAt(s16 x, s16 z, terragen::Ground &ground) const
 {
 	if (m_atlas && !m_atlas->place({ x, 0, z }))
 		return false; // seam at the surface: no ground
-	const std::array<s16, 2> w = m_columns.onWorld(x, z); // on a planet, its latitude and longitude
-	x = w[0];
-	z = w[1];
-	fix v = m_world.v(z);
+	return groundOnWorld(m_columns.onWorld(x, z), ground); // on a planet, its latitude and longitude
+}
+
+bool MapgenTerra::groundOnWorld(std::array<int32_t, 2> w, Ground &ground) const
+{
+	fix v = m_world.v(w[1]);
 	if (v < 0 || v >= ONE)
 		return false; // beyond the polar edge
-	ground = m_world.ground(x, z, m_world.sunlight(v, std::nullopt));
+	ground = m_world.ground(w[0], w[1], m_world.sunlight(v, std::nullopt));
 	return !ground.column.polar;
+}
+
+int MapgenTerra::spawnLevelAt(double latitude, double longitude) const
+{
+	if (m_atlasDebug)
+		return -1; // as getSpawnLevelAtPoint: the debug sphere's ground's top
+	Ground g;
+	if (!groundOnWorld(m_columns.onWorldAt(latitude, longitude), g) || g.kind != Water::None)
+		return MAX_MAP_GENERATION_LIMIT;
+	return water_level + g.terrain + 2;
 }
 
 void MapgenTerra::makeChunk(BlockMakeData *data)

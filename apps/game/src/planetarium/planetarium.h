@@ -81,6 +81,21 @@ public:
 	// OrbitCamera::perspective's shift).
 	void frame(v2f shift) { m_shift = shift; }
 
+	// A layer over the playable body's land (planning/sprint-37-layers.md): an image
+	// round it, equirectangular as the world model's preview is (row 0 the
+	// north edge, column 0 longitude −π), RGBA; the land drawn in its
+	// colours, its relief kept as shading. None: the land as it is.
+	struct Layer
+	{
+		u32 width, height;
+		std::vector<u8> rgba;
+	};
+	void layer(std::optional<Layer> layer);
+	// Whether the atlas's seams (where its regions meet) are drawn.
+	void seams(bool shown) { m_seamsShown = shown; }
+	// A body shown cut open (its index; none: none): its shells, from its card.
+	void cutaway(std::optional<size_t> body) { m_system.cutaway(body); }
+
 	// The same view as another's (a body swapped in for it): its camera, its
 	// moment, the body it's round.
 	void keep(const Planetarium &was);
@@ -88,6 +103,8 @@ public:
 	// orbit round it, at its scale. The playable body's the one picked on.
 	void focusBody(size_t body);
 	size_t target() const { return m_target; }
+	// the body it is round, or a flight is taking it to
+	size_t heading() const { return m_flight ? m_flight->to : m_target; }
 	const terragen::System &system() const { return m_system.system(); }
 	void markers(std::vector<MarkerLayer::Marker> markers) { m_markers.set(std::move(markers)); }
 	// The system's moment shown: days after its day 0. The playable body's
@@ -111,12 +128,14 @@ private:
 	far::Tiles m_tiles;
 	OrbitCamera m_camera;
 	SeamLayer m_seams;
+	bool m_seamsShown = true;
 	MarkerLayer m_markers;
 	SystemLayer m_system;
 	size_t m_target; // the body the camera's round (the playable one: its tiles')
 	double m_day = 0;
-	double m_spin = 0;
-	v2f m_shift; // radians: the playable body turned, its ground to space
+	double m_spin = 0; // radians: the playable body turned, its ground to space
+	v2f m_shift;       // where the view's middle is drawn (frame)
+	std::shared_ptr<const Layer> m_layer; // the tint's image, shared with it
 	// where the camera is from the playable body's centre (blocks), and how it looks
 	OrbitCamera::Vec eye() const;
 	core::matrix4 view() const;
@@ -147,6 +166,7 @@ private:
 	v2u32 m_screen{ 1, 1 };        // the last frame's view: its size,
 	v2s32 m_corner{ 0, 0 };        // and where it is in the window
 	u32 m_frame = 0;
+	double m_worstFrame = 0, m_worstTiles = 0; // ms, since the last log
 };
 
 } // namespace planetarium

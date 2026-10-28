@@ -281,6 +281,49 @@ inline int MapDatabaseSQLite3::bindPos(sqlite3_stmt *stmt, v3s16 pos, int index)
 	}
 }
 
+int MapDatabaseSQLite3::bindPosAt(sqlite3_stmt *stmt, const v3s32 &pos)
+{
+	if (!m_new_format)
+		throw DatabaseException("a planet's blocks need the map database's split columns (a world made since 5.12)");
+	int_to_sqlite(stmt, 1, pos.X);
+	int_to_sqlite(stmt, 2, pos.Y);
+	int_to_sqlite(stmt, 3, pos.Z);
+	return 4;
+}
+
+bool MapDatabaseSQLite3::saveBlockAt(const v3s32 &pos, std::string_view data)
+{
+	verifyDatabase();
+	blob_to_sqlite(m_stmt_write, bindPosAt(m_stmt_write, pos), data);
+	SQLRES(sqlite3_step(m_stmt_write), SQLITE_DONE, "Failed to save block")
+	sqlite3_reset(m_stmt_write);
+	return true;
+}
+
+void MapDatabaseSQLite3::loadBlockAt(const v3s32 &pos, std::string *block)
+{
+	verifyDatabase();
+	bindPosAt(m_stmt_read, pos);
+	if (!SQLSTEP(m_stmt_read, "Failed to load block")) {
+		block->clear();
+		sqlite3_reset(m_stmt_read);
+		return;
+	}
+	block->assign(sqlite_to_blob(m_stmt_read, 0));
+	sqlite3_reset(m_stmt_read);
+}
+
+bool MapDatabaseSQLite3::deleteBlockAt(const v3s32 &pos)
+{
+	verifyDatabase();
+	bindPosAt(m_stmt_delete, pos);
+	const bool good = sqlite3_step(m_stmt_delete) == SQLITE_DONE;
+	sqlite3_reset(m_stmt_delete);
+	if (!good)
+		throw DatabaseException(std::string("Failed to delete a planet's block: ") + sqlite3_errmsg(m_database));
+	return true;
+}
+
 bool MapDatabaseSQLite3::deleteBlock(const v3s16 &pos)
 {
 	verifyDatabase();

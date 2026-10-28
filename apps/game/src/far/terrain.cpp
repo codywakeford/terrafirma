@@ -34,7 +34,7 @@ static s32 chunkMin(s32 v)
 // latitude and longitude), as the server's planting reads it (core.terra.cover).
 terragen::Cover Generator::coverAt(s32 x, s32 z, const terragen::Ground &ground) const
 {
-	const std::array<s16, 2> w = m_columns->onWorld(x, z);
+	const std::array<int32_t, 2> w = m_columns->onWorld(x, z);
 	return m_world->cover(w[0], w[1], ground);
 }
 
@@ -141,7 +141,15 @@ const terra::AtlasLand &Generator::land() const
 Cell Generator::column(s32 x, s32 z) const
 {
 	terra::Column c = m_columns->at(x, z, m_columns->sunlight(z));
-	return cellOf(*m_columns, c, x, z);
+	if (!m_atlas)
+		return cellOf(*m_columns, c, x, z);
+	// on a planet, what varies node to node is the column's spot's (as the
+	// generator makes it), not where the window put it
+	const std::optional<planet::Atlas::Spot> spot = m_atlas->spot({ x, 0, z });
+	if (!spot)
+		throw BaseException("far::Generator::column: storage column (" + std::to_string(x) + ", " +
+				std::to_string(z) + ") is no place on the planet");
+	return cellOf(*m_columns, c, spot->x, spot->z);
 }
 
 const terra::Species *Generator::speciesAt(const terra::Column &c, s32 x, s32 z) const
@@ -217,15 +225,15 @@ Tile Generator::buildOnAtlas(const TileKey &key) const
 				out.ground = out.water = std::numeric_limits<s32>::max() / 2;
 				continue;
 			}
-			const planet::Atlas::Node node = m_atlas->node(cell);
-			const std::array<double, 2> at = *m_atlas->place(node);
+			const planet::Atlas::Spot spot = m_atlas->spotOf(cell);
+			const std::array<double, 2> at = m_atlas->place(cell);
 			const terra::Column c = m_columns->atPlace(at[0], at[1]);
-			out = cellOf(*m_columns, c, node.x, node.z);
+			out = cellOf(*m_columns, c, spot.x, spot.z);
 			if (c.beyond || c.water > c.height)
 				continue;
-			const std::array<s16, 2> w = m_columns->onWorldAt(at[0], at[1]);
+			const std::array<int32_t, 2> w = m_columns->onWorldAt(at[0], at[1]);
 			const Cover cover = m_world->cover(w[0], w[1], c.ground);
-			const content_t ground = m_columns->node(c, node.x, c.height, node.z).getContent();
+			const content_t ground = m_columns->node(c, spot.x, c.height, spot.z).getContent();
 			const terra::Species *s = terra::choose(m_horizon.content.species, terra::spotAt(c.ground, cover), ground);
 			if (!s)
 				continue;

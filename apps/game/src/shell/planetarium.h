@@ -55,10 +55,11 @@ public:
 	// Shows a body directly (a key, a command line), as `planetarium.show` does.
 	void show(planetarium::Planetarium::Opts body);
 	void hide();
-	// The system's moment shown: its day (planetarium::Planetarium::day), or
-	// a world's date (days into it, its year's length: System::dayFor).
-	void day(double days);
+	// The system's moment shown: a world's date (days into it, its year's
+	// length: System::dayFor), the game's clock; or the host's own clock
+	// (the menu's), run on by tick() while running, the page setting it.
 	void dayIn(double worldDays, int32_t worldYear);
+	void tick(double seconds);
 
 	// The mouse where the page doesn't take it, while shown. Whether it was ours.
 	bool handle(const SEvent &event);
@@ -73,6 +74,9 @@ private:
 	Json::Value viewport(const Json::Value &intent);
 	Json::Value fly(const Json::Value &intent);
 	Json::Value frame(const Json::Value &intent);
+	Json::Value layer(const Json::Value &intent);
+	Json::Value time(const Json::Value &intent);
+	Json::Value seams(const Json::Value &intent);
 	// the body the page asked for, made, unless it's the one shown already
 	void ask(const Json::Value &body);
 	// a body's index in the system shown, by its id; Refused for none
@@ -98,6 +102,18 @@ private:
 		double left = 0, right = 0, top = 0, bottom = 0;
 	};
 	Insets m_insets;
+	std::optional<planetarium::Planetarium::Layer> m_layer; // the page's, kept across a swap
+	bool m_seams = true;
+	// the host's clock (the menu's): the playable body's year through, running or not
+	struct Clock
+	{
+		double date = 0.25;  // 0..1 of the playable body's orbit
+		bool running = true;
+		double rate = 1.0 / (365.25 * 60); // of an orbit a second: a day a minute (Earth's)
+		double reported = 0; // seconds since the page was last told
+	};
+	Clock m_clock;
+	void apply(planetarium::Planetarium &p) const; // the clock and the page's view, onto a body
 };
 
 } // namespace shell

@@ -76,6 +76,30 @@ void Planetarium::day(double days, std::optional<double> timeOfDay)
 	}
 }
 
+void Planetarium::layer(std::optional<Layer> layer)
+{
+	if (!layer) {
+		m_layer.reset();
+		m_tiles.tint(nullptr);
+		return;
+	}
+	if (layer->width == 0 || layer->height == 0 || layer->rgba.size() != (size_t)layer->width * layer->height * 4)
+		throw BaseException("planetarium: a layer's pixels don't fill its size");
+	m_layer = std::make_shared<const Layer>(std::move(*layer));
+	const std::shared_ptr<const Layer> image = m_layer;
+	m_tiles.tint(std::make_shared<const far::Tiles::Tint>([image](video::SColor own, const far::Tiling::Vec &at) {
+		// where it is round the body, as the preview lays it out
+		const double r = std::sqrt(at.x * at.x + at.y * at.y + at.z * at.z);
+		const double lat = std::asin(std::clamp(at.y / r, -1.0, 1.0)), lon = std::atan2(at.z, at.x);
+		const u32 x = std::min(image->width - 1, (u32)((lon / (2 * M_PI) + 0.5) * image->width));
+		const u32 y = std::min(image->height - 1, (u32)((0.5 - lat / M_PI) * image->height));
+		const u8 *p = &image->rgba[((size_t)y * image->width + x) * 4];
+		// the land's own light and shade, so its relief still shows
+		const double shade = 0.7 + 0.3 * std::max({ own.getRed(), own.getGreen(), own.getBlue() }) / 255.0;
+		return video::SColor(255, (u32)(p[0] * shade), (u32)(p[1] * shade), (u32)(p[2] * shade));
+	}));
+}
+
 void Planetarium::keep(const Planetarium &was)
 {
 	m_day = was.m_day;
@@ -259,14 +283,26 @@ void Planetarium::update(v2u32 screen)
 		m_camera = m_flight->end;
 		m_flight.reset();
 	}
+	const auto tilesFrom = std::chrono::steady_clock::now();
 	m_tiles.update(OrbitCamera::eyeAt(OrbitCamera::turn(eye(), -m_spin), m_sea, (float)screen.Y));
-	if (++m_frame % 120 == 0)
-		infostream << "planetarium: " << m_tiles.drawn().size() << " tiles drawn, " << m_tiles.pending()
-				<< " to build, " << (int)m_camera.altitude() << " blocks up" << std::endl;
+	m_worstTiles = std::max(m_worstTiles, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tilesFrom).count());
+	if (++m_frame % 120 == 0) {
+		infostream << "planetarium: " << m_tiles.drawn().size() << " tiles drawn, " << m_tiles.pending() << " to build, "
+				<< (int)m_camera.altitude() << " blocks up; worst frame " << m_worstFrame << " ms (tiles " << m_worstTiles << " ms)"
+				<< std::endl;
+		m_worstFrame = m_worstTiles = 0;
+	}
 }
 
 void Planetarium::draw(video::IVideoDriver *driver, core::recti view)
 {
+	const auto frameFrom = std::chrono::steady_clock::now();
+	struct Timed // the frame's time, kept as the worst in the log's window, however it ends
+	{
+		std::chrono::steady_clock::time_point from;
+		double &worst;
+		~Timed() { worst = std::max(worst, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - from).count()); }
+	} timed{ frameFrom, m_worstFrame };
 	m_corner = view.UpperLeftCorner;
 	update(v2u32(std::max(1, view.getWidth()), std::max(1, view.getHeight())));
 	const core::dimension2du window = driver->getScreenSize();
@@ -305,7 +341,8 @@ void Planetarium::draw(video::IVideoDriver *driver, core::recti view)
 			for (const auto &part : tile.parts)
 				driver->drawMeshBuffer(part.get());
 		}
-		m_seams.draw(driver, ground);
+		if (m_seamsShown)
+			m_seams.draw(driver, ground);
 		m_markers.draw(driver, ground, m_camera.altitude());
 	});
 	driver->setViewPort(core::recti(0, 0, window.Width, window.Height)); // the page draws over the whole window

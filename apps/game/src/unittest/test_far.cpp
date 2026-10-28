@@ -190,7 +190,7 @@ void TestFar::testTilingIsTheAtlas()
 void TestFar::testTileIsTheAtlasLand()
 {
 	Horizon h = horizon();
-	const planet::Atlas atlas(ATLAS);
+	const planet::Atlas atlas = planet::Atlas::resident(ATLAS);
 	Generator gen(h, atlas);
 	terra::AtlasLand::Reader land(gen.land());
 	const Tiling t(atlas.atlas());

@@ -7,7 +7,9 @@
 #include "community.h"
 #include "online/join.h"
 #include "planetarium.h"
+#include "planet/atlas.h"
 #include "far/baked.h"
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -63,6 +65,7 @@ private:
 	Planetarium &m_planetarium;
 	planetarium::Planetarium::Opts body(const Json::Value &body);
 	std::optional<far::Baked> m_baked; // the game's palette, read once it's first needed
+	std::map<int32_t, planet::Atlas> m_atlases; // by world size: each laid out once
 	std::optional<Choice> m_choice;
 	bool m_quit = false;
 	// Set on the bridge's worker once a join is ready; taken by run().

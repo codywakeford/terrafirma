@@ -12,8 +12,9 @@ std::optional<MapNode> AtlasLand::Reader::node(planet::Atlas::Node n)
 		return std::nullopt;
 	if (cell->region == terragen::Atlas::Region::Core)
 		return MapNode(m_land.m_columns.blocks().stone);
-	const Column &c = columnAt(*m_land.m_atlas.place(n));
-	return m_land.m_columns.node(c, (s16)n.x, (s32)cell->k, (s16)n.z);
+	const Column &c = columnAt(m_land.m_atlas.place(*cell));
+	const planet::Atlas::Spot spot = m_land.m_atlas.spotOf(*cell);
+	return m_land.m_columns.node(c, spot.x, spot.y, spot.z);
 }
 
 const Column *AtlasLand::Reader::column(planet::Atlas::Node n)
