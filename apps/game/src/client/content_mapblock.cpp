@@ -5,6 +5,7 @@
 #include <cmath>
 #include "content_mapblock.h"
 #include "planet/atlas.h" // Terra Firma
+#include "ground/ground.h" // Terra Firma
 #include "exceptions.h"
 #include "util/basic_macros.h"
 #include "util/numeric.h"
@@ -658,7 +659,14 @@ void MapblockMeshGenerator::drawSolidNode()
 		return false; // May still draw the face and with backface culling
 	};
 
+	// Terra Firma: smoothed ground draws its own top and sides; its bottom is the cube's
+	std::optional<ground::Top> shape;
+	if constexpr (!LIQUID)
+		shape = groundTop(p1);
+
 	for (int face = 0; face < 6; face++) {
+		if (shape && face != 1)
+			continue;
 		v3s16 p2 = p1 + tile_dirs[face];
 		MapNode neighbor = data->m_vmanip.getNodeRefUnsafeCheckFlags(p2);
 		content_t n2 = neighbor.getContent();
@@ -686,6 +694,8 @@ void MapblockMeshGenerator::drawSolidNode()
 		}
 		add_face(face, neighbor, backface_culling);
 	}
+	if (shape)
+		drawGround(*shape);
 	if (!faces)
 		return;
 	u8 mask = faces ^ 0b0011'1111; // k-th bit is set if k-th face is to be *omitted*, as expected by cuboid drawing functions.
@@ -2011,6 +2021,13 @@ void MapblockMeshGenerator::drawNode()
 		return;
 	}
 
+	// Terra Firma: what stands on smoothed ground (a plant) stands on its surface
+	if (!cur_node.f->walkable && cur_node.f->drawtype != NDT_FLOWINGLIQUID) {
+		const v3s16 below = blockpos_nodes + cur_node.p - v3s16(0, 1, 0);
+		if (const std::optional<ground::Top> top = groundTop(below))
+			cur_node.origin.Y += (top->height(0.5f, 0.5f) - 1) * BS;
+	}
+
 	if (data->m_smooth_lighting) {
 		getSmoothLightFrame();
 	} else {
@@ -2032,6 +2049,112 @@ void MapblockMeshGenerator::drawNode()
 		case NDT_NODEBOX:           drawNodeboxNode(); break;
 		case NDT_MESH:              drawMeshNode(); break;
 		default:                    errorUnknownDrawtype(); break;
+	}
+}
+
+// Terra Firma: the shape the ground at p takes, if it's smoothed. A cut
+// cell (the atlas's) keeps its cube: its cut faces are drawn for it.
+std::optional<ground::Top> MapblockMeshGenerator::groundTop(v3s16 p) const
+{
+	if (data->m_atlas && data->m_cuts.count(p))
+		return std::nullopt;
+	const auto get = [&](v3s16 q) { return data->m_vmanip.getNodeNoExNoEmerge(q); };
+	return ground::Ground(*nodedef).top(get, p);
+}
+
+/*
+	Terra Firma: smoothed ground (ground::Top). Its top, two triangles through
+	its corners split from corner 0 to 3 (as Top::height); on each side a wall
+	from the neighbour's surface up to its own, where its own is higher. In
+	sixteenths above the node's base; the top may rise into the cell above.
+*/
+void MapblockMeshGenerator::drawGround(const ground::Top &top)
+{
+	using ground::STEPS;
+	if (data->m_smooth_lighting)
+		getSmoothLightFrame();
+	const v3s16 p = blockpos_nodes + cur_node.p;
+	const video::SColor flat = encode_light(getFaceLight(cur_node.n,
+			data->m_vmanip.getNodeNoExNoEmerge(p + v3s16(0, 1, 0)), nodedef),
+			cur_node.f->light_source);
+
+	// node coordinates (from its centre, BS) of corner i at height h
+	auto at = [](int i, int h) {
+		return v3f(((i & 1) - 0.5f) * BS, (h / float(STEPS) - 0.5f) * BS, ((i >> 1) - 0.5f) * BS);
+	};
+	auto vertex = [&](const v3f &pos, const v3f &normal, v2f uv) {
+		video::S3DVertex v;
+		v.Pos = pos + cur_node.origin;
+		v.Normal = normal;
+		if (data->m_smooth_lighting) {
+			v.Color = blendLightColor(pos, normal);
+		} else {
+			v.Color = flat;
+			if (!cur_node.f->light_source)
+				applyFacesShading(v.Color, normal);
+		}
+		v.TCoords = uv;
+		return v;
+	};
+	auto polygon = [&](const TileSpec &tile, const std::vector<v3f> &points, const v3f &normal,
+			auto uv) {
+		std::vector<video::S3DVertex> vertices;
+		for (const v3f &q : points)
+			vertices.push_back(vertex(q, normal, uv(q)));
+		std::vector<u16> indices;
+		for (u16 i = 1; i + 1 < points.size(); i++)
+			indices.insert(indices.end(), { 0, i, (u16)(i + 1) });
+		collector->append(tile, vertices.data(), vertices.size(), indices.data(), indices.size());
+	};
+
+	// the top: as the cube's, wound the same (corners 2, 3, 1, 0)
+	TileSpec up;
+	getTile(tile_dirs[0], &up);
+	const auto top_uv = [](const v3f &q) { return v2f(q.X / BS + 0.5f, 0.5f - q.Z / BS); };
+	for (const std::array<int, 3> &tri : { std::array<int, 3>{ 2, 3, 0 }, std::array<int, 3>{ 3, 1, 0 } }) {
+		const v3f a = at(tri[0], top.corners[tri[0]]), b = at(tri[1], top.corners[tri[1]]),
+				c = at(tri[2], top.corners[tri[2]]);
+		const v3f normal = (b - a).crossProduct(c - a).normalize();
+		polygon(up, { a, b, c }, normal, top_uv);
+	}
+
+	// the sides: each as the cube's face that way, wound the same (its
+	// corners first and second along the top, then back along the bottom)
+	static constexpr int FACE[4] = { 3, 2, 5, 4 }; // −x, +x, −z, +z → tile_dirs
+	static constexpr int ORDER[4][2] = { { 2, 0 }, { 1, 3 }, { 0, 1 }, { 3, 2 } };
+	for (int s = 0; s < 4; s++) {
+		const int i0 = ORDER[s][0], i1 = ORDER[s][1];
+		// which of the side's two heights belongs to each corner
+		auto side = [&](int i) { return top.sides[s][ground::SIDE_CORNERS[s][0] == i ? 0 : 1]; };
+		const int t0 = top.corners[i0], t1 = top.corners[i1];
+		const int b0 = std::max(0, side(i0)), b1 = std::max(0, side(i1));
+		if (t0 <= b0 && t1 <= b1)
+			continue;
+		std::vector<v3f> points;
+		if (t0 > b0 && t1 > b1) {
+			points = { at(i0, t0), at(i1, t1), at(i1, b1), at(i0, b0) };
+		} else {
+			// the wall ends where top and bottom cross
+			const float f = float(b0 - t0) / float((t1 - b1) + (b0 - t0));
+			const v3f top0 = at(i0, t0), top1 = at(i1, t1), crossing = top0 + (top1 - top0) * f;
+			const v3f cross(crossing.X, (at(i0, b0) + (at(i1, b1) - at(i0, b0)) * f).Y, crossing.Z);
+			if (t0 > b0)
+				points = { at(i0, t0), cross, at(i0, b0) };
+			else
+				points = { cross, at(i1, t1), at(i1, b1) };
+		}
+		TileSpec tile;
+		getTile(tile_dirs[FACE[s]], &tile);
+		for (auto &layer : tile.layers)
+			layer.material_flags |= MATERIAL_FLAG_BACKFACE_CULLING;
+		const v3f normal = v3f::from(tile_dirs[FACE[s]]);
+		// along the face as the cube's texture runs, down from its top edge
+		const bool along_x = s >= 2;
+		const float sense = (s == 0 || s == 3) ? -1.f : 1.f;
+		polygon(tile, points, normal, [&](const v3f &q) {
+			const float u = (along_x ? q.X : q.Z) / BS * sense + 0.5f;
+			return v2f(u, 0.5f - q.Y / BS);
+		});
 	}
 }
 

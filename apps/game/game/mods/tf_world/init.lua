@@ -27,7 +27,7 @@ core.register_node("tf_world:stone", {
 core.register_node("tf_world:dirt", {
 	description = "Dirt",
 	tiles = { "tf_goodvibes_dirt.png" },
-	groups = { crumbly = 3 },
+	groups = { loose = 1, crumbly = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 })
 
@@ -35,7 +35,7 @@ core.register_node("tf_world:grass", {
 	description = "Grass",
 	tiles = { "tf_goodvibes_grass_block_top.png", "tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png" },
-	groups = { crumbly = 3 },
+	groups = { loose = 1, crumbly = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
@@ -43,7 +43,7 @@ core.register_node("tf_world:grass", {
 core.register_node("tf_world:sand", {
 	description = "Sand",
 	tiles = { "tf_goodvibes_sand.png" },
-	groups = { crumbly = 3, falling_node = 1 },
+	groups = { loose = 1, crumbly = 3, falling_node = 1 },
 	_matter = { matter = "silica", share = 0.6, form = true }, -- grains, air between them,
 })
 

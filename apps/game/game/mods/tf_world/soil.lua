@@ -58,7 +58,7 @@ core.register_node("tf_world:soil", {
 	tiles = { "tf_world_soil.png" },
 	paramtype2 = "color",
 	palette = "tf_world_soil_palette.png",
-	groups = { crumbly = 3, soil = 1 },
+	groups = { loose = 1, crumbly = 3, soil = 1 },
 	_family = { share = 0.55, points = points }, -- grains with air between them
 	_point_name = name,
 })

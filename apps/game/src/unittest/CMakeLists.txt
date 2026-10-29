@@ -64,6 +64,7 @@ set(unittest_SRCS
 set(unittest_client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/mesh_compare.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_far_palette.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_ground.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_scale.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_planet_window.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_bodies.cpp

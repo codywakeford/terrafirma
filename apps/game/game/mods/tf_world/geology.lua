@@ -84,7 +84,7 @@ end
 core.register_node("tf_world:placer_gravel", {
 	description = "Gold-bearing gravel",
 	tiles = { tex("placer_gravel") },
-	groups = { crumbly = 2, falling_node = 1 },
+	groups = { loose = 1, crumbly = 2, falling_node = 1 },
 	_matter = { matter = "gravel", share = 0.6 },
 })
 core.register_alias("mapgen_placer", "tf_world:placer_gravel")
@@ -92,7 +92,7 @@ core.register_alias("mapgen_placer", "tf_world:placer_gravel")
 core.register_node("tf_world:clay", {
 	description = "Clay",
 	tiles = { tex("clay") },
-	groups = { crumbly = 3 },
+	groups = { loose = 1, crumbly = 3 },
 	_matter = { matter = "kaolinite", share = 0.6, form = true },
 })
 

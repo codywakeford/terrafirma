@@ -4,11 +4,14 @@
 
 #pragma once
 
+#include <optional>
+
 #include "nodedef.h"
 #include "tile.h"
 #include "planet/atlas.h" // Terra Firma: cut cells
 
 struct MeshMakeData;
+namespace ground { struct Top; }
 struct MeshCollector;
 
 struct LightPair {
@@ -156,6 +159,9 @@ private:
 	template <bool LIQUID>
 	void drawSolidNode();
 	void drawCutFace(); // Terra Firma
+	// Terra Firma: natural loose ground's shape (ground::Ground)
+	std::optional<ground::Top> groundTop(v3s16 p) const;
+	void drawGround(const ground::Top &top);
 	static std::vector<v3f> cutFace(const planet::Atlas::Cut &cut, size_t plane);
 
 	void drawLiquidNode();

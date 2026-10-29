@@ -3,6 +3,7 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "client.h"
+#include "ground/ground.h" // Terra Firma
 
 #include "chatmessage.h"
 #include "client/clientevent.h"
@@ -1867,15 +1868,18 @@ void Client::addUpdateMeshTaskForNode(v3s16 nodepos, bool ack_to_server, bool ur
 	infostream << "Client::addUpdateMeshTaskForNode(): " << nodepos << std::endl;
 
 	v3s16 blockpos = getNodeBlockPos(nodepos);
-	v3s16 blockpos_relative = blockpos * MAP_BLOCKSIZE;
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, false);
-	// Leading edge
-	if (nodepos.X == blockpos_relative.X)
-		addUpdateMeshTask(blockpos + v3s16(-1, 0, 0), false, urgent);
-	if (nodepos.Y == blockpos_relative.Y)
-		addUpdateMeshTask(blockpos + v3s16(0, -1, 0), false, urgent);
-	if (nodepos.Z == blockpos_relative.Z)
-		addUpdateMeshTask(blockpos + v3s16(0, 0, -1), false, urgent);
+	// Terra Firma: every block a node's change reaches. A cube's faces read
+	// a node away (the leading edge); the ground's shape reads the columns
+	// round it, up to two across and REACH + 1 up and down (ground::Ground).
+	const s16 up = ground::REACH + 1;
+	const v3s16 low = getNodeBlockPos(nodepos - v3s16(2, up, 2));
+	const v3s16 high = getNodeBlockPos(nodepos + v3s16(1, up, 1));
+	for (s16 x = low.X; x <= high.X; x++)
+	for (s16 y = low.Y; y <= high.Y; y++)
+	for (s16 z = low.Z; z <= high.Z; z++)
+		if (v3s16(x, y, z) != blockpos)
+			addUpdateMeshTask(v3s16(x, y, z), false, urgent);
 	updateMeshReaders(blockpos, urgent); // Terra Firma
 }
 

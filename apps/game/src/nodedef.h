@@ -303,6 +303,12 @@ struct ContentFeatures
 
 	// "float" group
 	bool floats;
+	// Terra Firma: natural ground of it takes the ground's shape (the `loose`
+	// group; ground::Ground)
+	bool loose = false;
+	// Terra Firma: floats and loose, from the groups; wherever a definition
+	// is registered (set, deSerialize)
+	void deriveFromGroups();
 
 	/*
 		Actual data

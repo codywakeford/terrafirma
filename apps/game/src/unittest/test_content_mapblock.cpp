@@ -13,6 +13,9 @@
 #include "client/node_visuals.h"
 #include <memory>
 #include "mesh_compare.h"
+#include "ground/ground.h" // Terra Firma
+#include "noise.h"
+#include <map>
 
 namespace {
 
@@ -60,7 +63,7 @@ public:
 		return data;
 	}
 
-	content_t addSimpleNode(std::string name, u32 texture)
+	content_t addSimpleNode(std::string name, u32 texture, bool loose = false)
 	{
 		ItemDefinition itemdef;
 		itemdef.type = ITEM_NODE;
@@ -76,6 +79,8 @@ public:
 			tiledef.name = name + ".png";
 		for (TileSpec &tile : f.visuals->tiles)
 			tile.layers[0].texture_id = texture;
+		if (loose) // Terra Firma
+			f.groups["loose"] = 1;
 
 		return registerNode(itemdef, std::move(f));
 	}
@@ -154,6 +159,7 @@ public:
 	void testSurroundedNode();
 	void testInterliquidSame();
 	void testInterliquidDifferent();
+	void testSmoothedGroundHasNoHoles(); // Terra Firma
 };
 
 static TestMapblockMeshGenerator g_test_instance;
@@ -165,6 +171,7 @@ void TestMapblockMeshGenerator::runTests(IGameDef *gamedef)
 	TEST(testSurroundedNode);
 	TEST(testInterliquidSame);
 	TEST(testInterliquidDifferent);
+	TEST(testSmoothedGroundHasNoHoles);
 }
 
 namespace quad {
@@ -260,6 +267,127 @@ void TestMapblockMeshGenerator::testInterliquidDifferent()
 	auto &&buf = col.prebuffers[0][0];
 	UASSERTEQ(u32, buf.layer.texture_id, 42);
 	UASSERT(checkMeshEqual(buf.vertices, buf.indices, {quad::xn, quad::xp, quad::yn, quad::yp, quad::zn, quad::zp}));
+}
+
+
+/*
+	Terra Firma: a block of rough ground, dirt (loose) and some stone, meshed.
+	Straight down, a ray meets the ground's surface the rule gives (what
+	collision will stand on); slanting, it reaches the mesh through no ground
+	(a crack would let it through to a surface beyond). With the walls not
+	drawn, the slanting rays fail.
+*/
+void TestMapblockMeshGenerator::testSmoothedGroundHasNoHoles()
+{
+	MockGameDef gamedef;
+	const content_t stone = gamedef.addSimpleNode("stone", 42);
+	const content_t dirt = gamedef.addSimpleNode("dirt", 13, true);
+	gamedef.finalize();
+
+	const s16 N = 16, M = 6; // the block, and a margin round it
+	std::map<std::pair<int, int>, std::pair<int, bool>> columns; // top, solid
+	for (int x = -M; x < N + M; x++)
+		for (int z = -M; z < N + M; z++) {
+			float n = noise2d_value(x / 4.f, z / 4.f, 7) + 0.6f * noise2d(x, z, 11);
+			columns[{ x, z }] = { 8 + int(std::floor(n * 2)), noise2d(x * 5, z * 5, 13) > 0.75f };
+		}
+
+	MeshMakeData data{gamedef.ndef(), N, MeshGrid{1}};
+	data.m_generate_minimap = false;
+	data.m_smooth_lighting = true;
+	data.m_enable_water_reflections = false;
+	data.m_blockpos = {0, 0, 0};
+	for (s16 x = -M; x < N + M; x++)
+	for (s16 y = -M; y < N + M; y++)
+	for (s16 z = -M; z < N + M; z++) {
+		auto [top, solid] = columns[{ x, z }];
+		data.m_vmanip.setNode({x, y, z}, {content_t(y < top ? (solid ? stone : dirt) : CONTENT_AIR), 0, 0});
+	}
+
+	MeshCollector col{{}};
+	MapblockMeshGenerator mg{&data, &col};
+	mg.generate();
+	std::vector<std::array<v3f, 3>> triangles;
+	for (auto &layer : col.prebuffers)
+		for (auto &buf : layer)
+			for (size_t i = 0; i + 2 < buf.indices.size(); i += 3)
+				triangles.push_back({ buf.vertices[buf.indices[i]].Pos / BS,
+						buf.vertices[buf.indices[i + 1]].Pos / BS, buf.vertices[buf.indices[i + 2]].Pos / BS });
+
+	// the ground's surface at (x, z), in node units (a node's centre at its
+	// position): a smoothed column's field, a cube's top
+	const ground::Ground ground(*gamedef.ndef());
+	auto get = [&](v3s16 p) { return data.m_vmanip.getNodeNoExNoEmerge(p); };
+	auto surface = [&](float x, float z) {
+		int cx = int(std::floor(x + 0.5f)), cz = int(std::floor(z + 0.5f));
+		int top = columns[{ cx, cz }].first;
+		auto t = ground.top(get, v3s16(cx, top - 1, cz));
+		float h = t ? t->height(x + 0.5f - cx, z + 0.5f - cz) : 1.f;
+		return top - 1.5f + h;
+	};
+	// the first hit along a ray, if any (both faces)
+	auto hit = [&](v3f o, v3f d) -> std::optional<v3f> {
+		std::optional<float> best;
+		for (const auto &t : triangles) {
+			v3f e1 = t[1] - t[0], e2 = t[2] - t[0], pv = d.crossProduct(e2);
+			float det = e1.dotProduct(pv);
+			if (std::fabs(det) < 1e-9f)
+				continue;
+			v3f tv = o - t[0];
+			float u = tv.dotProduct(pv) / det;
+			if (u < -1e-5f || u > 1 + 1e-5f)
+				continue;
+			v3f qv = tv.crossProduct(e1);
+			float v = d.dotProduct(qv) / det;
+			if (v < -1e-5f || u + v > 1 + 1e-5f)
+				continue;
+			float k = e2.dotProduct(qv) / det;
+			if (k > 0 && (!best || k < *best))
+				best = k;
+		}
+		if (!best)
+			return std::nullopt;
+		return o + d * *best;
+	};
+
+	PseudoRandom random(5);
+	auto in = [&](float margin) { return -0.5f + margin + random.next() / 32767.f * (N - 2 * margin); };
+	int shaped = 0;
+	for (int r = 0; r < 3000; r++) {
+		float x = in(0.01f), z = in(0.01f);
+		// off the edges between columns, where a wall stands
+		auto off = [](float v) { float f = v + 0.5f - std::floor(v + 0.5f); return f > 1e-3f && f < 1 - 1e-3f; };
+		if (!off(x) || !off(z))
+			continue;
+		auto p = hit(v3f(x, 40, z), v3f(0, -1, 0));
+		UASSERT(p);
+		UASSERT(std::fabs(p->Y - surface(x, z)) < 1e-3f);
+		shaped += std::fabs(p->Y - std::round(p->Y + 0.5f) + 0.5f) > 1e-3f;
+	}
+	for (int r = 0; r < 3000; r++) {
+		// slanting 30° from straight down in a random direction, from above
+		// all the ground (tops 4..11: it stands at most 11.5) to where it
+		// meets it at (x, z), if not before: at most 4.6 across, so all of its
+		// way down is over the block (outside it nothing's drawn)
+		float a = random.next() / 32767.f * 6.2832f;
+		v3f d(std::cos(a) * 0.5f, -0.866f, std::sin(a) * 0.5f);
+		float x = in(5.f), z = in(5.f);
+		v3f aim(x, surface(x, z), z);
+		v3f o = aim - d * ((12.f - aim.Y) / 0.866f);
+		auto p = hit(o, d);
+		UASSERT(p);
+		// all its way there in the open: through no ground (a crack would let
+		// it pass through ground to a surface beyond)
+		const float length = (*p - o).getLength();
+		for (float k = 0; k < length - 1e-2f; k += 0.01f) {
+			v3f q = o + d * k;
+			float fx = q.X + 0.5f - std::floor(q.X + 0.5f), fz = q.Z + 0.5f - std::floor(q.Z + 0.5f);
+			if (fx < 1e-3f || fx > 1 - 1e-3f || fz < 1e-3f || fz > 1 - 1e-3f)
+				continue; // on an edge: either side's
+			UASSERT(q.Y > surface(q.X, q.Z) - 1e-3f);
+		}
+	}
+	UASSERT(shaped > 500); // enough of it was sloped to mean something
 }
 
 }

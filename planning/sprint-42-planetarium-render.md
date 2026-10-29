@@ -25,6 +25,8 @@ fix here is both's.
 6. **Light and lines.** The star lights the bodies (a day side, a soft
    terminator; no cast shadows). Orbits a few pixels wide.
 
+Parked (2026-10-29, Cody): steps 4–6, for sprint 43's ground shape.
+
 ## Step 1–2, holes (2026-10-29)
 
 Cody's account: the black lines are where the voxel grids wrapping the

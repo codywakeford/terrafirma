@@ -960,6 +960,12 @@ void NodeDefManager::eraseIdFromGroups(content_t id)
 
 
 // IWritableNodeDefManager
+void ContentFeatures::deriveFromGroups()
+{
+	floats = itemgroup_get(groups, "float") != 0;
+	loose = itemgroup_get(groups, "loose") != 0;
+}
+
 content_t NodeDefManager::set(const std::string &name, ContentFeatures &&def)
 {
 	// Pre-conditions
@@ -986,7 +992,7 @@ content_t NodeDefManager::set(const std::string &name, ContentFeatures &&def)
 	m_content_features[id] = std::move(def);
 	ContentFeatures &f = m_content_features[id];
 
-	f.floats = itemgroup_get(f.groups, "float") != 0;
+	f.deriveFromGroups();
 	m_content_lighting_flag_cache[id] = f.getLightingFlags();
 	verbosestream << "NodeDefManager: registering content id " << id
 		<< ": name=\"" << f.name << "\"" << std::endl;
@@ -1174,7 +1180,7 @@ void NodeDefManager::deSerialize(std::istream &is, u16 protocol_version)
 		m_content_features[i] = std::move(*f);
 		f = &m_content_features[i];
 
-		f->floats = itemgroup_get(f->groups, "float") != 0;
+		f->deriveFromGroups();
 		m_content_lighting_flag_cache[i] = f->getLightingFlags();
 		addNameIdMapping(i, f->name);
 		TRACESTREAM(<< "NodeDef: deserialized " << f->name << std::endl);
