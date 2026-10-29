@@ -35,9 +35,9 @@ class Uniforms;
 	(AtlasView), so the two are one surface; up through the air the haze
 	gives way to the whole planet.
 
-	Where the near world draws a map block, the far view doesn't: a small
-	mask of the map-block-wide columns the near world draws, round the eye,
-	is read by the far shader, so the seam is exactly the near world's edge.
+	It draws only past the near world's range (the cut, from the eye):
+	nearer, the near world's blocks are the land; a tile wholly inside it
+	isn't drawn at all.
 
 	Drawn right after the sky with the camera's depth projection. Its depth
 	remains for near blocks and clouds, so a cloud behind distant terrain is
@@ -47,7 +47,7 @@ class View : public scene::ISceneNode
 {
 public:
 	View(scene::ISceneManager *smgr, IShaderSource *ssrc, ITextureSource *tsrc,
-			const NodeDefManager *ndef, const Horizon &horizon, const planet::Atlas &atlas);
+			const NodeDefManager *ndef, const Horizon &horizon, const planet::Atlas &atlas, int body);
 	~View();
 
 	// Once a frame, before drawing. `near_range`: how far the map blocks are
@@ -68,14 +68,6 @@ public:
 	void readSettings();
 
 private:
-	// The mask's side, in map-block columns, and its texels to a block's side
-	// (a block's footprint is turned in the scene: finer than a block, so
-	// what it marks lies under the near world).
-	static constexpr s32 MASK = 128;
-	static constexpr s32 SUB = 4;
-
-	void updateMask(ClientMap &map, v2f corner);
-
 	const s16 m_water_level;
 	const double m_radius; // blocks
 	std::unique_ptr<Palette> m_palette;
@@ -83,7 +75,6 @@ private:
 	std::shared_ptr<DrawState> m_state;
 	irr_ptr<Uniforms> m_uniforms;
 	video::SMaterial m_material;
-	video::ITexture *m_mask = nullptr;
 	aabb3f m_box{ -1e7f, -1e7f, -1e7f, 1e7f, 1e7f, 1e7f };
 
 	// settings
@@ -96,7 +87,6 @@ private:
 	bool m_showing = false;
 	float m_altitude = 0; // m above the sea
 	float m_share = 0;    // 0 in the air's haze .. 1 above the air
-	ClientMap *m_map = nullptr; // the near world, as of the last update()
 	AtlasView *m_view = nullptr; // where it draws the planet, this frame
 	v3f m_eye;                   // where it's drawn from then, in blocks
 };

@@ -42,7 +42,13 @@ namespace planet {
 	crust: CRUST layers under the sea; below, seam (the planet's floor). The
 	core is stored only where the crust reaches it.
 
-	A node's spot is where it is on the planet whatever slot it's in: its
+	Bodies (planning/sprint-40-bodies.md): the atlas holds every body of the
+	world that can be stood on, each its own shape (a terragen::Atlas), and
+	the window holds tiles of any of them. A tile, a cell and a spot name
+	their body; nothing crosses from one body to another (a step, a look,
+	a chart stays on its body).
+
+	A node's spot is where it is on its body whatever slot it's in: its
 	region's grid at a fixed origin in a plane of 32-bit positions. What's
 	made at a node (its rock, its caves) and where a block is saved are
 	found from its spot, never from where the window put it.
@@ -53,7 +59,13 @@ namespace planet {
 class Atlas
 {
 public:
-	using Cell = terragen::Atlas::Cell;
+	// A cell of one of the bodies (its index in bodies()).
+	struct Cell : terragen::Atlas::Cell
+	{
+		int body;
+		Cell(int body, const terragen::Atlas::Cell &at) : terragen::Atlas::Cell(at), body(body) {}
+		bool operator==(const Cell &o) const { return body == o.body && terragen::Atlas::Cell::operator==(o); }
+	};
 
 	static constexpr int32_t ORIGIN = -30912; // the lowest node the map generator makes
 	static constexpr int32_t SPAN = 61808;    // nodes it makes across, from there
@@ -78,6 +90,7 @@ public:
 	// k0 to k1 inclusive) and the grid cell at its corner.
 	struct Tile
 	{
+		int body;
 		terragen::Atlas::Region kind;
 		int index;
 		Rect rect;
@@ -85,29 +98,45 @@ public:
 		int64_t i0, j0;
 	};
 
-	// A tile of the planet: its region (regionNumber), and which of the
-	// grid's TILE squares it is.
+	// A tile of a body: its region (regionNumber), and which of the grid's
+	// TILE squares it is.
 	struct TileId
 	{
+		int body;
 		int region;
 		int32_t ti, tj;
-		bool operator==(const TileId &o) const { return region == o.region && ti == o.ti && tj == o.tj; }
+		// every part named: a tile left without its body isn't one
+		TileId(int body, int region, int32_t ti, int32_t tj) : body(body), region(region), ti(ti), tj(tj) {}
+		bool operator==(const TileId &o) const { return body == o.body && region == o.region && ti == o.ti && tj == o.tj; }
 	};
-	// A node's place on the planet whatever slot holds it (see above).
+	// A node's place on its body whatever slot holds it (see above).
 	struct Spot
 	{
+		int body;
 		int32_t x, y, z;
+		Spot(int body, int32_t x, int32_t y, int32_t z) : body(body), x(x), y(y), z(z) {}
 	};
 	static constexpr int32_t STRIDE = 1 << 22; // spots between regions' origins (x)
 
-	// An empty window: no tile in the map until placed.
-	explicit Atlas(const terragen::Atlas::Params &params);
-	// Every tile in the window at once, slot by slot; throws if they don't fit.
-	static Atlas resident(const terragen::Atlas::Params &params);
-	// Every tile of the planet, in the order resident() places them.
-	std::vector<TileId> allTiles() const;
+	// An empty window: no tile in the map until placed. Throws for no
+	// bodies, or a body whose layers don't fit the map.
+	explicit Atlas(const std::vector<terragen::Atlas::Params> &bodies);
+	// One body.
+	explicit Atlas(const terragen::Atlas::Params &body) : Atlas(std::vector{ body }) {}
+	// One body, every tile in the window at once, slot by slot; throws if
+	// they don't fit.
+	static Atlas resident(const terragen::Atlas::Params &body);
+	// Every tile of a body, in the order resident() places them.
+	std::vector<TileId> allTiles(int body) const;
 
-	const terragen::Atlas &atlas() const { return m_atlas; }
+	// The world's home: the body it's played on (the system's playable
+	// one), always the first.
+	static constexpr int HOME = 0;
+	// A body's shape (throws for no such body), and how many there are.
+	const terragen::Atlas &body(int body) const;
+	int bodies() const { return (int)m_bodies.size(); }
+	// The body a node's tile is of; none where no tile is.
+	std::optional<int> bodyAt(Node node) const;
 	// The tiles in the window now.
 	std::vector<Tile> tiles() const;
 
@@ -133,14 +162,14 @@ public:
 	// The tile a cell is in (the core's when it's stored; throws for a cell
 	// below the crust, or of a core that isn't stored).
 	TileId tileOf(const Cell &cell) const;
-	// The tiles a ball round a point of the planet reaches into (`radius`,
+	// The tiles a ball round a point of a body reaches into (`radius`,
 	// blocks): those of every cell sampled within it, a few blocks apart
 	// along the ground.
-	std::vector<TileId> tilesNear(const terragen::Atlas::Vec &point, double radius) const;
+	std::vector<TileId> tilesNear(int body, const terragen::Atlas::Vec &point, double radius) const;
 	// The region's number: segments 0.., then the north cap, the south, the core.
-	int regionNumber(terragen::Atlas::Region kind, int index) const;
+	int regionNumber(int body, terragen::Atlas::Region kind, int index) const;
 	// And back: a region number's kind and index (throws for no region).
-	std::pair<terragen::Atlas::Region, int> regionOfNumber(int number) const;
+	std::pair<terragen::Atlas::Region, int> regionOfNumber(int body, int number) const;
 
 	// A node's spot (none where no tile is), and a cell's.
 	std::optional<Spot> spot(Node node) const;
@@ -312,12 +341,15 @@ public:
 	// changes; the eye's does as it moves. None if `from` stores no cell.
 	struct Frame
 	{
+		int body;
 		std::array<double, 3> at; // storage position
 		terragen::Atlas::Vec origin;
 		std::array<terragen::Atlas::Vec, 3> axes;
 	};
 	std::optional<Frame> frame(Node from, const std::array<double, 3> &at) const;
-	// The view of a block's grid (`block`, at its centre) from the eye's.
+	// The view of a block's grid (`block`, at its centre) from the eye's;
+	// throws for a block of another body (nothing of it is in the eye's
+	// space).
 	static Affine view(const Frame &eye, const Frame &block);
 
 	/*
@@ -401,8 +433,14 @@ private:
 	int quarters(const Cell &from, const Cell &to) const;
 	int face(const Cell &c, int axis, int sign) const; // storage axis → terragen face
 
-	terragen::Atlas m_atlas;
-	bool m_coreStored; // the crust reaches the core
+	struct Body
+	{
+		terragen::Atlas shape;
+		bool coreStored; // the crust reaches the core
+	};
+	std::vector<Body> m_bodies;
+	const terragen::Atlas &shapeOf(const Cell &c) const { return m_bodies[c.body].shape; }
+	Cell on(const Cell &c, const terragen::Atlas::Cell &at) const { return Cell(c.body, at); } // a cell of c's body
 
 	// Which nodes of a block and its rim (BLOCK + 2 a side) are cells.
 	std::vector<bool> cellsAround(Block block) const;

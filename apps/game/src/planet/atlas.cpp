@@ -27,7 +27,7 @@ bool inside(const Atlas::Rect &r, int32_t x, int32_t z)
 
 uint64_t idKey(const Atlas::TileId &t)
 {
-	return ((uint64_t)(uint8_t)t.region << 48) | ((uint64_t)(uint32_t)(t.ti & 0xffffff) << 24) |
+	return ((uint64_t)(uint8_t)t.body << 56) | ((uint64_t)(uint8_t)t.region << 48) | ((uint64_t)(uint32_t)(t.ti & 0xffffff) << 24) |
 			(uint64_t)(uint32_t)(t.tj & 0xffffff);
 }
 
@@ -38,16 +38,22 @@ int64_t tileFloor(int64_t v)
 
 } // namespace
 
-Atlas::Atlas(const terragen::Atlas::Params &params) : m_atlas(params)
+Atlas::Atlas(const std::vector<terragen::Atlas::Params> &bodies)
 {
-	// the shell's lowest layer, the same for every segment and cap
-	const std::vector<terragen::Atlas::Grid> &grids = m_atlas.grids();
-	const auto lowest = std::find_if(grids.begin(), grids.end(), [](const auto &g) { return g.region != Kind::Core; });
-	m_coreStored = lowest->low[2] >= -CRUST;
-	for (const terragen::Atlas::Grid &g : grids)
-		if ((g.region != Kind::Core || m_coreStored) &&
-				(std::max<int64_t>(g.low[2], -CRUST) < Y_LOW || g.high[2] >= Y_HIGH))
-			throw std::invalid_argument("planet::Atlas: a region's layers don't fit the map (" + m_atlas.code() + ")");
+	if (bodies.empty() || bodies.size() > 256)
+		throw std::invalid_argument("planet::Atlas: " + std::to_string(bodies.size()) + " bodies (1 to 256)");
+	for (const terragen::Atlas::Params &params : bodies) {
+		terragen::Atlas shape(params);
+		// the shell's lowest layer, the same for every segment and cap
+		const std::vector<terragen::Atlas::Grid> &grids = shape.grids();
+		const auto lowest = std::find_if(grids.begin(), grids.end(), [](const auto &g) { return g.region != Kind::Core; });
+		const bool coreStored = lowest->low[2] >= -CRUST;
+		for (const terragen::Atlas::Grid &g : grids)
+			if ((g.region != Kind::Core || coreStored) &&
+					(std::max<int64_t>(g.low[2], -CRUST) < Y_LOW || g.high[2] >= Y_HIGH))
+				throw std::invalid_argument("planet::Atlas: a region's layers don't fit the map (" + shape.code() + ")");
+		m_bodies.push_back({ std::move(shape), coreStored });
+	}
 	auto empty = std::make_unique<Layout>();
 	empty->slots.resize((size_t)SLOTS * SLOTS);
 	empty->ids.resize((size_t)SLOTS * SLOTS);
@@ -56,27 +62,43 @@ Atlas::Atlas(const terragen::Atlas::Params &params) : m_atlas(params)
 }
 
 // Each region's grid cut into tiles, a tile a slot, in rows across the map.
-Atlas Atlas::resident(const terragen::Atlas::Params &params)
+Atlas Atlas::resident(const terragen::Atlas::Params &body)
 {
-	Atlas a(params);
-	const std::vector<TileId> all = a.allTiles();
+	Atlas a(body);
+	const std::vector<TileId> all = a.allTiles(0);
 	if (all.size() > (size_t)SLOTS * SLOTS)
 		throw std::invalid_argument("planet::Atlas: the tiles (" + std::to_string(all.size()) + " of " +
-				std::to_string(SLOTS * SLOTS) + " slots) don't fit the map (" + a.m_atlas.code() + ")");
+				std::to_string(SLOTS * SLOTS) + " slots) don't fit the map (" + a.body(0).code() + ")");
 	for (size_t s = 0; s < all.size(); s++)
 		a.put((int)s, all[s]);
 	return a;
 }
 
-std::vector<Atlas::TileId> Atlas::allTiles() const
+const terragen::Atlas &Atlas::body(int b) const
+{
+	if (b < 0 || b >= bodies())
+		throw std::invalid_argument("planet::Atlas: no body " + std::to_string(b));
+	return m_bodies[b].shape;
+}
+
+std::optional<int> Atlas::bodyAt(Node node) const
+{
+	const std::optional<int> slot = slotAt(node);
+	if (!slot)
+		return std::nullopt;
+	const std::optional<Tile> &tile = layout().slots[*slot];
+	return tile ? std::optional(tile->body) : std::nullopt;
+}
+
+std::vector<Atlas::TileId> Atlas::allTiles(int b) const
 {
 	std::vector<TileId> out;
-	for (const terragen::Atlas::Grid &g : m_atlas.grids()) {
-		if (g.region == Kind::Core && !m_coreStored)
+	for (const terragen::Atlas::Grid &g : body(b).grids()) {
+		if (g.region == Kind::Core && !m_bodies[b].coreStored)
 			continue;
 		for (int64_t tj = tileFloor(g.low[1]); tj <= tileFloor(g.high[1]); tj++)
 			for (int64_t ti = tileFloor(g.low[0]); ti <= tileFloor(g.high[0]); ti++) {
-				out.push_back({ regionNumber(g.region, g.index), (int32_t)ti, (int32_t)tj });
+				out.push_back({ b, regionNumber(b, g.region, g.index), (int32_t)ti, (int32_t)tj });
 				if (out.size() > (size_t)SLOTS * SLOTS * 4)
 					return out; // far more than fit: enough to say so
 			}
@@ -84,15 +106,15 @@ std::vector<Atlas::TileId> Atlas::allTiles() const
 	return out;
 }
 
-int Atlas::regionNumber(Kind kind, int index) const
+int Atlas::regionNumber(int b, Kind kind, int index) const
 {
-	const int segments = m_atlas.params().segments;
+	const int segments = body(b).params().segments;
 	return kind == Kind::Segment ? index : kind == Kind::Cap ? segments + (index > 0 ? 0 : 1) : segments + 2;
 }
 
-std::pair<Kind, int> Atlas::regionOfNumber(int number) const
+std::pair<Kind, int> Atlas::regionOfNumber(int b, int number) const
 {
-	const int segments = m_atlas.params().segments;
+	const int segments = body(b).params().segments;
 	if (number >= 0 && number < segments)
 		return { Kind::Segment, number };
 	if (number == segments || number == segments + 1)
@@ -116,10 +138,10 @@ const terragen::Atlas::Grid &gridOf(const terragen::Atlas &atlas, Kind kind, int
 
 Atlas::Tile Atlas::tileIn(int slot, const TileId &id) const
 {
-	const auto [kind, index] = regionOfNumber(id.region);
-	if (kind == Kind::Core && !m_coreStored)
+	const auto [kind, index] = regionOfNumber(id.body, id.region);
+	if (kind == Kind::Core && !m_bodies[id.body].coreStored)
 		throw std::invalid_argument("planet::Atlas: the core isn't stored at this radius");
-	const terragen::Atlas::Grid &g = gridOf(m_atlas, kind, index);
+	const terragen::Atlas::Grid &g = gridOf(body(id.body), kind, index);
 	const int64_t i0 = std::max(g.low[0], (int64_t)id.ti * TILE), i1 = std::min(g.high[0], (int64_t)id.ti * TILE + TILE - 1);
 	const int64_t j0 = std::max(g.low[1], (int64_t)id.tj * TILE), j1 = std::min(g.high[1], (int64_t)id.tj * TILE + TILE - 1);
 	if (i0 > i1 || j0 > j1)
@@ -128,7 +150,7 @@ Atlas::Tile Atlas::tileIn(int slot, const TileId &id) const
 	// in its slot as in its square of the grid
 	const int32_t x = ORIGIN + (slot % SLOTS) * SLOT + (int32_t)(i0 - (int64_t)id.ti * TILE);
 	const int32_t z = ORIGIN + (slot / SLOTS) * SLOT + (int32_t)(j0 - (int64_t)id.tj * TILE);
-	return { kind, index, { x, z, (int32_t)(i1 - i0 + 1), (int32_t)(j1 - j0 + 1) },
+	return { id.body, kind, index, { x, z, (int32_t)(i1 - i0 + 1), (int32_t)(j1 - j0 + 1) },
 		(int32_t)std::max<int64_t>(g.low[2], -CRUST), (int32_t)g.high[2], i0, j0 };
 }
 
@@ -204,14 +226,14 @@ void Atlas::put(int slot, std::optional<TileId> tile)
 		m_shared->layouts.pop_front();
 }
 
-// "tiles-v1 slot:region,ti,tj;…", the slots holding a tile
+// "tiles-v2 slot:body,region,ti,tj …", the slots holding a tile
 std::string Atlas::windowCode() const
 {
-	std::string out = "tiles-v1";
+	std::string out = "tiles-v2";
 	const std::vector<std::optional<TileId>> &ids = layout().ids;
 	for (size_t s = 0; s < ids.size(); s++)
 		if (ids[s])
-			out += " " + std::to_string(s) + ":" + std::to_string(ids[s]->region) + "," +
+			out += " " + std::to_string(s) + ":" + std::to_string(ids[s]->body) + "," + std::to_string(ids[s]->region) + "," +
 					std::to_string(ids[s]->ti) + "," + std::to_string(ids[s]->tj);
 	return out;
 }
@@ -219,19 +241,19 @@ std::string Atlas::windowCode() const
 void Atlas::setWindow(const std::string &code)
 {
 	const auto refuse = [&]() { throw std::invalid_argument("planet::Atlas: a window code that can't be read: " + code); };
-	if (code.rfind("tiles-v1", 0) != 0)
+	if (code.rfind("tiles-v2", 0) != 0)
 		refuse();
 	std::vector<std::pair<int, TileId>> placed;
 	size_t at = 8;
 	while (at < code.size()) {
 		if (code[at] != ' ')
 			refuse();
-		int slot, region;
+		int slot, b, region;
 		long ti, tj;
 		int used = 0;
-		if (std::sscanf(code.c_str() + at, " %d:%d,%ld,%ld%n", &slot, &region, &ti, &tj, &used) != 4 || used <= 0)
+		if (std::sscanf(code.c_str() + at, " %d:%d,%d,%ld,%ld%n", &slot, &b, &region, &ti, &tj, &used) != 5 || used <= 0)
 			refuse();
-		placed.push_back({ slot, TileId{ region, (int32_t)ti, (int32_t)tj } });
+		placed.push_back({ slot, TileId{ b, region, (int32_t)ti, (int32_t)tj } });
 		at += used;
 	}
 	for (int s = 0; s < SLOTS * SLOTS; s++)
@@ -243,14 +265,14 @@ void Atlas::setWindow(const std::string &code)
 
 Atlas::TileId Atlas::tileOf(const Cell &c) const
 {
-	if (c.region == Kind::Core && !m_coreStored)
+	if (c.region == Kind::Core && !m_bodies.at(c.body).coreStored)
 		throw std::invalid_argument("planet::Atlas: the core isn't stored at this radius");
 	if (c.region != Kind::Core && c.k < -CRUST)
 		throw std::invalid_argument("planet::Atlas: a cell below the crust");
-	return { regionNumber(c.region, c.index), (int32_t)tileFloor(c.i), (int32_t)tileFloor(c.j) };
+	return { c.body, regionNumber(c.body, c.region, c.index), (int32_t)tileFloor(c.i), (int32_t)tileFloor(c.j) };
 }
 
-std::vector<Atlas::TileId> Atlas::tilesNear(const terragen::Atlas::Vec &point, double radius) const
+std::vector<Atlas::TileId> Atlas::tilesNear(int b, const terragen::Atlas::Vec &point, double radius) const
 {
 	// a square of points round it on the sphere through it, STEP apart
 	constexpr double STEP = 256;
@@ -261,7 +283,8 @@ std::vector<Atlas::TileId> Atlas::tilesNear(const terragen::Atlas::Vec &point, d
 	const double al = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
 	const terragen::Atlas::Vec e{ a.x / al, a.y / al, a.z / al };
 	const terragen::Atlas::Vec n{ up.y * e.z - up.z * e.y, up.z * e.x - up.x * e.z, up.x * e.y - up.y * e.x };
-	const double surface = m_atlas.params().radius - 1;
+	const terragen::Atlas &shape = body(b);
+	const double surface = shape.params().radius - 1;
 	std::vector<TileId> out;
 	const int steps = (int)std::ceil(radius / STEP);
 	for (int v = -steps; v <= steps; v++)
@@ -272,7 +295,7 @@ std::vector<Atlas::TileId> Atlas::tilesNear(const terragen::Atlas::Vec &point, d
 			const terragen::Atlas::Vec d{ up.x * r + e.x * du + n.x * dv, up.y * r + e.y * du + n.y * dv,
 				up.z * r + e.z * du + n.z * dv };
 			const double dl = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-			const TileId t = tileOf(m_atlas.locate({ d.x / dl * surface, d.y / dl * surface, d.z / dl * surface }));
+			const TileId t = tileOf(Cell(b, shape.locate({ d.x / dl * surface, d.y / dl * surface, d.z / dl * surface })));
 			if (std::find(out.begin(), out.end(), t) == out.end())
 				out.push_back(t);
 		}
@@ -281,7 +304,7 @@ std::vector<Atlas::TileId> Atlas::tilesNear(const terragen::Atlas::Vec &point, d
 
 Atlas::Spot Atlas::spotOf(const Cell &c) const
 {
-	return { (int32_t)(c.i + (int64_t)regionNumber(c.region, c.index) * STRIDE), (int32_t)c.k, (int32_t)c.j };
+	return { c.body, (int32_t)(c.i + (int64_t)regionNumber(c.body, c.region, c.index) * STRIDE), (int32_t)c.k, (int32_t)c.j };
 }
 
 std::optional<Atlas::Spot> Atlas::spot(Node node) const
@@ -289,7 +312,7 @@ std::optional<Atlas::Spot> Atlas::spot(Node node) const
 	const Tile *t = tileAt(node);
 	if (!t)
 		return std::nullopt;
-	return spotOf({ t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y });
+	return spotOf(Cell(t->body, { t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y }));
 }
 
 std::optional<Atlas::Spot> Atlas::blockSpot(Block block) const
@@ -303,7 +326,7 @@ std::optional<Atlas::Spot> Atlas::blockSpot(Block block) const
 	const int32_t lz = (corner.z - ORIGIN - (*slot / SLOTS) * SLOT) / BLOCK;
 	if (!id || lx >= TILE / BLOCK || lz >= TILE / BLOCK)
 		return std::nullopt;
-	return Spot{ (int32_t)(((int64_t)id->region * STRIDE + (int64_t)id->ti * TILE) / BLOCK) + lx, block.y,
+	return Spot{ id->body, (int32_t)(((int64_t)id->region * STRIDE + (int64_t)id->ti * TILE) / BLOCK) + lx, block.y,
 		(int32_t)((int64_t)id->tj * TILE / BLOCK) + lz };
 }
 
@@ -323,8 +346,8 @@ std::optional<Atlas::Cell> Atlas::cell(Node node) const
 	const Tile *t = tileAt(node);
 	if (!t)
 		return std::nullopt;
-	const Cell c{ t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y };
-	return m_atlas.exists(c) ? std::optional(c) : std::nullopt;
+	const Cell c(t->body, { t->kind, t->index, t->i0 + (node.x - t->rect.x), t->j0 + (node.z - t->rect.z), node.y });
+	return shapeOf(c).exists(c) ? std::optional(c) : std::nullopt;
 }
 
 Atlas::Node Atlas::node(const Cell &c) const
@@ -345,14 +368,14 @@ std::optional<std::array<double, 2>> Atlas::place(Node node) const
 	const Tile *r = tileAt(node);
 	if (!r || r->kind == Kind::Core)
 		return std::nullopt;
-	return place(Cell{ r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 });
+	return place(Cell(r->body, { r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 }));
 }
 
 std::array<double, 2> Atlas::place(const Cell &cell) const
 {
 	if (cell.region == Kind::Core)
 		throw std::invalid_argument("planet::Atlas: the core has no place on the ground");
-	const terragen::Atlas::Vec p = m_atlas.centre({ cell.region, cell.index, cell.i, cell.j, 0 });
+	const terragen::Atlas::Vec p = shapeOf(cell).centre({ cell.region, cell.index, cell.i, cell.j, 0 });
 	const double l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
 	return { std::asin(p.y / l), std::atan2(p.z, p.x) };
 }
@@ -372,7 +395,11 @@ std::optional<terragen::Atlas::Vec> Atlas::point(Node from, double x, double y, 
 
 Atlas::Node Atlas::seam() const
 {
-	return { ORIGIN, m_atlas.params().height, ORIGIN };
+	// above every body's top: a layer no body stores
+	int32_t top = 0;
+	for (const Body &b : m_bodies)
+		top = std::max(top, b.shape.params().height);
+	return { ORIGIN, top, ORIGIN };
 }
 
 /*
@@ -380,12 +407,12 @@ Atlas::Node Atlas::seam() const
 */
 terragen::Atlas::Vec Atlas::chart(const Cell &c, double dx, double dy, double dz) const
 {
-	return m_atlas.at(c, dx, dz, dy);
+	return shapeOf(c).at(c, dx, dz, dy);
 }
 
 std::array<double, 3> Atlas::unchart(const Cell &c, const terragen::Atlas::Vec &p) const
 {
-	const std::array<double, 3> g = m_atlas.grid(c.region, c.index, p);
+	const std::array<double, 3> g = shapeOf(c).grid(c.region, c.index, p);
 	return { g[0] - c.i - 0.5, g[2] - c.k - 0.5, g[1] - c.j - 0.5 };
 }
 
@@ -397,7 +424,7 @@ double Atlas::turning(const Cell &from, const Cell &to) const
 	const auto sub = [](V a, V b) { return V{ a.x - b.x, a.y - b.y, a.z - b.z }; };
 	const auto dot = [](V a, V b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
 	const auto cross = [](V a, V b) { return V{ a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; };
-	const V middle = m_atlas.centre(to);
+	const V middle = shapeOf(to).centre(to);
 	const double l = std::sqrt(dot(middle, middle));
 	const V up{ middle.x / l, middle.y / l, middle.z / l };
 	const std::array<double, 3> d = unchart(from, middle);
@@ -440,7 +467,7 @@ std::optional<Atlas::Step> Atlas::step(Node from, int axis, int sign) const
 	// cell (at a seam), what's straight through the face may be across the
 	// edge, and that's the neighbour that counts (from both sides alike, or
 	// a liquid flows one way only)
-	const bool cut = m_atlas.retained(*c) < 1 || (plain && m_atlas.retained(*plain) < 1);
+	const bool cut = shapeOf(*c).retained(*c) < 1 || (plain && (plain->body != c->body || shapeOf(*plain).retained(*plain) < 1));
 	if (plain && !cut)
 		return std::nullopt;
 	// at a seam: found once, kept (the planet never changes)
@@ -463,10 +490,10 @@ std::optional<Atlas::Step> Atlas::findStep(Node from, const Cell &c, int axis, i
 	const std::optional<Cell> plain = cell(q);
 	// straight through the face's middle (of perhaps several across a
 	// T-junction; past a cut's edge where that comes first)
-	const std::optional<Cell> through = m_atlas.through(c, face(c, axis, sign));
+	const std::optional<terragen::Atlas::Cell> through = shapeOf(c).through(c, face(c, axis, sign));
 	if (!through)
 		return std::nullopt; // the top of the atlas: seam
-	const Cell target = *through;
+	const Cell target = on(c, *through);
 	if (plain && target == *plain)
 		return std::nullopt; // straight through is the plain step after all
 	return Step{ node(target), quarters(c, target) };
@@ -641,18 +668,19 @@ std::vector<Atlas::RimNode> Atlas::findRim(Block block) const
 					const double ox = q.x - from.x, oy = q.y - from.y, oz = q.z - from.z;
 					const terragen::Atlas::Vec there = chart(c, ox, oy, oz);
 					const double r = std::sqrt(there.x * there.x + there.y * there.y + there.z * there.z);
-					if (r >= m_atlas.params().radius + m_atlas.params().height)
+					const terragen::Atlas &shape = shapeOf(c);
+					if (r >= shape.params().radius + shape.params().height)
 						break; // past the top: nothing across
-					const Cell straight = m_atlas.locate(there);
+					const Cell straight = on(c, shape.locate(there));
 					std::vector<Cell> cells{ straight };
 					// across a tile's edge the grid goes on: the cell straight across is the one
 					const bool sameGrid = straight.region == c.region && straight.index == c.index;
 					for (int k = 0; k < 8 && !sameGrid; k++) {
 						const double e = 0.45;
 						const terragen::Atlas::Vec p = chart(c, ox + (k & 1 ? e : -e), oy + (k & 2 ? e : -e), oz + (k & 4 ? e : -e));
-						if (std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z) >= m_atlas.params().radius + m_atlas.params().height)
+						if (std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z) >= shape.params().radius + shape.params().height)
 							continue;
-						const Cell s = m_atlas.locate(p);
+						const Cell s = on(c, shape.locate(p));
 						if (std::find(cells.begin(), cells.end(), s) == cells.end())
 							cells.push_back(s);
 					}
@@ -683,8 +711,8 @@ bool Atlas::interior(Block block) const
 	const Tile *t = tileAt(middle);
 	const Node low{ block.x * BLOCK - 1, block.y * BLOCK - 1, block.z * BLOCK - 1 };
 	const Node high{ low.x + BLOCK + 1, low.y + BLOCK + 1, low.z + BLOCK + 1 };
-	const bool found = c && m_atlas.clearance(*c) > BLOCK + 2 &&
-			c->k + BLOCK < m_atlas.params().height &&
+	const bool found = c && shapeOf(*c).clearance(*c) > BLOCK + 2 &&
+			c->k + BLOCK < shapeOf(*c).params().height &&
 			inside(t->rect, low.x, low.z) && inside(t->rect, high.x, high.z) && low.y >= t->k0 && high.y <= t->k1;
 	std::lock_guard<std::mutex> hold(cache.lock);
 	return cache.interior.emplace(blockKey(block), found).first->second;
@@ -697,7 +725,7 @@ std::optional<Atlas::Cut> Atlas::cut(Node n) const
 		return std::nullopt;
 	const std::optional<Cell> c = cell(n);
 	// a cell clear of its territory's edge by more than its half diagonal
-	if (!c || m_atlas.clearance(*c) > 0.9)
+	if (!c || shapeOf(*c).clearance(*c) > 0.9)
 		return std::nullopt;
 	const std::array<int32_t, 3> key{ n.x, n.y, n.z };
 	{
@@ -790,7 +818,7 @@ std::optional<Atlas::Cut> Atlas::findCut(const Cell &c) const
 {
 	std::array<std::array<double, 4>, 8> t;
 	for (int k = 0; k < 8; k++)
-		t[k] = m_atlas.edges(c, chart(c, k & 1 ? 0.5 : -0.5, k & 2 ? 0.5 : -0.5, k & 4 ? 0.5 : -0.5));
+		t[k] = shapeOf(c).edges(c, chart(c, k & 1 ? 0.5 : -0.5, k & 2 ? 0.5 : -0.5, k & 4 ? 0.5 : -0.5));
 	Cut cut;
 	for (int e = 0; e < 4; e++) {
 		std::array<double, 3> g{ 0, 0, 0 };
@@ -891,7 +919,7 @@ std::vector<bool> Atlas::cellsAround(Block block) const
 	for (int k = 0; whole && k < 8; k++) {
 		const Node corner{ low.x + (k & 1 ? W - 1 : 0), low.y + (k & 2 ? W - 1 : 0), low.z + (k & 4 ? W - 1 : 0) };
 		const std::optional<Cell> c = tileAt(corner) == region ? cell(corner) : std::nullopt;
-		whole = c && m_atlas.clearance(*c) >= 2;
+		whole = c && shapeOf(*c).clearance(*c) >= 2;
 	}
 	if (whole)
 		return std::vector<bool>((size_t)W * W * W, true);
@@ -946,12 +974,13 @@ std::optional<Atlas::Seen> Atlas::seeAt(Node from, double x, double y, double z)
 	if (!c)
 		return std::nullopt;
 	const terragen::Atlas::Vec there = chart(*c, x - from.x, y - from.y, z - from.z);
-	const auto &params = m_atlas.params();
+	const terragen::Atlas &shape = shapeOf(*c);
+	const auto &params = shape.params();
 	const double r = std::sqrt(there.x * there.x + there.y * there.y + there.z * there.z);
 	const Seen nothing{ seam(), 0, x, y, z };
 	if (r >= params.radius + params.height)
 		return nothing;
-	const Cell target = m_atlas.locate(there);
+	const Cell target = on(*c, shape.locate(there));
 	// the far cell's own centre (its chart's origin), not its corners'
 	// average: on a curved cell that sits a hair inside the arc, and a floor
 	// seen there would be a ledge
@@ -971,10 +1000,11 @@ std::optional<Atlas::Carried> Atlas::carry(double wasX, double wasY, double wasZ
 		return std::nullopt; // still in its grid
 	// located a centimetre up, as moverNode: a point on a face is the node above's
 	const terragen::Atlas::Vec there = chart(*c, x - from.x, y + UP - from.y, z - from.z);
-	const auto &params = m_atlas.params();
+	const terragen::Atlas &shape = shapeOf(*c);
+	const auto &params = shape.params();
 	if (std::sqrt(there.x * there.x + there.y * there.y + there.z * there.z) >= params.radius + params.height)
 		return std::nullopt;
-	const Cell target = m_atlas.locate(there);
+	const Cell target = on(*c, shape.locate(there));
 	const Node n = node(target);
 	// in the cell's box (a sliver merged into it lies a little outside it:
 	// it's the cell's)
@@ -989,7 +1019,7 @@ std::optional<Atlas::Frame> Atlas::frame(Node from, const std::array<double, 3> 
 	const std::optional<terragen::Atlas::Vec> o = point(from, at[0], at[1], at[2]);
 	if (!o)
 		return std::nullopt;
-	Frame f{ at, *o, {} };
+	Frame f{ *bodyAt(from), at, *o, {} };
 	for (int i = 0; i < 3; i++) {
 		std::array<double, 3> hi = at, lo = at;
 		hi[i] += 0.5;
@@ -1002,6 +1032,9 @@ std::optional<Atlas::Frame> Atlas::frame(Node from, const std::array<double, 3> 
 
 Atlas::Affine Atlas::view(const Frame &eye, const Frame &block)
 {
+	if (eye.body != block.body)
+		throw std::invalid_argument("planet::Atlas: a block of body " + std::to_string(block.body) +
+				" seen from body " + std::to_string(eye.body));
 	using V = terragen::Atlas::Vec;
 	const auto cross = [](V a, V b) { return V{ a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; };
 	const auto dot = [](V a, V b) { return a.x * b.x + a.y * b.y + a.z * b.z; };

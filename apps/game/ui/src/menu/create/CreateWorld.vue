@@ -8,7 +8,8 @@ import { SYSTEM_PREVIEW, SystemPreview } from "../../system/preview.ts"
 import { decodeWorldCode, encodeWorldCode } from "../../worldgen/config.ts"
 import { worldName } from "../../worldgen/names.ts"
 import type { Screen } from "../screens.ts"
-import BodyNavigator from "./BodyNavigator.vue"
+import type { SystemWire } from "../../bridge"
+import BodyStrip from "../../system/BodyStrip.vue"
 import { WorldDraft } from "./draft.ts"
 import DynamicsTab from "./DynamicsTab.vue"
 import GameTab from "./GameTab.vue"
@@ -28,15 +29,16 @@ type BodyPage = "overview" | "orbit" | "makeup" | "spin" | "land" | "climate" | 
 type RulesPage = "survival" | "danger" | "time" | "knowledge"
 
 const emit = defineEmits<{ go: [screen: Screen] }>()
-const props = defineProps<{ initialCode?: string | null }>()
+const props = defineProps<{ initialCode?: string | null; home: SystemWire }>()
 const bridge = useBridge()
-const draft = WorldDraft()
+const draft = WorldDraft({ home: props.home })
 if (props.initialCode) draft.config = decodeWorldCode(props.initialCode)
 const system = SystemPreview({ bridge })
 provide(SYSTEM_PREVIEW, system)
 watch(() => [draft.system, draft.config.star], () => system.request(draft.system, draft.config.star), { deep: true, immediate: true })
 const looks = Looks({ bridge, draft, cards: system })
 provide(LOOKS, looks)
+const playTag = (id: string) => draft.system.bodies.find((b) => b.id === id)?.playable ? "play" : null
 
 const group = ref<Group>("start")
 const page = ref<Page>("quick")
@@ -148,7 +150,8 @@ async function create() {
     <div class="visual" :style="{ left: `${covers.left + 16}px` }">
         <Viewer :draft="draft" :frame="covers" />
         <!-- the bodies to go to, bottom right over space -->
-        <BodyNavigator class="bodies" :system="draft.system" :star="draft.config.star" />
+        <BodyStrip class="bodies" :system="draft.system" :star="draft.config.star" :selected="draft.system.selected"
+            :image="looks.image" :tag="playTag" @pick="(id) => { draft.system.selected = id }" />
     </div>
     </div>
 </template>

@@ -1,36 +1,43 @@
 <script setup lang="ts">
-import { moonsOf, planets, STAR, type SystemHandle } from "../../system/model.ts"
-import { useLooks } from "./looks.ts"
-import { star, type StarId } from "../../worldgen/config.ts"
-import BodyIcon from "../../worldgen/BodyIcon.vue"
+import { moonsOf, planets, STAR, type SystemHandle } from "./model.ts"
+import { star, type StarId } from "../worldgen/config.ts"
+import BodyIcon from "../worldgen/BodyIcon.vue"
 
-const props = defineProps<{ system: SystemHandle; star: StarId }>()
-const looks = useLooks()
-function pick(id: string) {
-    props.system.selected = id
-}
+/**
+ * A system's bodies to choose from: the star, each planet as a little globe
+ * of how it looks, its moons in a row under it. The builder's and the map's.
+ * `tag` puts a word under a body (the builder's "play", the map's "you").
+ */
+const props = defineProps<{
+    system: SystemHandle
+    star: StarId
+    selected: string
+    image: (id: string) => ImageData | null
+    tag?: (id: string) => string | null
+}>()
+const emit = defineEmits<{ pick: [id: string] }>()
 </script>
 
 <template>
-    <nav class="navigator" aria-label="Choose a celestial body">
+    <nav class="strip" aria-label="Choose a celestial body">
         <div class="bodies">
             <div class="body-block">
-                <button class="body-button" :class="{ on: system.selected === STAR }"
-                    :aria-current="system.selected === STAR ? 'true' : undefined" @click="pick(STAR)">
+                <button class="body-button" :class="{ on: selected === STAR }"
+                    :aria-current="selected === STAR ? 'true' : undefined" @click="emit('pick', STAR)">
                     <BodyIcon kind="star" :color="star(props.star).color" />
                     <span>{{ star(props.star).label }}</span>
                 </button>
             </div>
             <div v-for="planet in planets(system)" :key="planet.id" class="body-block">
-                <button class="body-button" :class="{ on: system.selected === planet.id }"
-                    :aria-current="system.selected === planet.id ? 'true' : undefined" @click="pick(planet.id)">
-                    <BodyIcon kind="planet" :image="looks.image(planet.id)" />
+                <button class="body-button" :class="{ on: selected === planet.id }"
+                    :aria-current="selected === planet.id ? 'true' : undefined" @click="emit('pick', planet.id)">
+                    <BodyIcon kind="planet" :image="image(planet.id)" />
                     <span>{{ planet.name }}</span>
-                    <small v-if="planet.playable">play</small>
+                    <small v-if="tag?.(planet.id)">{{ tag(planet.id) }}</small>
                 </button>
                 <div v-if="moonsOf(system, planet.id).length" class="moon-row" :aria-label="`Moons of ${planet.name}`">
                     <button v-for="moon in moonsOf(system, planet.id)" :key="moon.id" :title="moon.name" :aria-label="moon.name"
-                        :class="{ on: system.selected === moon.id }" @click="pick(moon.id)">
+                        :class="{ on: selected === moon.id, tagged: !!tag?.(moon.id) }" @click="emit('pick', moon.id)">
                         <BodyIcon kind="moon" />
                     </button>
                 </div>
@@ -40,7 +47,7 @@ function pick(id: string) {
 </template>
 
 <style scoped>
-.navigator { display: flex; align-items: stretch; gap: 8px; min-width: 0; padding: 5px 0; }
+.strip { display: flex; align-items: stretch; gap: 8px; min-width: 0; padding: 5px 0; }
 .bodies { display: flex; align-items: start; gap: 5px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .body-block { flex: none; width: 86px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .body-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 100%; min-width: 0; padding: 2px; border: var(--b) solid transparent; background: none; color: var(--ink-dim); cursor: pointer; }
@@ -51,6 +58,7 @@ function pick(id: string) {
 .body-button small { color: var(--accent-hi); font: 7px var(--font-display); text-transform: uppercase; }
 .body-button :deep(.icon) { width: 24px; height: 24px; }
 .moon-row { display: flex; justify-content: center; gap: 2px; max-width: 86px; overflow-x: auto; }
-.moon-row button { display: grid; place-items: center; flex: none; width: 19px; height: 19px; padding: 0; border: 1px solid transparent; background: none; cursor: pointer; }
+.moon-row button { position: relative; display: grid; place-items: center; flex: none; width: 19px; height: 19px; padding: 0; border: 1px solid transparent; background: none; cursor: pointer; }
+.moon-row button.tagged::after { content: ""; position: absolute; right: 1px; top: 1px; width: 4px; height: 4px; background: var(--accent-hi); }
 .moon-row button :deep(.icon) { width: 12px; height: 12px; }
 </style>

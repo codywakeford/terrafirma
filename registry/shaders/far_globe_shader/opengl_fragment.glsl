@@ -1,20 +1,14 @@
-// the mask, per map-block column: r, the near world draws all of its
-// surface; g, it draws the top of it (its own liquid, over our floor)
-uniform sampler2D texture0;
 uniform lowp vec4 fogColor;
 uniform float fogDistance;
 uniform float fogShadingParameter;
-uniform float farCut;
+uniform float farCut;        // the near world's range from the eye (scene units): nearer, its blocks are the land
 uniform float farHaze;       // the distance past the cut the haze builds over, near the ground
-uniform highp vec4 farMask;  // its corner (scene x, z), its size, 1 if it applies
 uniform float farShare;      // 0 in the air's haze .. 1 above the air, seeing the planet
 uniform highp vec4 farPlace; // the eye: map x, z (blocks), altitude (m), unused
 uniform float farAir;        // m: the air's scale height
 
 VARYING_ lowp vec4 varColor;
-VARYING_ lowp float varLayer;
 VARYING_ highp float varSeen;  // how far off it's seen, scene units
-VARYING_ highp vec2 flatPos;
 VARYING_ highp vec3 eyeVec;
 VARYING_ highp float varAltitude;
 VARYING_ lowp vec3 varDay;
@@ -36,19 +30,9 @@ float airmass(float eye, float altitude)
 
 void main(void)
 {
-	// where the near world draws, it's the near world (the mask, laid out
-	// round the eye in its own grid: the scene's, where we're drawn too)
-	vec2 uv = (flatPos - farMask.xy) / farMask.z;
-	if (farMask.w > 0.5 && uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-		// The near world's faces replace ours where it draws them. What lies
-		// under a liquid never gives way: where the near world's own floor is
-		// there it draws over ours (the same blocks); where it isn't yet, its
-		// liquid would otherwise lie over the sky.
-		vec4 near = texture2D(texture0, uv);
-		bool liquid = varLayer < 0.25, under = varLayer >= 0.25 && varLayer < 0.75;
-		if (!under && (near.r > 0.5 || (near.g > 0.5 && liquid)))
-			discard;
-	}
+	// within the near world's range its blocks are the land
+	if (varSeen < farCut)
+		discard;
 
 	vec4 col = vec4(varColor.rgb, 1.0);
 	float dist = length(eyeVec);

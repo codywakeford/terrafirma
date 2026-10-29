@@ -185,6 +185,13 @@ Column World::column(fix u, fix v, fix sun) const
 
 	bool polar = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
 	Biome biome = polar ? (e < 0 ? Biome::SeaIce : Biome::Snow) : classify(e, heat, wet, season);
+	// a barren body: one bare biome over all of it, sea floor and poles too
+	switch (c.surface) {
+	case Surface::Living: break;
+	case Surface::Rock: biome = Biome::Rock; break;
+	case Surface::Sand: biome = Biome::Desert; break;
+	case Surface::Ice: biome = Biome::Snow; break;
+	}
 	return { e, heat, wet, rain, season, biome, polar };
 }
 
@@ -265,6 +272,8 @@ Ground World::ground(int32_t x, int32_t z, fix sun) const
 			return out;
 		}
 	}
+	if (m_code.surface != Surface::Living)
+		return out; // no water on a barren body: its basins stand dry
 	if (out.terrain < 0) {
 		out.kind = Water::Sea;
 		out.water = 0;

@@ -36,8 +36,8 @@ Cover World::cover(int32_t x, int32_t z, const Ground &ground) const
 	fix u = this->u(x), v = this->v(z);
 	const Column &c = ground.column;
 	Cover out{ 0, 0, 0, false, false, mix((uint32_t)x, (uint32_t)z, m_code.seed_hash + ROLL) };
-	if (ground.kind != Water::None || c.polar || c.elevation < 0)
-		return out;
+	if (ground.kind != Water::None || c.polar || c.elevation < 0 || m_code.surface != Surface::Living)
+		return out; // (nothing grows on a barren body)
 	out.fertility = between(g.fertility, u, v);
 
 	// the lie of the land, from the coarse grid's gradient

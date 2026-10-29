@@ -25,6 +25,9 @@ static constexpr double INSTALL_MS = 3;
 static constexpr double PAINT_MS = 3;
 // A tile not wanted for this many updates is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
+// Blocks: how far a tile's land can stand off the sea (its peaks, its trees), for
+// whether any of it is past the near world's range.
+static constexpr double RELIEF = 256;
 
 /*
 	What the workers share: copies of what they build from, the queue, the
@@ -42,8 +45,8 @@ public:
 		Mesh mesh;
 	};
 
-	Crew(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling) :
-		m_atlas(atlas), m_horizon(horizon), m_palette(palette), m_tiling(tiling)
+	Crew(const planet::Atlas &atlas, int body, const Horizon &horizon, const Palette &palette, const Tiling &tiling) :
+		m_atlas(atlas), m_body(body), m_horizon(horizon), m_palette(palette), m_tiling(tiling)
 	{
 	}
 
@@ -98,7 +101,7 @@ public:
 				std::unique_ptr<Generator> made;
 				std::string error;
 				try {
-					made = std::make_unique<Generator>(m_horizon, m_atlas);
+					made = std::make_unique<Generator>(m_horizon, m_atlas, m_body);
 				} catch (const std::exception &e) {
 					error = std::string("the world can't be built from the server's data: ") + e.what();
 				}
@@ -136,35 +139,20 @@ public:
 	}
 
 private:
-	// The tile's mesh as on a map, each vertex then put on the planet: a
-	// tile's (x, y, z) at its place in its region, round its middle; its
-	// height over the sea (blocks) in the first texture coordinate, for
-	// the haze.
+	// The tile's mesh put on the planet (Tiling::place); its height over
+	// the sea (blocks) in the first texture coordinate, for the haze.
 	Mesh onPlanet(const Tile &tile) const
 	{
 		Mesh m = far::mesh(tile, m_palette);
-		const TileKey &key = tile.key;
-		const Tiling::Vec mid = m_tiling.middle(key);
-		const float half = key.span() / 2.0f - 0.5f;
-		// the tile's own axes at its middle, for the normals
-		const auto axis = [&](double dx, double dy, double dz) {
-			const Tiling::Vec a = m_tiling.point(key, half + dx, -0.5 + dy, half + dz),
-					b = m_tiling.point(key, half - dx, -0.5 - dy, half - dz);
-			return v3f(a.x - b.x, a.y - b.y, a.z - b.z).normalize();
-		};
-		const v3f ex = axis(0.5, 0, 0), ey = axis(0, 0.5, 0), ez = axis(0, 0, 0.5);
 		for (Mesh::Part &part : m.parts)
-			for (video::S3DVertex &v : part.vertices) {
-				const v3f t = v.Pos / BS;
-				const Tiling::Vec p = m_tiling.point(key, t.X, t.Y, t.Z);
-				v.Pos = v3f(p.x - mid.x, p.y - mid.y, p.z - mid.z) * BS;
-				v.Normal = (ex * v.Normal.X + ey * v.Normal.Y + ez * v.Normal.Z).normalize();
-				v.TCoords = v2f(t.Y + 0.5f - (m_horizon.water_level + 1), 0);
-			}
+			for (video::S3DVertex &v : part.vertices)
+				v.TCoords = v2f(v.Pos.Y / BS + 0.5f - (m_horizon.water_level + 1), 0);
+		m_tiling.place(m, tile.key);
 		return m;
 	}
 
 	const planet::Atlas m_atlas; // copies: the crew can outlive the tiles
+	const int m_body;
 	const Horizon m_horizon;
 	const Palette m_palette;
 	const Tiling m_tiling;
@@ -191,9 +179,9 @@ class Workers
 public:
 	using Result = Crew::Result;
 
-	Workers(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, const Tiling &tiling,
+	Workers(const planet::Atlas &atlas, int body, const Horizon &horizon, const Palette &palette, const Tiling &tiling,
 			unsigned threads) :
-		m_crew(std::make_shared<Crew>(atlas, horizon, palette, tiling))
+		m_crew(std::make_shared<Crew>(atlas, body, horizon, palette, tiling))
 	{
 		if (threads == 0)
 			throw BaseException("far tiles: no threads to build with");
@@ -216,11 +204,11 @@ unsigned Tiles::threadsFor(float share)
 	return std::max(1u, (unsigned)(cores * share));
 }
 
-Tiles::Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, unsigned threads) :
+Tiles::Tiles(const planet::Atlas &atlas, int body, const Horizon &horizon, const Palette &palette, unsigned threads) :
 	m_atlas(atlas),
 	m_horizon(horizon),
-	m_tiling(atlas.atlas()),
-	m_workers(std::make_unique<Workers>(m_atlas, m_horizon, palette, m_tiling, threads))
+	m_tiling(atlas.body(body)),
+	m_workers(std::make_unique<Workers>(m_atlas, body, m_horizon, palette, m_tiling, threads))
 {
 }
 
@@ -288,6 +276,20 @@ float Tiles::distance(const TileKey &key, const Eye &eye) const
 	return (float)std::max(d - m_tiling.diagonal(key) / 2, 0.0);
 }
 
+bool Tiles::inside(const TileKey &key, const Eye &eye) const
+{
+	if (eye.cut <= 0)
+		return false;
+	// its farthest point from the eye, at the sea, and its land's highest a
+	// tile's relief over that (a peak could be farther off than the sea under it)
+	const Tiling::Vec p = m_tiling.middle(key);
+	const double r = m_tiling.radius(), sea = r + m_horizon.water_level + 1;
+	const double d = std::hypot(p.x * sea / r - eye.at.x, p.y * sea / r - eye.at.y, p.z * sea / r - eye.at.z) +
+			m_tiling.diagonal(key) / 2;
+	const double far = std::hypot(d, (double)eye.altitude) + RELIEF;
+	return far < eye.cut;
+}
+
 bool Tiles::choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want)
 {
 	if (!m_tiling.within(key.tile()))
@@ -295,6 +297,8 @@ bool Tiles::choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::
 	float d = distance(key.tile(), eye);
 	if (d > eye.range)
 		return true; // beyond the eye's reach: nothing to draw
+	if (inside(key.tile(), eye))
+		return true; // all within the near world's range: its blocks are the land there
 	// high up, a tile's size on screen goes by how far it is through the air
 	float seen = std::sqrt(d * d + eye.altitude * eye.altitude);
 	bool split = key.level > 0 && seen - eye.cut < (float)key.tile().span() * eye.split;
@@ -429,7 +433,7 @@ void Tiles::paint(const Key &key, Entry &e) const
 			}
 			const Tiling::Vec at{ mid.x + v.Pos.X / BS, mid.y + v.Pos.Y / BS, mid.z + v.Pos.Z / BS };
 			video::SColor c = (*m_tint)(own[i], at);
-			c.setAlpha(own[i].getAlpha());
+			c.setAlpha(255); // the land is opaque
 			v.Color = c;
 		}
 		e.parts[p]->setDirty(scene::EBT_VERTEX);

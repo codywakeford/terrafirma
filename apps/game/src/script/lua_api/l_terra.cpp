@@ -35,11 +35,20 @@ static std::string mapgenName(Server *server)
 	return mg_name;
 }
 
-static const World &world(Server *server)
+// A body's world model (the home's: the world's own; a flat world has only
+// that), built on first use.
+static const World &world(Server *server, int body = planet::Atlas::HOME)
 {
-	std::unique_ptr<World> &built = server->terra().world;
+	std::vector<std::unique_ptr<World>> &worlds = server->terra().worlds;
+	const planet::Atlas *atlas = server->atlas();
+	worlds.resize(atlas ? atlas->bodies() : 1);
+	std::unique_ptr<World> &built = worlds.at(body);
 	if (built)
 		return *built;
+	if (atlas) {
+		built = std::make_unique<World>(server->bodyWorlds().at(body).code);
+		return *built;
+	}
 	const MapSettingsManager *settings = server->getEmergeManager()->map_settings_mgr;
 	std::string mg_name = mapgenName(server), code;
 	if (mg_name != "terra")
@@ -52,6 +61,22 @@ static const World &world(Server *server)
 		throw LuaError(std::string("core.terra: ") + e.what());
 	}
 	return *built;
+}
+
+// The body a position is on (a flat world's, and seam's: the home; a
+// position in seam has no column anyway)
+static int bodyAt(Server *server, const v3f &pos)
+{
+	const planet::Atlas *atlas = server->atlas();
+	if (!atlas)
+		return planet::Atlas::HOME;
+	return atlas->bodyAt(planet::Atlas::moverNode(pos.X, pos.Y, pos.Z)).value_or(planet::Atlas::HOME);
+}
+
+// The world model of the body a position is on.
+static const World &worldAt(Server *server, const v3f &pos)
+{
+	return world(server, bodyAt(server, pos));
 }
 
 // The world's weather, opened on first use from <world>/weather.bin (or
@@ -177,8 +202,8 @@ int ModApiTerra::l_calendar(lua_State *L)
 int ModApiTerra::l_sun(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	v3f pos = check_v3f(L, 1);
+	const v3f pos = check_v3f(L, 1);
+	const World &w = worldAt(getServer(L), pos);
 	fix latitude = World::latitude(w.v(worldColumn(getServer(L), w, pos)[1]));
 	Calendar c = today(getServer(L), w);
 	fix decl = declination(w.code().tilt, c.date);
@@ -197,8 +222,8 @@ int ModApiTerra::l_sun(lua_State *L)
 int ModApiTerra::l_climate(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	v3f pos = check_v3f(L, 1);
+	const v3f pos = check_v3f(L, 1);
+	const World &w = worldAt(getServer(L), pos);
 	const auto [x, z] = worldColumn(getServer(L), w, pos);
 	Calendar c = today(getServer(L), w);
 	fix v = w.v(z);
@@ -220,8 +245,8 @@ int ModApiTerra::l_climate(lua_State *L)
 int ModApiTerra::l_geology(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
-	v3f pos = check_v3f(L, 1);
+	const v3f pos = check_v3f(L, 1);
+	const World &w = worldAt(getServer(L), pos);
 	const auto [x, z] = worldColumn(getServer(L), w, pos);
 	const int32_t y = (int32_t)std::floor(pos.Y + 0.5f);
 	fix v = w.v(z);
@@ -272,7 +297,6 @@ int ModApiTerra::l_geology(lua_State *L)
 int ModApiTerra::l_cover(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const World &w = world(getServer(L));
 	v3s16 a = check_v3s16(L, 1), b = check_v3s16(L, 2);
 	if (b.X < a.X || b.Z < a.Z || (b.X - a.X + 1) * (b.Z - a.Z + 1) > 160 * 160)
 		throw LuaError("core.terra.cover: the area must run min to max, at most 160 × 160 columns");
@@ -284,13 +308,15 @@ int ModApiTerra::l_cover(lua_State *L)
 		lua_setfield(L, out, name);
 	}
 	int n = 1;
-	int32_t half = w.code().size / 2;
 	const planet::Atlas *atlas = getServer(L)->atlas();
 	for (int32_t mz = a.Z; mz <= b.Z; mz++) {
 		for (int32_t mx = a.X; mx <= b.X; mx++, n++) {
 			// the world model's column (on a planet, the storage column's
 			// place at its surface layer; seam and the core are no column:
 			// nothing grows)
+			// its body's world (an area may take in slots of several)
+			const World &w = world(getServer(L), atlas ? atlas->bodyAt({ mx, 0, mz }).value_or(planet::Atlas::HOME) : planet::Atlas::HOME);
+			const int32_t half = w.code().size / 2;
 			int32_t x = mx, z = mz;
 			bool column = true;
 			if (atlas) {
@@ -424,8 +450,8 @@ int ModApiTerra::l_species(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
 	Server *server = getServer(L);
-	const World &w = world(server);
 	v3s16 p = check_v3s16(L, 1);
+	const World &w = worldAt(server, v3f(p.X, p.Y, p.Z));
 	std::string ground_name = luaL_checkstring(L, 2);
 	const NodeDefManager *ndef = server->getNodeDefManager();
 	content_t ground = ndef->getId(ground_name);
@@ -450,18 +476,21 @@ int ModApiTerra::l_species(lua_State *L)
 	return 1;
 }
 
-// The far view's generator, built from what the server sends its clients.
-static const far::Generator &surfaceGenerator(Server *server)
+// The far view's generator of a body (a flat world's one: HOME), built
+// from what the server sends its clients.
+static const far::Generator &surfaceGenerator(Server *server, int body)
 {
 	ServerTerra &t = server->terra();
-	if (!t.surface) {
+	const planet::Atlas *atlas = server->atlas();
+	t.surfaces.resize(atlas ? atlas->bodies() : 1);
+	std::unique_ptr<far::Generator> &g = t.surfaces.at(body);
+	if (!g) {
 		const std::optional<far::Horizon> h = server->horizon();
 		if (!h)
 			throw LuaError("core.terra: this world wasn't made by terra");
-		const planet::Atlas *atlas = server->atlas();
-		t.surface = atlas ? std::make_unique<far::Generator>(*h, *atlas) : std::make_unique<far::Generator>(*h);
+		g = atlas ? std::make_unique<far::Generator>(*h, *atlas, body) : std::make_unique<far::Generator>(*h);
 	}
-	return *t.surface;
+	return *g;
 }
 
 // core.terra.surface(pos) → { ground, top, water, liquid, trunk, canopy }: the
@@ -474,17 +503,17 @@ int ModApiTerra::l_surface(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
 	Server *server = getServer(L);
-	const far::Generator &g = surfaceGenerator(server);
 	v3s16 p = check_v3s16(L, 1);
 	far::Cell column;
 	if (const planet::Atlas *atlas = server->atlas()) {
-		// a storage column of a region is one place on the planet: the
-		// column the generator builds there (its y the layer). No trees: they
-		// are planted per map chunk, which a place's column isn't.
+		// a storage column of a region is one place on its body: the column
+		// the generator builds there (its y the layer). No trees: they are
+		// planted per map chunk, which a place's column isn't.
 		if (!atlas->place({ p.X, 0, p.Z }))
 			throw LuaError("core.terra.surface: the column is seam: no place on the planet");
-		column = g.column(p.X, p.Z);
+		column = surfaceGenerator(server, *atlas->bodyAt({ p.X, 0, p.Z })).column(p.X, p.Z);
 	} else {
+		const far::Generator &g = surfaceGenerator(server, planet::Atlas::HOME);
 		// one level-0 tile around the column: its trees are grown exactly
 		far::TileKey key{ 0, (s32)std::floor(p.X / (double)far::TILE), (s32)std::floor(p.Z / (double)far::TILE) };
 		// neighbouring columns share tiles: keep the last few
@@ -524,19 +553,33 @@ int ModApiTerra::l_surface(lua_State *L)
 
 // core.terra.weather(pos) → { temperature (°C), humidity (0..1), cloud (0..1),
 // precipitation (mm/h), snow, wind = { x, z } (m/s, east and north),
-// pressure (hPa), ash (0..1), events = { name, … } }: the weather now at a
-// point. The world's atmosphere moves on its own (src/fluid); this reads it.
+// pressure (hPa), ash (0..1), events = { name, … }, atmosphere }: the
+// weather now at a point. The world's atmosphere moves on its own
+// (src/fluid); this reads it. `atmosphere` false: the point is on a body
+// whose air isn't simulated (still, dry, its climate's temperature).
 int ModApiTerra::l_weather(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
 	Server *server = getServer(L);
-	weather::Weather &wx = weatherNow(server);
-	const World &w = world(server);
-	v3f pos = check_v3f(L, 1);
+	const v3f pos = check_v3f(L, 1);
+	const int body = bodyAt(server, pos);
+	const World &w = world(server, body);
 	const auto [x, z] = worldColumn(getServer(L), w, pos);
 	const int32_t y = (int32_t)std::floor(pos.Y + 0.5f);
-	fluid::Sample s = wx.sample(x, y, z, wx.now());
-	lua_createtable(L, 0, 9);
+	fluid::Sample s{};
+	if (body == planet::Atlas::HOME) {
+		weather::Weather &wx = weatherNow(server);
+		s = wx.sample(x, y, z, wx.now());
+	} else {
+		// TEMP: 2026-10-29 only the home's air moves (src/fluid); another
+		// body's is still and dry at its climate's temperature until its
+		// own atmosphere (sprint 41)
+		s.temperature = toDouble(w.temperature(x, z, today(server, w).date, hourNow(server))) + 273.15;
+		s.pressure = 101325;
+	}
+	lua_createtable(L, 0, 10);
+	lua_pushboolean(L, body == planet::Atlas::HOME);
+	lua_setfield(L, -2, "atmosphere");
 	setNumber(L, "temperature", s.temperature - 273.15);
 	setNumber(L, "humidity", s.humidity);
 	setNumber(L, "cloud", s.cloud);
@@ -597,19 +640,25 @@ int ModApiTerra::l_land(lua_State *L)
 	if (sx * sy * sz > (1 << 24))
 		throw LuaError("core.terra.land: at most 2^24 nodes at once");
 	const NodeDefManager *ndef = server->getNodeDefManager();
-	terra::AtlasLand::Reader reader(surfaceGenerator(server).land());
+	// a reader a body (an area may take in slots of several), each column by its body's
+	std::vector<std::optional<terra::AtlasLand::Reader>> readers(server->atlas()->bodies());
 	lua_createtable(L, (int)(sx * sy * sz), 0);
 	// column by column, bottom up: the reader keeps a column while it lasts
 	for (s16 z = a.Z; z <= b.Z; z++)
-		for (s16 x = a.X; x <= b.X; x++)
+		for (s16 x = a.X; x <= b.X; x++) {
+			const int body = server->atlas()->bodyAt({ x, 0, z }).value_or(planet::Atlas::HOME); // seam reads as seam in any
+			std::optional<terra::AtlasLand::Reader> &reader = readers[body];
+			if (!reader)
+				reader.emplace(surfaceGenerator(server, body).land());
 			for (s16 y = a.Y; y <= b.Y; y++) {
-				const std::optional<MapNode> n = reader.node({ x, y, z });
+				const std::optional<MapNode> n = reader->node({ x, y, z });
 				if (n)
 					lua_pushstring(L, ndef->get(*n).name.c_str());
 				else
 					lua_pushboolean(L, false);
 				lua_rawseti(L, -2, (int)((z - a.Z) * sy * sx + (y - a.Y) * sx + (x - a.X) + 1));
 			}
+		}
 	return 1;
 }
 

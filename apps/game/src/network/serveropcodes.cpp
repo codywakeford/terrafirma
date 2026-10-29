@@ -219,6 +219,6 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_HORIZON",                  0, true }, // 0x66 Terra Firma
 	null_command_factory, // 0x67 (Terra Firma's TOCLIENT_ALOFT, gone)
 	null_command_factory, // 0x68 (Terra Firma's TOCLIENT_PLANET, gone)
-	{ "TOCLIENT_ATLAS",                    0, true }, // 0x69 Terra Firma
+	{ "TOCLIENT_ATLAS",                    2, true }, // 0x69 Terra Firma: on the window's channel, so it comes first
 	{ "TOCLIENT_WINDOW",                   2, true }, // 0x6A Terra Firma: with the blocks, so it comes before the new tile's
 };

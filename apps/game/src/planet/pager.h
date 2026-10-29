@@ -34,13 +34,19 @@ public:
 
 	Pager(Atlas &atlas, Hooks hooks);
 
-	// A new world: when every tile of the planet fits the window, every tile
-	// is put in, needed for ever (a small planet is never paged). False
+	// A new world: when every tile of every body fits the window, every
+	// tile is put in, needed for ever (a small world is never paged). False
 	// when it doesn't fit (the window starts empty).
 	bool all();
-	// The tiles round each of these points of the planet (at the ground under
-	// them), at `now` (seconds).
-	void keep(const std::vector<terragen::Atlas::Vec> &points, double now);
+	// A point of a body (from its centre, blocks).
+	struct Point
+	{
+		int body;
+		terragen::Atlas::Vec at;
+	};
+	// The tiles round each of these points (at the ground under them), at
+	// `now` (seconds).
+	void keep(const std::vector<Point> &points, double now);
 	// A tile in the window, at `now`: its slot.
 	int need(const Atlas::TileId &tile, double now);
 	// A cell's node, the tiles round it put in the window (AROUND: what's

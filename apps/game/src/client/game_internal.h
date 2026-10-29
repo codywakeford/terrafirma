@@ -352,6 +352,7 @@ private:
 	irr_ptr<Clouds> clouds;
 	irr_ptr<Sky> sky;
 	irr_ptr<far::View> far_view; // Terra Firma: the horizon, on a terra world
+	int far_body = 0;            // Terra Firma: the atlas body far_view draws
 	// Terra Firma: the planet viewer, while it's open (it takes the input)
 	bool m_planetarium_alone = false;   // opened by its key (no screen over it): its key and Esc close it
 	bool m_planetarium_closing = false; // asked from the input callback: closed next frame

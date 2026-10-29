@@ -73,6 +73,7 @@ struct ServerTerra; // Terra Firma
 #include "planet/atlas.h" // Terra Firma
 #include "planet/pager.h" // Terra Firma
 #include "orbit/flight.h" // Terra Firma
+#include "terragen/worlds.h" // Terra Firma
 struct SunParams;
 
 namespace con {
@@ -435,6 +436,10 @@ public:
 
 	// Terra Firma: the planet this world is, if it is one (planet/atlas.h)
 	const planet::Atlas *atlas() const { return m_atlas ? &*m_atlas : nullptr; }
+	// Terra Firma: an atlas world's bodies, by the atlas's body index (the home first)
+	const std::vector<terragen::BodyWorld> &bodyWorlds() const { return m_body_worlds; }
+	// Terra Firma: the atlas's index of a body by its id (the system's); throws for none
+	int bodyIndex(const std::string &id) const;
 	// Terra Firma: a cell's node, its tile put in the map's window if it isn't
 	// (planet::Pager). Throws if the world isn't a planet, or the window is full.
 	planet::Atlas::Node planetNode(const planet::Atlas::Cell &cell);
@@ -858,6 +863,7 @@ private:
 	std::unique_ptr<ModChannelMgr> m_modchannel_mgr;
 	std::unique_ptr<ServerTerra> m_terra; // Terra Firma: what core.terra keeps (server/terra.h)
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: from the world's planet_atlas
+	std::vector<terragen::BodyWorld> m_body_worlds; // Terra Firma: its bodies (terragen/worlds.h)
 	std::optional<planet::Pager> m_pager; // Terra Firma: the atlas's window, which tiles are in the map
 	float m_window_timer = 0;             // Terra Firma: to the next keepPlanetWindow
 	std::unique_ptr<orbit::Flight> m_flight; // Terra Firma: core.orbit's

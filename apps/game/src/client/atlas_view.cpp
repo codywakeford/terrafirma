@@ -101,7 +101,9 @@ const core::matrix4 *AtlasView::transform(v3s16 block)
 {
 	auto [it, fresh] = m_frame.try_emplace(block);
 	if (fresh && m_eye)
-		if (const auto &c = chart(block))
+		// a block of another body (its tile in a slot near the eye's) is
+		// nowhere in the eye's space: not drawn
+		if (const auto &c = chart(block); c && *m_atlas.bodyAt(c->cell) == m_eye->body)
 			it->second = place(c->centre);
 	return it->second ? &*it->second : nullptr;
 }
@@ -125,26 +127,6 @@ std::optional<core::matrix4> AtlasView::place(const terragen::Atlas::Vec &centre
 		w[12 + r] = (f32)((at - (r == 0 ? m_offset.X : r == 1 ? m_offset.Y : m_offset.Z)) * BS);
 	}
 	return w;
-}
-
-std::optional<std::array<v2f, 4>> AtlasView::footprint(v3s16 block)
-{
-	const auto &c = chart(block);
-	const core::matrix4 *m = transform(block);
-	if (!c || !m || !m_atlas.interior({ block.X, block.Y, block.Z }))
-		return std::nullopt;
-	const double lo = -0.5, hi = MAP_BLOCKSIZE - 0.5, mid = MAP_BLOCKSIZE / 2.0 - 0.5;
-	const v3s16 low = block * MAP_BLOCKSIZE;
-	const double corners[4][2] = { { lo, lo }, { hi, lo }, { hi, hi }, { lo, hi } };
-	std::array<v2f, 4> out;
-	for (int k = 0; k < 4; k++) {
-		// the corner on the planet, from the block's middle (a mesh's coordinates), drawn
-		const terragen::Atlas::Vec p = m_atlas.onPlanet(*c, low.X + corners[k][0], low.Y + mid, low.Z + corners[k][1]);
-		v3f at((f32)p.x * BS, (f32)p.y * BS, (f32)p.z * BS);
-		m->transformVect(at);
-		out[k] = v2f(at.X, at.Z);
-	}
-	return out;
 }
 
 std::optional<std::vector<AtlasView::Line>> AtlasView::outline(v3s16 node, const std::vector<aabb3f> &boxes)

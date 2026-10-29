@@ -4,6 +4,7 @@
 #include "planetarium.h"
 #include "bridge.h"
 #include "shell.h"
+#include "terragen/body.h"
 #include "util/base64.h"
 #include <IVideoDriver.h>
 #include <cmath>
@@ -364,6 +365,14 @@ void Planetarium::draw(video::IVideoDriver *driver)
 	const double cx = (m_insets.left - m_insets.right) * k / 2, cy = (m_insets.top - m_insets.bottom) * k / 2;
 	m_current->frame(v2f((f32)(cx / (w / 2)), (f32)(-cy / (h / 2))));
 	m_current->draw(driver, view);
+	tellHover(*m_current);
+	if (const std::optional<std::optional<size_t>> chosen = m_current->takeChosen()) {
+		Json::Value message;
+		message["kind"] = "planetarium";
+		message["event"] = "chosen";
+		message["body"] = *chosen ? m_current->system().spec().bodies[**chosen].id : "star";
+		m_opts.shell.send(message);
+	}
 	if (const std::optional<View::Pick> pick = m_current->takeClick()) {
 		Json::Value message;
 		message["kind"] = "planetarium";
@@ -380,6 +389,42 @@ void Planetarium::draw(video::IVideoDriver *driver)
 		message["cell"] = cell;
 		m_opts.shell.send(message);
 	}
+}
+
+void Planetarium::tellHover(const View &p)
+{
+	const std::optional<View::Hover> &now = p.hovered();
+	// moved under a pixel, it's the same as far as the page can tell
+	const auto same = [](const View::Hover &a, const View::Hover &b) {
+		return a.body == b.body && std::abs(a.at.X - b.at.X) < 1 && std::abs(a.at.Y - b.at.Y) < 1 &&
+				std::abs(a.radius - b.radius) < 1;
+	};
+	if (now.has_value() == m_hovered.has_value() && (!now || same(*now, *m_hovered)))
+		return;
+	m_hovered = now;
+	Json::Value message;
+	message["kind"] = "planetarium";
+	message["event"] = "hovered";
+	message["body"] = Json::nullValue;
+	if (now) {
+		const float k = m_opts.shell.scale();
+		Json::Value body;
+		if (now->body) {
+			const terragen::SystemBody &b = p.system().spec().bodies[*now->body];
+			body["id"] = b.id;
+			body["name"] = b.name;
+			body["kind"] = terragen::KIND_NAMES[(int)p.system().cards()[*now->body].kind];
+		} else {
+			body["id"] = "star";
+			body["name"] = "Star";
+			body["kind"] = "star";
+		}
+		body["x"] = now->at.X / k;
+		body["y"] = now->at.Y / k;
+		body["radius"] = now->radius / k;
+		message["body"] = body;
+	}
+	m_opts.shell.send(message);
 }
 
 } // namespace shell

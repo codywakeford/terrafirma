@@ -26,6 +26,8 @@ public:
 	void testLooksAtTheCentre();
 	void testRayThroughTheScreen();
 	void testSpinTurnsTheBody();
+	void testDragOverThePole();
+	void testCentreIsAhead();
 };
 
 static TestPlanetarium g_test_instance;
@@ -37,6 +39,8 @@ void TestPlanetarium::runTests(IGameDef *gamedef)
 	TEST(testLooksAtTheCentre);
 	TEST(testRayThroughTheScreen);
 	TEST(testSpinTurnsTheBody);
+	TEST(testDragOverThePole);
+	TEST(testCentreIsAhead);
 }
 
 static constexpr double SEA = 1305;
@@ -138,4 +142,35 @@ void TestPlanetarium::testSpinTurnsTheBody()
 	spun.transformVect(a);
 	view.transformVect(b);
 	UASSERT((a - b).getLength() < 1e-2f);
+}
+
+// Dragged north, it goes over the pole and down the other side, still
+// looking at the centre; no latitude holds it back.
+void TestPlanetarium::testDragOverThePole()
+{
+	OrbitCamera c(SEA, 6 * SEA);
+	c.focus(1.2, 0.5);
+	const double k = 0.004; // TURN at this height (a radius or more up)
+	c.drag(0, (M_PI / 2 - 1.2 + 0.4) / k); // past the pole by 0.4 rad
+	UASSERT(std::fabs(c.latitude() - (M_PI / 2 - 0.4)) < 1e-6);
+	UASSERT(std::fabs(std::remainder(c.longitude() - (0.5 + M_PI), 2 * M_PI)) < 1e-6);
+	const OrbitCamera::Vec p = c.position();
+	UASSERT(std::fabs(length(p) - (SEA + c.altitude())) < 1e-6);
+}
+
+// The view takes a point from the camera into its own axes (as the hover
+// test projects bodies): the body's centre straight ahead, its north up.
+void TestPlanetarium::testCentreIsAhead()
+{
+	OrbitCamera c(SEA, 6 * SEA);
+	c.focus(0.3, 1.1);
+	const OrbitCamera::Vec p = c.position();
+	core::vector3df centre((f32)-p.x, (f32)-p.y, (f32)-p.z);
+	c.view().transformVect(centre);
+	UASSERT(std::fabs(centre.X) < 1e-2 && std::fabs(centre.Y) < 1e-2);
+	UASSERT(std::fabs(centre.Z - length(p)) < 1e-2 * length(p));
+	// a point north of the centre is above it on the screen
+	core::vector3df north((f32)-p.x, (f32)(-p.y + SEA), (f32)-p.z);
+	c.view().transformVect(north);
+	UASSERT(north.Y > 0);
 }

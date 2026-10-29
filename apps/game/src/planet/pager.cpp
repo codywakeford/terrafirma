@@ -16,7 +16,10 @@ Pager::Pager(Atlas &atlas, Hooks hooks) :
 
 bool Pager::all()
 {
-	const std::vector<Atlas::TileId> tiles = m_atlas.allTiles();
+	std::vector<Atlas::TileId> tiles;
+	for (int b = 0; b < m_atlas.bodies(); b++)
+		for (const Atlas::TileId &t : m_atlas.allTiles(b))
+			tiles.push_back(t);
 	if (tiles.size() > m_needed.size())
 		return false;
 	for (size_t s = 0; s < tiles.size(); s++) {
@@ -27,10 +30,10 @@ bool Pager::all()
 	return true;
 }
 
-void Pager::keep(const std::vector<terragen::Atlas::Vec> &points, double now)
+void Pager::keep(const std::vector<Point> &points, double now)
 {
-	for (const terragen::Atlas::Vec &p : points)
-		for (const Atlas::TileId &t : m_atlas.tilesNear(p, AROUND))
+	for (const Point &p : points)
+		for (const Atlas::TileId &t : m_atlas.tilesNear(p.body, p.at, AROUND))
 			need(t, now);
 }
 
@@ -68,7 +71,7 @@ int Pager::need(const Atlas::TileId &tile, double now)
 
 Atlas::Node Pager::node(const Atlas::Cell &cell, double now)
 {
-	keep({ m_atlas.atlas().centre(cell) }, now);
+	keep({ { cell.body, m_atlas.body(cell.body).centre(cell) } }, now);
 	need(m_atlas.tileOf(cell), now); // (a cell high above the ground is in its column's tile)
 	return m_atlas.node(cell);
 }

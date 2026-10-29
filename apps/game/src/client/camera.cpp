@@ -590,8 +590,11 @@ void Camera::updateViewingRange()
 	f32 far_blocks = m_draw_control.range_all ? 10000 : std::fmax(2000, m_draw_control.wanted_range);
 	if (const planet::Atlas *atlas = m_client->getAtlas()) {
 		// Far terrain, near blocks and clouds share one depth buffer. It must
-		// reach the visible planet, including when the camera climbs into orbit.
-		const f32 radius = atlas->atlas().params().radius;
+		// reach the visible planet, including when the camera climbs into
+		// orbit: the largest body's.
+		f32 radius = 0;
+		for (int b = 0; b < atlas->bodies(); b++)
+			radius = std::max(radius, (f32)atlas->body(b).params().radius);
 		const f32 altitude = std::max(0.0f, m_camera_position.Y / BS);
 		far_blocks = std::max(far_blocks, 2.0f * radius + altitude + 512.0f);
 	}

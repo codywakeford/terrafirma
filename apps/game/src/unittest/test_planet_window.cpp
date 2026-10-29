@@ -48,7 +48,7 @@ constexpr int SLOTS = Atlas::SLOTS * Atlas::SLOTS;
 // The n-th tile along segment 0's equator row, east.
 Atlas::TileId nth(int n)
 {
-	return { 0, n - 200, 0 };
+	return { Atlas::HOME, 0, n - 200, 0 };
 }
 
 struct Watched
@@ -116,8 +116,8 @@ void TestPlanetWindow::testPagerKeepsRoundPlayers()
 	planet::Pager pager(a, w.hooks());
 	const double lon = 97.5 * M_PI / 180, r = EARTH.radius;
 	const terragen::Atlas::Vec here{ r * std::cos(lon), 0, r * std::sin(lon) };
-	pager.keep({ here }, 0);
-	const Atlas::Cell c = a.atlas().locate(here);
+	pager.keep({ { Atlas::HOME, here } }, 0);
+	const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(here));
 	UASSERT(a.slotOf(a.tileOf(c)));
 	// the player's ground has a node, and it's the cell
 	UASSERT(*a.cell(a.node(c)) == c);
@@ -135,7 +135,7 @@ void TestPlanetWindow::testBlocksFollowTheirTile()
 	const Atlas::TileId t = nth(3);
 	a.put(5, t);
 	{
-		MapDatabasePlanet db(std::make_unique<MapDatabaseSQLite3>(dir), a);
+		MapDatabasePlanet db(std::make_unique<MapDatabaseSQLite3>(dir), a, [](int b) -> std::unique_ptr<MapDatabase> { throw std::logic_error("a one-body atlas opened body " + std::to_string(b)); });
 		db.beginSave();
 		// a block of slot 5: its corner, 3 blocks in
 		const s16 bx = (Atlas::ORIGIN + 5 * Atlas::SLOT) / 16 + 3, bz = Atlas::ORIGIN / 16 + 7;
@@ -147,7 +147,7 @@ void TestPlanetWindow::testBlocksFollowTheirTile()
 	// the tile moves to slot 220
 	a.put(5, std::nullopt);
 	a.put(220, t);
-	MapDatabasePlanet db(std::make_unique<MapDatabaseSQLite3>(dir), a);
+	MapDatabasePlanet db(std::make_unique<MapDatabaseSQLite3>(dir), a, [](int b) -> std::unique_ptr<MapDatabase> { throw std::logic_error("a one-body atlas opened body " + std::to_string(b)); });
 	std::string got;
 	const s16 bx = (Atlas::ORIGIN + (220 % Atlas::SLOTS) * Atlas::SLOT) / 16 + 3;
 	const s16 bz = (Atlas::ORIGIN + (220 / Atlas::SLOTS) * Atlas::SLOT) / 16 + 7;

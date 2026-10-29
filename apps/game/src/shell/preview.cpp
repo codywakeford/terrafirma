@@ -15,7 +15,7 @@ static std::string bytes(const void *data, size_t size)
 	return base64_encode(std::string_view(static_cast<const char *>(data), size));
 }
 
-Json::Value previewJson(const Json::Value &intent)
+Json::Value previewJson(const Json::Value &intent, const std::optional<terragen::WorldCode> &world)
 {
 	if (!intent["code"].isString())
 		throw Refused("worldgen.preview needs a world code");
@@ -23,7 +23,7 @@ Json::Value previewJson(const Json::Value &intent)
 	if (resolution < 16 || resolution > 512)
 		throw Refused("preview resolution must be 16..512");
 
-	terragen::WorldCode code = readWorldCode(intent["code"].asString());
+	const terragen::WorldCode code = world ? *world : readWorldCode(intent["code"].asString());
 	std::optional<terragen::fix> date;
 	if (intent["date"].isNumeric()) {
 		double d = intent["date"].asDouble();
@@ -32,8 +32,8 @@ Json::Value previewJson(const Json::Value &intent)
 		date = (terragen::fix)(d * terragen::ONE);
 	}
 
-	terragen::World world(code);
-	terragen::Preview p = terragen::preview(world, date, resolution);
+	const terragen::World built(code);
+	terragen::Preview p = terragen::preview(built, date, resolution);
 
 	Json::Value out;
 	out["resolution"] = p.resolution;

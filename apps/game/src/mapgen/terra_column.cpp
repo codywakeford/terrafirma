@@ -12,9 +12,20 @@ using namespace terragen;
 
 namespace terra {
 
-Columns::Columns(const World &world, const Blocks &blocks, s16 water_level, const planet::Atlas *atlas) :
-	m_world(world), m_atlas(atlas), m_blocks(blocks), m_water_level(water_level)
+Columns::Columns(const World &world, const Blocks &blocks, s16 water_level, const planet::Atlas *atlas, int body) :
+	m_world(world), m_atlas(atlas), m_body(body), m_blocks(blocks), m_water_level(water_level)
 {
+	if (atlas)
+		atlas->body(body); // throws for no such body
+}
+
+std::optional<std::array<double, 2>> Columns::placeOf(s16 x, s16 z) const
+{
+	const std::optional<int> b = m_atlas->bodyAt({ x, 0, z });
+	if (b && *b != m_body)
+		throw std::logic_error("terra::Columns: storage column (" + std::to_string(x) + ", " + std::to_string(z) +
+				") is body " + std::to_string(*b) + "'s, these are body " + std::to_string(m_body) + "'s");
+	return m_atlas->place({ x, 0, z });
 }
 
 std::array<int32_t, 2> equirect(double lat, double lon, int32_t size)
@@ -30,7 +41,7 @@ std::array<int32_t, 2> Columns::onWorld(s16 x, s16 z) const
 {
 	if (m_atlas) {
 		// the surface shell's column (its storage y is its layer)
-		const std::optional<std::array<double, 2>> at = m_atlas->place({ x, 0, z });
+		const std::optional<std::array<double, 2>> at = placeOf(x, z);
 		if (!at)
 			throw std::logic_error("terra::Columns: storage column (" + std::to_string(x) + ", " +
 					std::to_string(z) + ") is no place in the atlas's surface shell");
@@ -42,7 +53,7 @@ std::array<int32_t, 2> Columns::onWorld(s16 x, s16 z) const
 Column Columns::at(s16 x, s16 z, fix sun) const
 {
 	if (m_atlas) {
-		if (!m_atlas->place({ x, 0, z }))
+		if (!placeOf(x, z))
 			return nothing(); // seam in the surface shell: the generator fills nodes by their own place
 		const std::array<int32_t, 2> w = onWorld(x, z);
 		return column(w[0], w[1], sunlight(w[1]));

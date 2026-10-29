@@ -25,6 +25,7 @@ public:
 	void testOverASeam();
 	void testTurnedGridIsTurned();
 	void testEveryBlockLandsWhereItIs();
+	void testAnotherBodyIsntDrawn();
 };
 
 static TestAtlasView g_test_instance;
@@ -59,6 +60,7 @@ void TestAtlasView::runTests(IGameDef *gamedef)
 	TEST(testOverASeam);
 	TEST(testTurnedGridIsTurned);
 	TEST(testEveryBlockLandsWhereItIs);
+	TEST(testAnotherBodyIsntDrawn);
 }
 
 // The eye's own grid round it is drawn as stored.
@@ -66,7 +68,7 @@ void TestAtlasView::testOwnBlocksStay()
 {
 	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	AtlasView view(atlas);
-	const planet::Atlas::Node n = atlas.node(atlas.atlas().locate({ PLANET.radius + 3.5, 100, 200 }));
+	const planet::Atlas::Node n = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, atlas.body(planet::Atlas::HOME).locate({ PLANET.radius + 3.5, 100, 200 })));
 	const v3f eye(n.x + 0.2f, n.y + 0.3f, n.z - 0.1f);
 	for (const v3s16 d : { v3s16(0, 0, 0), v3s16(5, 0, 0), v3s16(0, 3, -4), v3s16(-6, -2, 7) }) {
 		const v3s16 node(n.x + d.X, n.y + d.Y, n.z + d.Z);
@@ -117,8 +119,8 @@ void TestAtlasView::testOverASeam()
 				const v3f at = drawn(atlas, view, v3s16(s->node.x, s->node.y, s->node.z), eye);
 				// a cut cell (either side) is drawn whole: its neighbour past the
 				// cut's edge can be a little further than the face (Atlas::through)
-				const bool cut = atlas.atlas().retained(*atlas.cell({ n.X, n.Y, n.Z })) < 1 ||
-						atlas.atlas().retained(*atlas.cell(s->node)) < 1;
+				const bool cut = atlas.body(planet::Atlas::HOME).retained(*atlas.cell({ n.X, n.Y, n.Z })) < 1 ||
+						atlas.body(planet::Atlas::HOME).retained(*atlas.cell(s->node)) < 1;
 				UTEST(at.getDistanceFrom(want) < (cut ? 1.6f : 1.0f), "over a seam drawn %.3f from the face",
 						at.getDistanceFrom(want));
 			}
@@ -132,10 +134,10 @@ void TestAtlasView::testTurnedGridIsTurned()
 {
 	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
 	AtlasView view(atlas);
-	const terragen::Atlas &geometry = atlas.atlas();
+	const terragen::Atlas &geometry = atlas.body(planet::Atlas::HOME);
 	// north up a segment at longitude 52.5° (its middle) to the cap's circle
 	const double R = PLANET.radius + 0.5, lon = 52.5 * M_PI / 180;
-	planet::Atlas::Node n = atlas.node(geometry.locate({ R * std::cos(lon), 0, R * std::sin(lon) }));
+	planet::Atlas::Node n = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, geometry.locate({ R * std::cos(lon), 0, R * std::sin(lon) })));
 	while (!atlas.step(n, 2, 1))
 		n.z++;
 	UASSERT(atlas.cell(n).has_value() && atlas.cell(n)->region == terragen::Atlas::Region::Segment);
@@ -166,7 +168,7 @@ void TestAtlasView::testEveryBlockLandsWhereItIs()
 {
 	using V = terragen::Atlas::Vec;
 	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
-	const terragen::Atlas &geometry = atlas.atlas();
+	const terragen::Atlas &geometry = atlas.body(planet::Atlas::HOME);
 	const double R = PLANET.radius;
 	struct Eye { const char *name; V at; };
 	const s16 range = 48;
@@ -176,7 +178,7 @@ void TestAtlasView::testEveryBlockLandsWhereItIs()
 				Eye{ "pole", { 0.3, R + 3.5, 0.2 } } }) {
 		const double len = std::sqrt(e.at.x * e.at.x + e.at.y * e.at.y + e.at.z * e.at.z);
 		const V where{ e.at.x / len * (R + 3.5), e.at.y / len * (R + 3.5), e.at.z / len * (R + 3.5) };
-		const planet::Atlas::Node n = atlas.node(geometry.locate(where));
+		const planet::Atlas::Node n = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, geometry.locate(where)));
 		const v3f eye(n.x, n.y + 0.3f, n.z);
 		AtlasView view(atlas);
 		const v3s16 offset = floatToInt(eye * BS, BS);
@@ -246,7 +248,7 @@ void TestAtlasView::testEveryBlockLandsWhereItIs()
 						worst = std::max(worst, off);
 						// two cells in one place: never, but where cut cells (drawn
 						// whole, reaching past their territory) overlap at a seam
-						if (want.getLength() < range && atlas.atlas().retained(*c) == 1) {
+						if (want.getLength() < range && atlas.body(planet::Atlas::HOME).retained(*c) == 1) {
 							const std::array<int, 3> k{ (int)std::lround(drawn.X * 2), (int)std::lround(drawn.Y * 2),
 								(int)std::lround(drawn.Z * 2) };
 							const auto [it, fresh] = taken.emplace(k, planet::Atlas::Node{ node.X, node.Y, node.Z });
@@ -263,4 +265,28 @@ void TestAtlasView::testEveryBlockLandsWhereItIs()
 		UTEST(mirrored == 0, "%s: %d blocks drawn mirrored (inside out)", e.name, mirrored);
 		worst_eye++;
 	}
+}
+
+// Another body's tile in the next slot: its blocks are nowhere in the
+// eye's space, not drawn; the eye's own body's are.
+void TestAtlasView::testAnotherBodyIsntDrawn()
+{
+	planet::Atlas atlas({ PLANET, PLANET });
+	// a place a little north of the equator, mid segment 0: the same tile of each body, side by side
+	const double lat = 0.05, lon = 7.5 * M_PI / 180, r = PLANET.radius + 2.5;
+	const planet::Atlas::Cell c(planet::Atlas::HOME, atlas.body(planet::Atlas::HOME).locate(
+			{ r * std::cos(lat) * std::cos(lon), r * std::sin(lat), r * std::cos(lat) * std::sin(lon) }));
+	const planet::Atlas::TileId t = atlas.tileOf(c);
+	atlas.put(0, t);
+	atlas.put(1, planet::Atlas::TileId(1, t.region, t.ti, t.tj));
+	const planet::Atlas::Node n = atlas.node(c);
+	AtlasView view(atlas);
+	const v3f eye(n.x * BS, n.y * BS, n.z * BS);
+	view.update(eye, eye, v3s16(0, 0, 0));
+	UASSERT(view.eye() && view.eye()->body == planet::Atlas::HOME);
+	const v3s16 home(n.x / MAP_BLOCKSIZE, n.y / MAP_BLOCKSIZE, n.z / MAP_BLOCKSIZE);
+	const v3s16 other((n.x + planet::Atlas::SLOT) / MAP_BLOCKSIZE, n.y / MAP_BLOCKSIZE, n.z / MAP_BLOCKSIZE);
+	UASSERT(*atlas.bodyAt({ n.x + planet::Atlas::SLOT, n.y, n.z }) == 1);
+	UASSERT(view.transform(home) != nullptr);
+	UASSERT(view.transform(other) == nullptr);
 }

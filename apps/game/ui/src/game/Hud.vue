@@ -9,6 +9,7 @@ import LabStrip from "../lab/LabStrip.vue"
 import WeatherStrip from "./WeatherStrip.vue"
 import ProbeCard from "./ProbeCard.vue"
 import StatBar from "./StatBar.vue"
+import TravelScreen from "./TravelScreen.vue"
 import { useStore } from "./store.ts"
 import MapWidget from "./widgets/MapWidget.vue"
 import { loadWidgetSettings } from "./widgets/config.ts"
@@ -47,6 +48,7 @@ const hotbar = computed(() => {
         </div>
     </div>
     <MapWidget />
+    <TravelScreen />
 </template>
 
 <style scoped>

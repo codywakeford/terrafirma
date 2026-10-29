@@ -1,6 +1,7 @@
 // Terra Firma
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "terragen/worlds.h"
 #include "terrain.h"
 #include "map.h"
 #include "mapgen/treegen.h"
@@ -41,17 +42,33 @@ terragen::Cover Generator::coverAt(s32 x, s32 z, const terragen::Ground &ground)
 Generator::Generator(const Horizon &horizon) :
 	m_horizon(horizon),
 	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, nullptr))
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, nullptr, planet::Atlas::HOME))
 {
 	growCrowns();
 }
 
-Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas) :
+// A body's world code: the horizon's is the home's; another's is found
+// from it (terragen/worlds.h), and then the atlas must hold the system's
+// bodies. (A viewer of the home alone, the Planetarium, lays out the home.)
+static WorldCode codeOf(const Horizon &horizon, const planet::Atlas &atlas, int body)
+{
+	if (body == planet::Atlas::HOME)
+		return WorldCode::decode(horizon.code);
+	const std::vector<terragen::BodyWorld> worlds =
+			terragen::bodyWorlds(WorldCode::decode(horizon.code), atlas.body(planet::Atlas::HOME).params());
+	if ((int)worlds.size() != atlas.bodies())
+		throw BaseException("far: the atlas holds " + std::to_string(atlas.bodies()) + " bodies, the world code's system " +
+				std::to_string(worlds.size()));
+	return worlds.at(body).code;
+}
+
+Generator::Generator(const Horizon &horizon, const planet::Atlas &atlas, int body) :
 	m_horizon(horizon),
-	m_world(std::make_unique<World>(WorldCode::decode(horizon.code))),
+	m_world(std::make_unique<World>(codeOf(horizon, atlas, body))),
 	m_atlas(atlas),
-	m_tiling(std::make_unique<Tiling>(atlas.atlas())),
-	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, &*m_atlas)),
+	m_body(body),
+	m_tiling(std::make_unique<Tiling>(atlas.body(body))),
+	m_columns(std::make_unique<terra::Columns>(*m_world, horizon.content.blocks, horizon.water_level, &*m_atlas, body)),
 	m_land(std::make_unique<terra::AtlasLand>(*m_columns, *m_atlas))
 {
 	growCrowns();
@@ -183,13 +200,7 @@ Tile Generator::build(const TileKey &key) const
 			const terra::Species *s = speciesAt(c, x, z);
 			if (!s)
 				continue;
-			const Crown &crown = m_crowns[s - m_horizon.content.species.data()];
-			Cover cover = coverAt(x, z, c.ground);
-			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
-				continue;
-			out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s->leaves) };
-			if (crown.low > 0)
-				out.trunk = { c.height + 1, c.height + crown.low, MapNode(s->trunk) };
+			plant(*s, coverAt(x, z, c.ground), c, out);
 		}
 	}
 	if (key.level == 0)
@@ -212,7 +223,7 @@ Tile Generator::buildOnAtlas(const TileKey &key) const
 	Tile tile;
 	tile.key = key;
 	tile.cells.resize((size_t)(TILE + 2) * (TILE + 2));
-	const terragen::Atlas &atlas = m_atlas->atlas();
+	const terragen::Atlas &atlas = m_atlas->body(m_body);
 	for (s32 j = -1; j <= TILE; j++)
 		for (s32 i = -1; i <= TILE; i++) {
 			const terragen::Atlas::Cell cell = m_tiling->cell(key, i, j);
@@ -225,8 +236,8 @@ Tile Generator::buildOnAtlas(const TileKey &key) const
 				out.ground = out.water = std::numeric_limits<s32>::max() / 2;
 				continue;
 			}
-			const planet::Atlas::Spot spot = m_atlas->spotOf(cell);
-			const std::array<double, 2> at = m_atlas->place(cell);
+			const planet::Atlas::Spot spot = m_atlas->spotOf(planet::Atlas::Cell(m_body, cell));
+			const std::array<double, 2> at = m_atlas->place(planet::Atlas::Cell(m_body, cell));
 			const terra::Column c = m_columns->atPlace(at[0], at[1]);
 			out = cellOf(*m_columns, c, spot.x, spot.z);
 			if (c.beyond || c.water > c.height)
@@ -237,14 +248,20 @@ Tile Generator::buildOnAtlas(const TileKey &key) const
 			const terra::Species *s = terra::choose(m_horizon.content.species, terra::spotAt(c.ground, cover), ground);
 			if (!s)
 				continue;
-			const Crown &crown = m_crowns[s - m_horizon.content.species.data()];
-			if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
-				continue;
-			out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s->leaves) };
-			if (crown.low > 0)
-				out.trunk = { c.height + 1, c.height + crown.low, MapNode(s->trunk) };
+			plant(*s, cover, c, out);
 		}
 	return tile;
+}
+
+// A species' crown on a cell, where its column's roll is under the forest's density.
+void Generator::plant(const terra::Species &s, const Cover &cover, const terra::Column &c, Cell &out) const
+{
+	const Crown &crown = m_crowns[&s - m_horizon.content.species.data()];
+	if (crown.high < 0 || (float)(cover.roll & 0xffff) / 65536.0f >= (float)cover.density / ONE)
+		return;
+	out.canopy = { c.height + 1 + crown.low, c.height + 1 + crown.high, MapNode(s.leaves) };
+	if (crown.low > 0)
+		out.trunk = { c.height + 1, c.height + crown.low, MapNode(s.trunk) };
 }
 
 void Generator::growExact(Tile &tile) const

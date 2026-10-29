@@ -35,15 +35,20 @@ public:
 		planet::Atlas atlas;
 		far::Horizon horizon;
 		far::Palette palette;
-		// the system the body is in: it's its playable body, drawn from its tiles
+		// the system the body is in
 		std::shared_ptr<const terragen::System> system;
+		// the atlas's body drawn from its tiles (the home: the system's
+		// playable body); the rest of the system round it
+		int body = planet::Atlas::HOME;
 	};
 
 	explicit Planetarium(Opts opts);
 
 	// The mouse: drag to orbit, the wheel to go up and down; a click (a press
-	// let go where it was) is kept for takeClick. Only what starts in the last
-	// frame's view (a drag may leave it). Whether it was the Planetarium's.
+	// let go where it was) is kept for takeClick; a double click on a body
+	// flies to it (the star: out to the whole system). Only what starts in
+	// the last frame's view (a drag may leave it). Whether it was the
+	// Planetarium's.
 	bool handle(const SEvent &event);
 
 	// A place on the body: where, and the atlas cell at the sea there.
@@ -57,10 +62,23 @@ public:
 	// The place under a window pixel of the last frame's view; none off the body.
 	std::optional<Pick> pick(double x, double y) const;
 
+	// The body under the mouse in the last frame (not while dragging): its
+	// index (none: the star), where it's drawn and how big (window pixels).
+	// The body the camera's round, filling the screen, isn't hovered.
+	struct Hover
+	{
+		std::optional<size_t> body;
+		v2f at;
+		float radius;
+	};
+	const std::optional<Hover> &hovered() const { return m_hover; }
+	// A body a double click flew to, once (none: the star).
+	std::optional<std::optional<size_t>> takeChosen();
+
 	// Whether the whole body is drawn, if coarsely (its coarse tiles built).
 	bool ready() const { return m_tiles.based(); }
 
-	// Over a place on the playable body (its ground's latitude and longitude):
+	// Over a place on the tiled body (Opts::body) (its ground's latitude and longitude):
 	// the camera goes round to it as the body is turned now.
 	void focus(double latitude, double longitude, std::optional<double> altitude);
 	// A flight: to a body (its index), over a place on it (latitude and
@@ -81,7 +99,7 @@ public:
 	// OrbitCamera::perspective's shift).
 	void frame(v2f shift) { m_shift = shift; }
 
-	// A layer over the playable body's land (planning/sprint-37-layers.md): an image
+	// A layer over the tiled body's land (planning/sprint-37-layers.md): an image
 	// round it, equirectangular as the world model's preview is (row 0 the
 	// north edge, column 0 longitude −π), RGBA; the land drawn in its
 	// colours, its relief kept as shading. None: the land as it is.
@@ -100,14 +118,14 @@ public:
 	// moment, the body it's round.
 	void keep(const Planetarium &was);
 	// Goes to another body of the system (its index there): the camera in
-	// orbit round it, at its scale. The playable body's the one picked on.
+	// orbit round it, at its scale. The tiled body's the one picked on.
 	void focusBody(size_t body);
 	size_t target() const { return m_target; }
 	// the body it is round, or a flight is taking it to
 	size_t heading() const { return m_flight ? m_flight->to : m_target; }
 	const terragen::System &system() const { return m_system.system(); }
 	void markers(std::vector<MarkerLayer::Marker> markers) { m_markers.set(std::move(markers)); }
-	// The system's moment shown: days after its day 0. The playable body's
+	// The system's moment shown: days after its day 0. The tiled body's
 	// spin: its time of day (0..1, noon at ½ on longitude 0, as the game's
 	// sun has it), or where its own sidereal day has turned it by then.
 	void day(double days, std::optional<double> timeOfDay = std::nullopt);
@@ -128,19 +146,22 @@ private:
 	far::Tiles m_tiles;
 	OrbitCamera m_camera;
 	SeamLayer m_seams;
-	bool m_seamsShown = true;
+	bool m_seamsShown = false;
 	MarkerLayer m_markers;
 	SystemLayer m_system;
-	size_t m_target; // the body the camera's round (the playable one: its tiles')
+	size_t m_tiled;  // the system's body drawn from its tiles (Opts::body)
+	size_t m_target; // the body the camera's round
 	double m_day = 0;
-	double m_spin = 0; // radians: the playable body turned, its ground to space
+	double m_spin = 0; // radians: the tiled body turned, its ground to space
 	v2f m_shift;       // where the view's middle is drawn (frame)
 	std::shared_ptr<const Layer> m_layer; // the tint's image, shared with it
-	// where the camera is from the playable body's centre (blocks), and how it looks
+	// where the camera is from the tiled body's centre (blocks), and how it looks
 	OrbitCamera::Vec eye() const;
 	core::matrix4 view() const;
 	// a camera round a body, at its scale
 	OrbitCamera cameraFor(size_t body) const;
+	// where a camera round a body is from its centre, in the scene
+	OrbitCamera::Vec offsetOf(size_t body, const OrbitCamera &camera) const;
 	// a flight under way: from where the camera was (from its body's centre),
 	// to a camera round another body
 	struct Flying
@@ -163,6 +184,11 @@ private:
 	s32 m_x = 0, m_y = 0;          // the mouse, while dragging
 	s32 m_downX = 0, m_downY = 0;  // where the press was
 	std::optional<v2s32> m_click;  // a click not yet taken
+	std::optional<v2s32> m_mouse;  // over the view, not dragging
+	std::optional<Hover> m_hover;  // under it, the last frame
+	std::optional<std::optional<size_t>> m_chosen; // a double click's, not yet taken
+	// what's under the mouse, the camera at `eye` looking by `look`
+	std::optional<Hover> hoverFor(const OrbitCamera::Vec &eye, const core::matrix4 &look, float aspect) const;
 	v2u32 m_screen{ 1, 1 };        // the last frame's view: its size,
 	v2s32 m_corner{ 0, 0 };        // and where it is in the window
 	u32 m_frame = 0;

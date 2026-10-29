@@ -4,8 +4,8 @@ import PixelIcon from "../../game/PixelIcon.vue"
 import { IconTile, Slider } from "../../kit/index.ts"
 import { body as bodyOf, STAR, type Body } from "../../system/model.ts"
 import { useSystemPreview } from "../../system/preview.ts"
-import { OVERLAYS, paint, type OverlayId } from "../../worldgen/fields.ts"
-import { OVERLAY_ICONS } from "../../worldgen/overlayIcons.ts"
+import { paint, type OverlayId } from "../../worldgen/fields.ts"
+import LayerRail from "../../worldgen/LayerRail.vue"
 import { paintWeather } from "../../worldgen/weather.ts"
 import { season } from "../../worldgen/sun.ts"
 import type { WorldDraftHandle } from "./draft.ts"
@@ -13,6 +13,7 @@ import { useLooks } from "./looks.ts"
 import { useBridge } from "../../bridge/use.ts"
 import { encodeWorldCode } from "../../worldgen/config.ts"
 import { usePlanetarium } from "../../planetarium/use.ts"
+import HoverCard from "../../planetarium/HoverCard.vue"
 import { useStore } from "../../game/store.ts"
 
 // frame: what the page covers of the window's sides (Dock's covers): the planet is framed in the rest
@@ -101,18 +102,21 @@ function toggleClock() {
     if (!running.value && store.clock) date.value = store.clock.date // stopped where it was
     planet.time({ running: running.value, date: running.value ? undefined : date.value })
 }
-const seams = ref(true)
+const seams = ref(false)
 watch(seams, (shown) => planet.seams(shown))
+// a double click on a body flew there: it's the one selected now
+watch(() => store.chosen, (id) => {
+    if (!id) return
+    store.chosen = null
+    selected.value = id
+})
 const kindNote = computed(() => chosenCard.value ? `${chosenCard.value.kind} · a sketch of its kind; only Earth has generated land` : "waiting for the body model…")
 </script>
 
 <template>
     <div class="viewer">
-        <nav v-if="chosen" class="overlays" aria-label="Planet overlays">
-            <IconTile v-for="item in playable ? OVERLAYS : []" :key="item.id" :label="item.label" side="left" :size="36"
-                :on="overlay === item.id" @click="overlay = item.id">
-                <PixelIcon :rows="OVERLAY_ICONS[item.id].rows" :palette="OVERLAY_ICONS[item.id].palette" style="--u: 2px" />
-            </IconTile>
+        <HoverCard />
+        <LayerRail v-if="chosen" v-model="overlay" class="overlays" :ids="playable ? undefined : []">
             <IconTile label="Region seams" side="left" :size="36" :on="seams" @click="seams = !seams">
                 <PixelIcon :rows="VIEW_ICONS.seams.rows" :palette="VIEW_ICONS.seams.palette" style="--u: 2px" />
             </IconTile>
@@ -120,7 +124,7 @@ const kindNote = computed(() => chosenCard.value ? `${chosenCard.value.kind} · 
                 :on="overlay === 'inside'" @click="overlay = 'inside'">
                 <PixelIcon :rows="VIEW_ICONS.inside.rows" :palette="VIEW_ICONS.inside.palette" style="--u: 2px" />
             </IconTile>
-        </nav>
+        </LayerRail>
         <div class="notes">
             <div v-if="chosen && !playable" class="concept-note">{{ kindNote }}</div>
             <div v-if="planet.problem.value" class="concept-note">{{ planet.problem.value }}</div>
@@ -145,7 +149,7 @@ const kindNote = computed(() => chosenCard.value ? `${chosenCard.value.kind} · 
 <style scoped>
 /* laid against the edges of the free space: the planet is behind it all */
 .viewer { position: relative; height: 100%; min-height: 0; }
-.overlays { position: absolute; top: 0; right: 0; display: grid; grid-template-columns: repeat(2, 36px); align-content: start; gap: 6px; max-height: calc(100% - 140px); overflow-y: auto; }
+.overlays { position: absolute; top: 0; right: 0; max-height: calc(100% - 140px); overflow-y: auto; }
 .pending { color: var(--ink-faint); font: 12px var(--font-display); }
 .notes { position: absolute; right: 90px; bottom: 110px; display: grid; gap: 6px; justify-items: end; }
 .concept-note { max-width: 240px; padding: 6px 8px; border: var(--b) solid var(--edge); background: rgb(12 14 16 / 0.85); color: var(--ink-dim); font-size: 10px; }

@@ -2,10 +2,11 @@ import { reactive } from "vue"
 import { DEFAULTS, randomSeed, type WorldConfig } from "../../worldgen/config"
 import { worldName } from "../../worldgen/names"
 import { DEFAULT_RULES, type Mode, type Rules } from "./rules"
+import type { SystemWire } from "../../bridge"
 import { System } from "../../system/model"
 
-/** The world being set up: everything the create screen's tabs edit together. */
-export function WorldDraft() {
+/** The world being set up: everything the create screen's tabs edit together; its system from the engine's (`system.home`). */
+export function WorldDraft(opts: { home: SystemWire }) {
     return reactive({
         name: worldName([]),
         /** Names of worlds that already exist, once the screen has asked the engine. */
@@ -14,7 +15,7 @@ export function WorldDraft() {
         rules: { ...DEFAULT_RULES } as Rules,
         config: { ...DEFAULTS, seed: randomSeed() } as WorldConfig,
         /** The planetary system: causes only (src/system/model.ts). */
-        system: System(),
+        system: System(opts.home),
         spawn: null as { x: number; z: number } | null,
     })
 }

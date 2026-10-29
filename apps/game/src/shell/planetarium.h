@@ -28,7 +28,10 @@ class Shell;
 	the whole window until it says).
 
 	Back to the page: { kind: "planetarium", event: "picked", latitude,
-	longitude, cell: { region, index, i, j, k } } for a click on the body.
+	longitude, cell: { region, index, i, j, k } } for a click on the body;
+	{ event: "hovered", body: { id, name, kind, x, y, radius } | null } as
+	what's under the mouse changes or moves (page pixels; the star's id
+	"star"); { event: "chosen", body: id } when a double click flies to one.
 */
 class Planetarium
 {
@@ -103,7 +106,7 @@ private:
 	};
 	Insets m_insets;
 	std::optional<planetarium::Planetarium::Layer> m_layer; // the page's, kept across a swap
-	bool m_seams = true;
+	bool m_seams = false;
 	// the host's clock (the menu's): the playable body's year through, running or not
 	struct Clock
 	{
@@ -114,6 +117,9 @@ private:
 	};
 	Clock m_clock;
 	void apply(planetarium::Planetarium &p) const; // the clock and the page's view, onto a body
+	// what the page was last told is under the mouse; what's there now, told if it's changed
+	std::optional<planetarium::Planetarium::Hover> m_hovered;
+	void tellHover(const planetarium::Planetarium &p);
 };
 
 } // namespace shell

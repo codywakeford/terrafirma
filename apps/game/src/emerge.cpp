@@ -360,11 +360,11 @@ int EmergeManager::getSpawnLevelAtPoint(v2s16 p)
 }
 
 
-int EmergeManager::getSpawnLevelAt(double latitude, double longitude)
+int EmergeManager::getSpawnLevelAt(int body, double latitude, double longitude)
 {
 	if (m_mapgens.empty() || !m_mapgens[0] || m_mapgens[0]->getType() != MAPGEN_TERRA)
 		throw BaseException("EmergeManager::getSpawnLevelAt: the map generator isn't a planet's (terra)");
-	return static_cast<MapgenTerra *>(m_mapgens[0])->spawnLevelAt(latitude, longitude);
+	return static_cast<MapgenTerra *>(m_mapgens[0])->spawnLevelAt(body, latitude, longitude);
 }
 
 // TODO(hmmmm): Move this to ServerMap

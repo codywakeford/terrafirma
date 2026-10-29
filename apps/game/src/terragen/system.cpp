@@ -23,11 +23,11 @@ double real(fix v) { return v / (double)ONE; }
 // a mass given as log₁₀ of Earth's, in hundredths (the page's slider)
 fix earths(int hundredths) { return (fix)std::lround(std::pow(10.0, hundredths / 100.0) * ONE); }
 
-SystemBody make(const char *id, const char *name, int32_t parent, double phase, double orbit, double e, int mass,
+SystemBody make(const char *id, const char *name, const char *colour, int32_t parent, double phase, double orbit, double e, int mass,
 		double formed, double volatiles, double day, double tilt, bool life = false, bool playable = false)
 {
 	const auto f = [](double v) { return (fix)std::lround(v * ONE); };
-	return { id, name, { parent, f(orbit), f(e), earths(mass), f(formed), f(volatiles), f(day), life }, phase, 0, tilt,
+	return { id, name, colour, { parent, f(orbit), f(e), earths(mass), f(formed), f(volatiles), f(day), life }, phase, 0, tilt,
 		playable };
 }
 
@@ -38,16 +38,16 @@ SystemSpec SystemSpec::home()
 	SystemSpec s;
 	s.star = { 2, (fix)std::lround(4.5 * ONE), HALF }; // yellow, 4.5 billion years, a middling wind
 	s.bodies = {
-		make("cinder", "Cinder", -1, 0.18, 0.42, 0.2, -122, 0.1, 0.05, 1400, 1),
-		make("earth", "Earth", -1, 0.62, 1, 0.017, 0, 0.35, 0.6, 24, 23, true, true),
-		make("vesper", "Vesper", -1, 0.88, 1.6, 0.09, -90, 0.45, 0.5, 25, 25),
-		make("jovian", "Jovian", -1, 0.35, 5.2, 0.05, 250, 0.8, 0.6, 10, 3),
-		make("moon", "Moon", 1, 0.1, 60, 0.055, -191, 0.35, 0.05, 655, 7),
-		make("aster", "Aster", 2, 0.4, 6, 0.02, -240, 0.5, 0.05, 30, 0),
-		make("pyre", "Pyre", 3, 0.2, 5.9, 0.0041, -182, 0.55, 0.05, 42, 0),
-		make("nacre", "Nacre", 3, 0.55, 9.4, 0.009, -210, 0.8, 0.6, 85, 0),
-		make("hale", "Hale", 3, 0.75, 15, 0.0013, -160, 0.8, 0.5, 172, 0),
-		make("morrow", "Morrow", 3, 0.05, 26, 0.007, -173, 0.85, 0.4, 400, 0),
+		make("cinder", "Cinder", "#a76c55", -1, 0.18, 0.42, 0.2, -122, 0.1, 0.05, 1400, 1),
+		make("earth", "Earth", "#50a4c5", -1, 0.62, 1, 0.017, 0, 0.35, 0.6, 24, 23, true, true),
+		make("vesper", "Vesper", "#b47d5e", -1, 0.88, 1.6, 0.09, -90, 0.45, 0.5, 25, 25),
+		make("jovian", "Jovian", "#d7ad83", -1, 0.35, 5.2, 0.05, 250, 0.8, 0.6, 10, 3),
+		make("moon", "Moon", "#a8a8a1", 1, 0.1, 60, 0.055, -191, 0.35, 0.05, 655, 7),
+		make("aster", "Aster", "#9a9188", 2, 0.4, 6, 0.02, -240, 0.5, 0.05, 30, 0),
+		make("pyre", "Pyre", "#ce9464", 3, 0.2, 5.9, 0.0041, -182, 0.55, 0.05, 42, 0),
+		make("nacre", "Nacre", "#c9d6da", 3, 0.55, 9.4, 0.009, -210, 0.8, 0.6, 85, 0),
+		make("hale", "Hale", "#a9b9b4", 3, 0.75, 15, 0.0013, -160, 0.8, 0.5, 172, 0),
+		make("morrow", "Morrow", "#868a91", 3, 0.05, 26, 0.007, -173, 0.85, 0.4, 400, 0),
 	};
 	s.bodies[4].inclination = 5; // the Moon's orbit, off the ecliptic as ours is
 	return s;

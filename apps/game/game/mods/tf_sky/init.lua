@@ -38,7 +38,7 @@ local function update(player)
 	local name = player:get_player_name()
 	local pos = player:get_pos()
 	local at = { x = pos.x, z = pos.z, altitude = pos.y - SEA }
-	local sun = core.terra.sun({ x = at.x, y = 0, z = at.z })
+	local sun = core.terra.sun(pos) -- where the player stands (on a planet, layer 0 under them can be seam)
 	-- the air left above, against the sea's (its sight of the sky)
 	local thin = core.orbit.density(math.max(at.altitude, 0)) / core.orbit.density(0)
 	local last = sent[name]

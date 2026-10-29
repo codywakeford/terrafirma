@@ -10,6 +10,9 @@ std::optional<MapNode> AtlasLand::Reader::node(planet::Atlas::Node n)
 	const std::optional<planet::Atlas::Cell> cell = m_land.m_atlas.cell(n);
 	if (!cell)
 		return std::nullopt;
+	if (cell->body != m_land.m_columns.body())
+		throw std::logic_error("terra::AtlasLand: a node of body " + std::to_string(cell->body) +
+				" asked of body " + std::to_string(m_land.m_columns.body()) + "'s land");
 	if (cell->region == terragen::Atlas::Region::Core)
 		return MapNode(m_land.m_columns.blocks().stone);
 	const Column &c = columnAt(m_land.m_atlas.place(*cell));
@@ -19,6 +22,10 @@ std::optional<MapNode> AtlasLand::Reader::node(planet::Atlas::Node n)
 
 const Column *AtlasLand::Reader::column(planet::Atlas::Node n)
 {
+	const std::optional<int> body = m_land.m_atlas.bodyAt(n);
+	if (body && *body != m_land.m_columns.body())
+		throw std::logic_error("terra::AtlasLand: a node of body " + std::to_string(*body) +
+				" asked of body " + std::to_string(m_land.m_columns.body()) + "'s land");
 	const std::optional<std::array<double, 2>> place = m_land.m_atlas.place(n);
 	if (!place)
 		return nullptr;

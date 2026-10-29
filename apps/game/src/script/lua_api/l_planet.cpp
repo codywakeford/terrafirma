@@ -1,6 +1,8 @@
 // Terra Firma
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "terragen/worlds.h"
+#include "terragen/system.h"
 #include "lua_api/l_planet.h"
 #include "common/c_converter.h"
 #include "lua_api/l_internal.h"
@@ -26,11 +28,24 @@ static void pushRect(lua_State *L, const planet::Atlas::Rect &r)
 // The region kinds, by terragen::Atlas::Region.
 static const char *const REGIONS[] = { "segment", "cap", "core" };
 
-// core.planet.atlas() → nil, or { code, radius, core, top, tiles }: the
-// atlas's mapping code; its radius and the core's (blocks); one past its
-// highest layer; and where each region's grid is stored, tile by tile: tiles, each
-// { kind = "segment" | "cap" | "core", index, x, z, width, depth, y0, y1,
-// i0, j0 } (y0..y1 storage y, exclusive; i0, j0 the grid's cell at x, z).
+// An atlas world's body by its id (core.planet.bodies); raises for none.
+static int bodyNamed(Server *server, const std::string &id)
+{
+	if (!server->atlas())
+		throw LuaError("core.planet: this world isn't an atlas planet");
+	const std::vector<terragen::BodyWorld> &worlds = server->bodyWorlds();
+	for (size_t b = 0; b < worlds.size(); b++)
+		if (worlds[b].id == id)
+			return (int)b;
+	throw LuaError("core.planet: this world has no body '" + id + "' to stand on");
+}
+
+// core.planet.atlas() → nil, or { code, radius, core, top, bodies, tiles }:
+// the home body's mapping code; its radius and the core's (blocks); one
+// past its highest layer; how many bodies the atlas holds; and where each
+// tile in the window is stored: tiles, each { body (its id), kind = "segment" |
+// "cap" | "core", index, x, z, width, depth, y0, y1, i0, j0 } (y0..y1
+// storage y, exclusive; i0, j0 the grid's cell at x, z).
 int ModApiPlanet::l_atlas(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
@@ -39,8 +54,10 @@ int ModApiPlanet::l_atlas(lua_State *L)
 		lua_pushnil(L);
 		return 1;
 	}
-	const terragen::Atlas &atlas = a->atlas();
-	lua_createtable(L, 0, 6);
+	const terragen::Atlas &atlas = a->body(planet::Atlas::HOME);
+	lua_createtable(L, 0, 7);
+	lua_pushinteger(L, a->bodies());
+	lua_setfield(L, -2, "bodies");
 	lua_pushstring(L, atlas.code().c_str());
 	lua_setfield(L, -2, "code");
 	lua_pushnumber(L, atlas.params().radius);
@@ -53,6 +70,8 @@ int ModApiPlanet::l_atlas(lua_State *L)
 	int n = 1;
 	for (const planet::Atlas::Tile &r : a->tiles()) {
 		pushRect(L, r.rect);
+		lua_pushstring(L, getServer(L)->bodyWorlds().at(r.body).id.c_str());
+		lua_setfield(L, -2, "body");
 		lua_pushstring(L, REGIONS[(int)r.kind]);
 		lua_setfield(L, -2, "kind");
 		lua_pushinteger(L, r.index);
@@ -112,10 +131,11 @@ int ModApiPlanet::l_atlas_point(lua_State *L)
 	return 1;
 }
 
-// core.planet.atlas_node(latitude, longitude, layer) → pos, or nil above the
-// atlas: the node of the cell at that place, that layer up (every grid's
-// layer k is the sphere R + k, so the cell is that layer's). Its tile is put
-// in the map's window if it isn't.
+// core.planet.atlas_node(latitude, longitude, layer[, body]) → pos, or nil
+// above the atlas: the node of the cell at that place on the body (its id;
+// the home's when none is named), that layer up (every grid's layer k is the
+// sphere R + k, so the cell is that layer's). Its tile is put in the map's
+// window if it isn't.
 int ModApiPlanet::l_atlas_node(lua_State *L)
 {
 	MAP_LOCK_REQUIRED; // the window may change: tiles leave the map
@@ -124,7 +144,8 @@ int ModApiPlanet::l_atlas_node(lua_State *L)
 		throw LuaError("core.planet.atlas_node: this world isn't an atlas planet");
 	const double lat = luaL_checknumber(L, 1), lon = luaL_checknumber(L, 2);
 	const lua_Integer layer = luaL_checkinteger(L, 3);
-	const terragen::Atlas &atlas = a->atlas();
+	const int body = lua_isnoneornil(L, 4) ? planet::Atlas::HOME : bodyNamed(getServer(L), luaL_checkstring(L, 4));
+	const terragen::Atlas &atlas = a->body(body);
 	if (layer >= atlas.params().height) {
 		lua_pushnil(L);
 		return 1;
@@ -134,20 +155,22 @@ int ModApiPlanet::l_atlas_node(lua_State *L)
 		lua_pushnil(L); // past the centre
 		return 1;
 	}
-	const planet::Atlas::Cell c = atlas.locate({ r * std::cos(lat) * std::cos(lon), r * std::sin(lat),
-			r * std::cos(lat) * std::sin(lon) });
+	const planet::Atlas::Cell c(body, atlas.locate({ r * std::cos(lat) * std::cos(lon), r * std::sin(lat),
+			r * std::cos(lat) * std::sin(lon) }));
 	const planet::Atlas::Node n = getServer(L)->planetNode(c); // its tile put in the window
 	push_v3s16(L, v3s16(n.x, n.y, n.z));
 	return 1;
 }
 
-// core.planet.spawn_level(latitude, longitude) → layer, or nil where no one
-// spawns (the sea, a lake, a river): core.get_spawn_level at a place,
-// without a node of the map (so without putting its tile in the window).
+// core.planet.spawn_level(latitude, longitude[, body]) → layer, or nil
+// where no one spawns (the sea, a lake, a river): core.get_spawn_level at a
+// place on a body (its id; the home's when none is named), without a node
+// of the map (so without putting its tile in the window).
 int ModApiPlanet::l_spawn_level(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
-	const int level = getServer(L)->getEmergeManager()->getSpawnLevelAt(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+	const int body = lua_isnoneornil(L, 3) ? planet::Atlas::HOME : bodyNamed(getServer(L), luaL_checkstring(L, 3));
+	const int level = getServer(L)->getEmergeManager()->getSpawnLevelAt(body, luaL_checknumber(L, 1), luaL_checknumber(L, 2));
 	if (level >= MAX_MAP_GENERATION_LIMIT)
 		lua_pushnil(L);
 	else
@@ -156,8 +179,8 @@ int ModApiPlanet::l_spawn_level(lua_State *L)
 }
 
 // core.planet.atlas_cell(pos) → nil (seam, or not an atlas world), or
-// { region = "segment" | "cap" | "core", index, i, j, k }: the cell the
-// node stores, as terragen::Atlas addresses it.
+// { body (its id), region = "segment" | "cap" | "core", index, i, j, k }:
+// the cell the node stores, as terragen::Atlas addresses it on its body.
 int ModApiPlanet::l_atlas_cell(lua_State *L)
 {
 	NO_MAP_LOCK_REQUIRED;
@@ -168,7 +191,9 @@ int ModApiPlanet::l_atlas_cell(lua_State *L)
 		lua_pushnil(L);
 		return 1;
 	}
-	lua_createtable(L, 0, 5);
+	lua_createtable(L, 0, 6);
+	lua_pushstring(L, getServer(L)->bodyWorlds().at(c->body).id.c_str());
+	lua_setfield(L, -2, "body");
 	lua_pushstring(L, REGIONS[(int)c->region]);
 	lua_setfield(L, -2, "region");
 	lua_pushinteger(L, c->index);
@@ -187,6 +212,10 @@ void ModApiPlanet::Initialize(lua_State *L, int top)
 	luaL_Reg functions[] = {
 		{ "atlas", l_atlas },
 		{ "atlas_cell", l_atlas_cell },
+		{ "bodies", l_bodies },
+		{ "body_at", l_body_at },
+		{ "place", l_place },
+		{ "pos", l_pos },
 		{ "atlas_place", l_atlas_place },
 		{ "atlas_node", l_atlas_node },
 		{ "spawn_level", l_spawn_level },
@@ -197,4 +226,129 @@ void ModApiPlanet::Initialize(lua_State *L, int top)
 		lua_setfield(L, t, f.name);
 	}
 	lua_setfield(L, top, "planet");
+}
+
+/*
+	Places (planning/sprint-40-bodies.md): where something is on a world,
+	whatever slot of the map's window holds it now. A position of the map
+	means nothing once its tile leaves the window, or another body's comes:
+	what a mod keeps (a bed, a home, a waypoint) it keeps as a place.
+
+	A place is { body (its id), region (its number), i, j, k (the cell),
+	x, y, z (from the cell's node's centre, in its storage axes) }.
+*/
+
+// core.planet.bodies() → { { id, name, radius, size }, … }: the bodies that
+// can be stood on, the home first (radius in blocks; size its world model's
+// columns round); nil on a world that isn't an atlas planet.
+int ModApiPlanet::l_bodies(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	Server *server = getServer(L);
+	if (!server->atlas()) {
+		lua_pushnil(L);
+		return 1;
+	}
+	const std::vector<terragen::BodyWorld> &worlds = server->bodyWorlds();
+	const terragen::System system(terragen::SystemSpec::forWorld(worlds.at(planet::Atlas::HOME).code));
+	lua_createtable(L, (int)worlds.size(), 0);
+	for (size_t b = 0; b < worlds.size(); b++) {
+		lua_createtable(L, 0, 4);
+		lua_pushstring(L, worlds[b].id.c_str());
+		lua_setfield(L, -2, "id");
+		lua_pushstring(L, system.spec().bodies.at(worlds[b].system).name.c_str());
+		lua_setfield(L, -2, "name");
+		lua_pushnumber(L, worlds[b].atlas.radius);
+		lua_setfield(L, -2, "radius");
+		lua_pushinteger(L, worlds[b].code.size);
+		lua_setfield(L, -2, "size");
+		lua_rawseti(L, -2, (int)b + 1);
+	}
+	return 1;
+}
+
+// core.planet.body_at(pos) → the id of the body whose tile pos is in, or nil
+// (seam between tiles, or not an atlas world).
+int ModApiPlanet::l_body_at(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	const planet::Atlas *a = getServer(L)->atlas();
+	const v3f p = check_v3f(L, 1);
+	const std::optional<int> b = a ? a->bodyAt(planet::Atlas::moverNode(p.X, p.Y, p.Z)) : std::nullopt;
+	if (!b)
+		lua_pushnil(L);
+	else
+		lua_pushstring(L, getServer(L)->bodyWorlds().at(*b).id.c_str());
+	return 1;
+}
+
+// core.planet.place(pos) → the place a position of the map is, or nil
+// (seam: no place; not an atlas world).
+int ModApiPlanet::l_place(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	const planet::Atlas *a = getServer(L)->atlas();
+	const v3f p = check_v3f(L, 1);
+	const planet::Atlas::Node n = planet::Atlas::moverNode(p.X, p.Y, p.Z);
+	const std::optional<planet::Atlas::Cell> c = a ? a->cell(n) : std::nullopt;
+	if (!c) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_createtable(L, 0, 8);
+	lua_pushstring(L, getServer(L)->bodyWorlds().at(c->body).id.c_str());
+	lua_setfield(L, -2, "body");
+	lua_pushinteger(L, a->regionNumber(c->body, c->region, c->index));
+	lua_setfield(L, -2, "region");
+	for (const auto &[name, v] : { std::pair{ "i", c->i }, { "j", c->j }, { "k", c->k } }) {
+		lua_pushinteger(L, v);
+		lua_setfield(L, -2, name);
+	}
+	for (const auto &[name, v] : { std::pair{ "x", p.X - n.x }, { "y", p.Y - n.y }, { "z", p.Z - n.z } }) {
+		lua_pushnumber(L, v);
+		lua_setfield(L, -2, name);
+	}
+	return 1;
+}
+
+// core.planet.pos(place) → the position of the map a place is at now, its
+// tiles put in the window if they aren't. Raises for a table that isn't a
+// place of this world.
+int ModApiPlanet::l_pos(lua_State *L)
+{
+	MAP_LOCK_REQUIRED; // the window may change: tiles leave the map
+	Server *server = getServer(L);
+	const planet::Atlas *a = server->atlas();
+	if (!a)
+		throw LuaError("core.planet.pos: this world isn't an atlas planet");
+	luaL_checktype(L, 1, LUA_TTABLE);
+	const auto field = [&](const char *name) {
+		lua_getfield(L, 1, name);
+		if (!lua_isnumber(L, -1))
+			throw LuaError(std::string("core.planet.pos: a place's ") + name + " is a number");
+		const lua_Number v = lua_tonumber(L, -1);
+		lua_pop(L, 1);
+		return v;
+	};
+	lua_getfield(L, 1, "body");
+	if (!lua_isstring(L, -1))
+		throw LuaError("core.planet.pos: a place names its body");
+	const int body = bodyNamed(server, lua_tostring(L, -1));
+	lua_pop(L, 1);
+	std::pair<terragen::Atlas::Region, int> region;
+	try {
+		region = a->regionOfNumber(body, (int)field("region"));
+	} catch (const std::invalid_argument &e) {
+		throw LuaError(std::string("core.planet.pos: ") + e.what());
+	}
+	const planet::Atlas::Cell cell(body, { region.first, region.second, (int64_t)field("i"), (int64_t)field("j"),
+			(int64_t)field("k") });
+	planet::Atlas::Node n;
+	try {
+		n = server->planetNode(cell);
+	} catch (const std::invalid_argument &e) {
+		throw LuaError(std::string("core.planet.pos: that place isn't on its body: ") + e.what());
+	}
+	push_v3f(L, v3f(n.x + (float)field("x"), n.y + (float)field("y"), n.z + (float)field("z")));
+	return 1;
 }

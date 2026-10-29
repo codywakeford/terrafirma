@@ -11,12 +11,15 @@
 namespace planetarium {
 
 /*
-	A camera in orbit round a body, looking down at its centre: where it is
-	over the body (latitude, longitude) and how high above its sea. Dragging
-	moves it round, slower the lower it is (the ground under it moves at
-	about the same speed on screen); zooming moves it up and down, from a
-	few body radii out to 100 blocks over the sea. In doubles; what it gives
-	the GPU is relative to itself, in floats.
+	A camera in orbit round a body, looking down at its centre: the way from
+	the centre to it, the screen's up across that, and how high above the sea
+	it is. In the body's own frame (its ground's), so the ground stays still
+	under it however the body spins. Dragging rolls it round the body like a
+	ball under the hand, slower the lower it is (the ground under it moves at
+	about the same speed on screen), over the poles as anywhere: nothing
+	keeps north up but focus. Zooming moves it up and down, from a few body
+	radii out to 100 blocks over the sea. In doubles; what it gives the GPU
+	is relative to itself, in floats.
 */
 class OrbitCamera
 {
@@ -33,10 +36,17 @@ public:
 	// over a place (radians), at an altitude (blocks over the sea; kept
 	// within the camera's range), or at its own
 	void focus(double latitude, double longitude, std::optional<double> altitude = std::nullopt);
+	// at an altitude (kept within range), over where it is
+	void altitude(double altitude);
+	// round a body of another size (its sea, its farthest): as high in its radii
+	void resize(double sea, double farthest);
 
 	double altitude() const { return m_altitude; }
-	double latitude() const { return m_latitude; }
-	double longitude() const { return m_longitude; }
+	double sea() const { return m_sea; }
+	double farthest() const { return m_farthest; }
+	// over where (radians)
+	double latitude() const;
+	double longitude() const;
 	// where it is, from the body's centre (blocks)
 	Vec position() const;
 	// what far::Tiles chooses for, on a screen `height` pixels high (eyeAt,
@@ -70,10 +80,8 @@ public:
 	Vec ray(double x, double y, double width, double height, v2f shift = v2f()) const;
 
 private:
-	Vec up() const; // unit, from the centre to the camera
-
 	double m_sea, m_farthest; // (not const: a camera is replaced when it goes to another body)
-	double m_latitude = 0.4, m_longitude = 0.3; // radians
+	Vec m_up, m_north; // unit, orthogonal: from the centre to the camera; the screen's up
 	double m_altitude;
 };
 

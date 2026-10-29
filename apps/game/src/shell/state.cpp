@@ -76,7 +76,7 @@ std::optional<Json::Value> State::mapPose(LocalPlayer &player) const
 	const double lat = latitude(*here), lon = longitude(*here);
 	const double east = std::remainder(longitude(*ahead) - lon, 2 * M_PI) * std::cos(lat);
 	const double north = latitude(*ahead) - lat;
-	const double radius = atlas.atlas().params().radius;
+	const double radius = atlas.body(*atlas.bodyAt(node)).params().radius; // it has a point: it's on a body's tile
 	Json::Value out;
 	out["u"] = lon / (2 * M_PI) + 0.5;
 	out["v"] = 0.5 - lat / M_PI;

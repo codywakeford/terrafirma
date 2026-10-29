@@ -169,3 +169,18 @@ Open:
   the planetarium drawing an Earth-sized planet.
 - The land doesn't grow with the planet (see Measured): a big world is a
   flat one until relief is in metres.
+
+## First play (2026-10-28)
+
+- Booted on joining (Ashen Mesa, radius 1M): `tf_sky` asked `core.terra.sun`
+  at layer 0 under the player. The spawn was on a segment's edge column,
+  which narrows with depth (cells only above layer ~30 there): layer 0 was
+  seam. It asks where the player stands now.
+- "No land on the equator" (Frost Vale, 2M): that planet has none. The spawn
+  searches out from the equator in 5° bands to 60°, on the half degree (off
+  the equator's tile-edge row and the segments' 15° edges).
+- A blank world (Drift Hollow, 2M): no error in the log. Its spawn was on
+  the map's own edge (z −30,912, a tile's edge row in slot row 0); spawns
+  now land inside a tile. Not reproduced, so not proven the cause.
+- `check:window`'s far places now keep a quarter turn from the spawn (they
+  covered its tile once it moved).

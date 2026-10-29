@@ -10,6 +10,7 @@ import Home from "./Home.vue"
 import Community from "./Community.vue"
 import Settings from "./Settings.vue"
 import type { Screen } from "./screens.ts"
+import type { SystemWire } from "../bridge"
 import WorldSelect from "./WorldSelect.vue"
 import { useMenuMusic } from "./music.ts"
 
@@ -25,13 +26,32 @@ const seedCode = ref<string | null>(null)
 const bridge = useBridge()
 const REPO = "https://github.com/codywakeford/terrafirma"
 
+// the system a new world's draft starts from: the engine's, asked once
+const home = ref<SystemWire | null>(null)
+const homeProblem = ref<string | null>(null)
+async function create() {
+    if (!home.value) {
+        try {
+            home.value = await bridge.send("system.home", {})
+        } catch (error) {
+            // shown on the menu: the create screen can't open without it
+            homeProblem.value = error instanceof Error ? error.message : String(error)
+            console.error("system.home", error)
+            return
+        }
+    }
+    screen.value = "create"
+}
 function go(next: Screen) {
-    if (next === "create") seedCode.value = null
+    if (next === "create") {
+        seedCode.value = null
+        return void create()
+    }
     screen.value = next
 }
 function createFromCode(code: string) {
     seedCode.value = code
-    screen.value = "create"
+    void create()
 }
 
 // a 9×9 pictogram for the workshop row: an open book
@@ -47,6 +67,10 @@ const CREDITS_ICON = {
 
 <template>
     <main class="menu">
+        <div v-if="homeProblem" class="error" role="alert">
+            <span><strong>Can't start a world:</strong> {{ homeProblem }}</span>
+            <button @click="homeProblem = null">✕</button>
+        </div>
         <div v-if="error" class="error" role="alert">
             <span><strong>Session ended:</strong> {{ error }}</span>
             <button @click="$emit('dismiss')">✕</button>
@@ -55,7 +79,7 @@ const CREDITS_ICON = {
         <Transition name="screen" mode="out-in">
             <Home v-if="screen === 'home'" @go="go" />
             <WorldSelect v-else-if="screen === 'worlds'" @go="go" />
-            <CreateWorld v-else-if="screen === 'create'" :initial-code="seedCode" @go="go" />
+            <CreateWorld v-else-if="screen === 'create' && home" :initial-code="seedCode" :home="home" @go="go" />
             <Settings v-else-if="screen === 'settings'" @go="go" />
             <Community v-else-if="screen === 'community'" @go="go" @create-code="createFromCode" />
             <Attributions v-else-if="screen === 'attributions'" @go="go" />

@@ -10,6 +10,7 @@
 namespace far {
 
 struct TileKey;
+struct Mesh;
 
 /*
 	The far view's tiling of an atlas planet (planning/sprint-32-atlas-lod.md):
@@ -55,6 +56,10 @@ public:
 	Vec middle(const TileKey &key) const;
 	// How far across a tile is (blocks, along its diagonal at the sea).
 	double diagonal(const TileKey &key) const;
+	// A tile's mesh (far/mesh.h, flat in its cells) bent onto the planet:
+	// each vertex at its place in the tile's region, round its middle (BS
+	// units), its normal turned with it.
+	void place(Mesh &mesh, const TileKey &key) const;
 
 private:
 	// The part of a tile in its grid: [x0, x1] × [z0, z1], finest cells from

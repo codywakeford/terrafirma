@@ -48,7 +48,7 @@ void runStandalone(const std::string &code, std::optional<double> bench)
 		}
 		return planet->handle(event);
 	};
-	infostream << "planetarium: " << code << ", " << atlas.atlas().code() << std::endl;
+	infostream << "planetarium: " << code << ", " << atlas.body(planet::Atlas::HOME).code() << std::endl;
 
 	video::IVideoDriver *driver = engine.get_video_driver();
 	volatile auto *kill = porting::signal_handler_killstatus(); // a signal ends it, as it ends the game

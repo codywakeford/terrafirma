@@ -104,14 +104,6 @@ public:
 	// on any other world): how its blocks, and the far view's tiles, are drawn
 	AtlasView *atlasView();
 
-	// Terra Firma: each block drawn this frame (the far view hides where they are)
-	template <typename F>
-	void forEachDrawn(F f) const
-	{
-		for (const auto &i : m_drawlist)
-			f(i.first);
-	}
-
 	/// @brief Calculate statistics about the map and keep the blocks alive
 	void touchMapBlocks();
 

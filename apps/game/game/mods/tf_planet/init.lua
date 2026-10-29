@@ -46,16 +46,23 @@ end
 
 tf_planet = {}
 
--- On land on the equator, east from longitude 0. The spawn level is a
--- layer (the ground's height), found at the place itself; only the one
--- chosen gets a node (its tile put in the map's window).
-function tf_planet.spawn_position()
-	for lon = 0, 359, 2 do
-		local layer = core.planet.spawn_level(0, math.rad(lon))
-		local node = layer and core.planet.atlas_node(0, math.rad(lon), layer)
-		if node then return node end
+-- On land, nearest the equator, east from longitude 0. Searched on the
+-- half degree: whole degrees put it on the equator (the tiles' edge row)
+-- and on every 15° (the segments' edges, whose columns narrow with depth).
+-- The spawn level is a layer (the ground's height), found at the place
+-- itself; only the one chosen gets a node (its tile put in the map's window).
+-- `body`: its id (the home's when none is named).
+function tf_planet.spawn_position(body)
+	for band = 0, 60, 5 do
+		for _, lat in ipairs(band == 0 and { 0.5 } or { band + 0.5, -band - 0.5 }) do
+			for lon = 0.5, 359.5, 2 do
+				local layer = core.planet.spawn_level(math.rad(lat), math.rad(lon), body)
+				local node = layer and core.planet.atlas_node(math.rad(lat), math.rad(lon), layer, body)
+				if node then return node end
+			end
+		end
 	end
-	error("tf_planet: no land on the equator to spawn on")
+	error("tf_planet: no land within 60° of the equator to spawn on" .. (body and (" on " .. body) or ""))
 end
 local function spawn(player)
 	player:set_pos(tf_planet.spawn_position())
@@ -63,3 +70,5 @@ local function spawn(player)
 end
 core.register_on_newplayer(spawn)
 core.register_on_respawnplayer(spawn)
+
+dofile(core.get_modpath("tf_planet") .. "/travel.lua")

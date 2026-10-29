@@ -539,10 +539,22 @@ void Server::init()
 	if (std::string half; startup_server_map->settings_mgr.getMapSetting("planet_half", &half) && stoi(half) != 0)
 		throw ServerError("This world was made on the old cube planet, and can't be played any more. "
 			"Make a new world: planets are laid out by the atlas now.");
-	// The world's atlas (planet/atlas.h): its mapping code is the world's.
+	// The world's atlas (planet/atlas.h): its home's mapping code is the
+	// world's, and every other body it holds comes from the world code's
+	// system (terragen/worlds.h).
 	if (std::string code; startup_server_map->settings_mgr.getMapSetting("planet_atlas", &code) && !code.empty()) {
+		std::string world;
+		if (!startup_server_map->settings_mgr.getMapSetting("mgterra_code", &world) || world.empty())
+			throw ServerError("This world is a planet without a world code (mgterra_code)");
 		try {
-			m_atlas.emplace(terragen::Atlas::parse(code));
+			m_body_worlds = terragen::bodyWorlds(terragen::WorldCode::decode(world), terragen::Atlas::parse(code));
+			std::vector<terragen::Atlas::Params> bodies;
+			std::vector<std::string> ids;
+			for (const terragen::BodyWorld &b : m_body_worlds) {
+				bodies.push_back(b.atlas);
+				ids.push_back(b.id);
+			}
+			m_atlas.emplace(bodies);
 			// which tiles were in the map's window when the world was last saved
 			const std::string windowFile = m_path_world + DIR_DELIM + "planet_window";
 			if (std::string window; fs::PathExists(windowFile)) {
@@ -550,9 +562,11 @@ void Server::init()
 					throw ServerError("This world's planet_window can't be read");
 				m_atlas->setWindow(window);
 			}
-			startup_server_map->layOn(*m_atlas);
+			startup_server_map->layOn(*m_atlas, ids);
 		} catch (const std::invalid_argument &e) {
 			throw ServerError(std::string("This world's planet_atlas can't be used: ") + e.what());
+		} catch (const terragen::CodeError &e) {
+			throw ServerError(std::string("This world's world code can't be read: ") + e.what());
 		}
 	}
 	if (m_atlas) {
@@ -577,7 +591,8 @@ void Server::init()
 		if (m_atlas->tiles().empty())
 			m_pager->all();
 	}
-	const double radius = m_atlas ? m_atlas->atlas().params().radius : 0;
+	// TEMP: 2026-10-28 the home body's sky and orbit; sprint 40 gives each body its own
+	const double radius = m_atlas ? m_atlas->body(planet::Atlas::HOME).params().radius : 0;
 	m_flight = std::make_unique<orbit::Flight>(radius > 0 ? terragen::sphere(radius) : terragen::home());
 
 	// Initialize scripting
@@ -643,7 +658,7 @@ void Server::init()
 	// the same planet, however the code was written
 	const std::string &mgAtlas = m_emerge->mgparams->planet_atlas;
 	if (mgAtlas.empty() != !m_atlas ||
-			(m_atlas && terragen::Atlas(terragen::Atlas::parse(mgAtlas)).code() != m_atlas->atlas().code()))
+			(m_atlas && terragen::Atlas(terragen::Atlas::parse(mgAtlas)).code() != m_atlas->body(planet::Atlas::HOME).code()))
 		throw ServerError("planet_atlas changed while mods loaded: the planet is the world's, not a mod's");
 	if (m_atlas) {
 		// every node the atlas stores must be one the generator can make
@@ -3136,8 +3151,10 @@ void Server::sendDetachedInventory(Inventory *inventory, const std::string &name
 		pkt.putRawString(os_str);
 	}
 
+	// every client that has the atlas (SendPlanet, with its definitions), not
+	// only active ones: a joining player's spawn puts its tile before they are
 	if (peer_id == PEER_ID_INEXISTENT)
-		m_clients.sendToAll(&pkt);
+		m_clients.sendToAll(&pkt, CS_DefinitionsSent);
 	else
 		Send(&pkt);
 }
@@ -4413,13 +4430,15 @@ std::unique_ptr<PlayerSAO> Server::emergePlayer(const char *name, session_t peer
 	// map's window holds it now (keepPlanetWindow keeps it)
 	if (m_pager)
 		if (const std::string &at = playersao->getMeta().getString("planet_cell"); !at.empty()) {
+			char id[64];
 			int region;
 			long long i, j, k;
 			float ox, oy, oz;
-			if (std::sscanf(at.c_str(), "%d %lld %lld %lld %f %f %f", &region, &i, &j, &k, &ox, &oy, &oz) != 7)
+			if (std::sscanf(at.c_str(), "%63s %d %lld %lld %lld %f %f %f", id, &region, &i, &j, &k, &ox, &oy, &oz) != 8)
 				throw ServerError("player " + std::string(name) + "'s planet_cell can't be read: " + at);
-			const auto [kind, index] = m_atlas->regionOfNumber(region);
-			const planet::Atlas::Node n = planetNode({ kind, index, i, j, k });
+			const int body = bodyIndex(id);
+			const auto [kind, index] = m_atlas->regionOfNumber(body, region);
+			const planet::Atlas::Node n = planetNode(planet::Atlas::Cell(body, { kind, index, i, j, k }));
 			playersao->setBasePosition(v3f(n.x + ox, n.y + oy, n.z + oz) * BS);
 		}
 
@@ -4768,14 +4787,16 @@ void Server::SendHorizon(session_t peer_id)
 	Send(&pkt);
 }
 
-// Terra Firma: the planet's atlas, so the client stores and draws it as the
-// server does, and its window
+// Terra Firma: the world's atlas (every body's), so the client stores and
+// draws it as the server does, and its window
 void Server::SendPlanet(session_t peer_id)
 {
 	if (!m_atlas)
 		return;
 	NetworkPacket pkt(TOCLIENT_ATLAS, 0, peer_id);
-	pkt << m_atlas->atlas().code();
+	pkt << (u16)m_atlas->bodies();
+	for (int b = 0; b < m_atlas->bodies(); b++)
+		pkt << m_atlas->body(b).code();
 	Send(&pkt);
 	std::vector<int> every(planet::Atlas::SLOTS * planet::Atlas::SLOTS);
 	for (int s = 0; s < (int)every.size(); s++)
@@ -4791,12 +4812,22 @@ void Server::SendWindow(session_t peer_id, const std::vector<int> &slots)
 	for (int s : slots) {
 		pkt << (u16)s << (u8)window.at(s).has_value();
 		if (window[s])
-			pkt << (s32)window[s]->region << (s32)window[s]->ti << (s32)window[s]->tj;
+			pkt << (u8)window[s]->body << (s32)window[s]->region << (s32)window[s]->ti << (s32)window[s]->tj;
 	}
+	// every client that has the atlas (SendPlanet, with its definitions), not
+	// only active ones: a joining player's spawn puts its tile before they are
 	if (peer_id == PEER_ID_INEXISTENT)
-		m_clients.sendToAll(&pkt);
+		m_clients.sendToAll(&pkt, CS_DefinitionsSent);
 	else
 		Send(&pkt);
+}
+
+int Server::bodyIndex(const std::string &id) const
+{
+	for (size_t b = 0; b < m_body_worlds.size(); b++)
+		if (m_body_worlds[b].id == id)
+			return (int)b;
+	throw ServerError("this world has no body '" + id + "' to stand on");
 }
 
 planet::Atlas::Node Server::planetNode(const planet::Atlas::Cell &cell)
@@ -4808,7 +4839,7 @@ planet::Atlas::Node Server::planetNode(const planet::Atlas::Cell &cell)
 
 void Server::keepPlanetWindow()
 {
-	std::vector<terragen::Atlas::Vec> points;
+	std::vector<planet::Pager::Point> points;
 	for (RemotePlayer *player : m_env->getPlayers()) {
 		PlayerSAO *sao = player->getPlayerSAO();
 		if (!sao)
@@ -4818,9 +4849,10 @@ void Server::keepPlanetWindow()
 		const std::optional<planet::Atlas::Cell> c = m_atlas->cell(n);
 		if (!c) // in seam (between slots, above the sky): no ground to keep
 			continue;
-		points.push_back(m_atlas->atlas().centre(*c));
-		// where they are on the planet, for when they're back (emergePlayer)
-		sao->getMeta().setString("planet_cell", std::to_string(m_atlas->regionNumber(c->region, c->index)) + " " +
+		points.push_back({ c->body, m_atlas->body(c->body).centre(*c) });
+		// where they are on which body, for when they're back (emergePlayer)
+		sao->getMeta().setString("planet_cell", m_body_worlds.at(c->body).id + " " +
+				std::to_string(m_atlas->regionNumber(c->body, c->region, c->index)) + " " +
 				std::to_string(c->i) + " " + std::to_string(c->j) + " " + std::to_string(c->k) + " " +
 				std::to_string(p.X - n.x) + " " + std::to_string(p.Y - n.y) + " " + std::to_string(p.Z - n.z));
 	}

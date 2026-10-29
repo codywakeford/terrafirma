@@ -33,6 +33,11 @@ extern const Star STARS[5];
 	Parameters are kept as the fixed values their quantized bytes stand for,
 	so the same code always gives exactly the same numbers.
 */
+// What a body's land is (sprint 41): the home's lives (seas, rivers, plants,
+// the climate's biomes); another body's is bare rock, sand or ice by its kind,
+// with no water and nothing growing (terragen::bodyWorlds picks it).
+enum class Surface : uint8_t { Living, Rock, Sand, Ice };
+
 struct WorldCode
 {
 	std::string text;      // the code itself, exactly as given
@@ -46,6 +51,7 @@ struct WorldCode
 	fix rivers, caves, ores;               // 0..1
 	fix tilt;              // degrees, 0..45 (whole degrees)
 	int32_t year;          // days, 8..128
+	Surface surface = Surface::Living; // not in the text: a body's, from its kind
 
 	static WorldCode decode(const std::string &code); // throws CodeError
 };

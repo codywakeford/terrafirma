@@ -2,28 +2,37 @@ import { shallowRef } from "vue"
 import type { BridgeHandle, UiValues } from "../../bridge"
 import { decodePreview, paint, type Fields, type OverlayId } from "../../worldgen/fields"
 
-type Preview = { code: string; fields: Fields }
+/** A map's world: its code, and (an atlas world's) which body. */
+export type MapWorld = { code: string; body?: string }
+/** One key for a map's world, the previews' and the paintings'. */
+export function mapKey(world: MapWorld): string {
+    return world.body ? `${world.code}@${world.body}` : world.code
+}
+
+type Preview = { key: string; fields: Fields }
 const preview = shallowRef<Preview | null>(null)
 const problem = shallowRef<string | null>(null)
-let pending: { code: string; promise: Promise<void> } | null = null
+let pending: { key: string; promise: Promise<void> } | null = null
 let wanted = ""
 
-/** The create screen's terrain, requested once per world in the game session. */
+/** A world's terrain (the create screen's), requested once per world and body in the game session. */
 export function worldMapData() {
-    async function ensure(bridge: BridgeHandle, code: string) {
-        wanted = code
-        if (preview.value?.code === code) return
-        if (pending?.code === code) return pending.promise
+    async function ensure(bridge: BridgeHandle, world: MapWorld) {
+        const key = mapKey(world)
+        wanted = key
+        if (preview.value?.key === key) return
+        if (pending?.key === key) return pending.promise
         problem.value = null
-        const promise = bridge.send("worldgen.preview", { code, date: null, resolution: 512 })
+        const request = world.body ? { code: world.code, body: world.body } : { code: world.code }
+        const promise = bridge.send("worldgen.preview", { ...request, date: null, resolution: 512 })
             .then((wire) => {
-                if (wanted === code) preview.value = { code, fields: decodePreview(wire) }
+                if (wanted === key) preview.value = { key, fields: decodePreview(wire) }
             })
             .catch((error: unknown) => {
-                if (wanted === code) problem.value = error instanceof Error ? error.message : String(error)
+                if (wanted === key) problem.value = error instanceof Error ? error.message : String(error)
             })
-            .finally(() => { if (pending?.code === code) pending = null })
-        pending = { code, promise }
+            .finally(() => { if (pending?.key === key) pending = null })
+        pending = { key, promise }
         return promise
     }
     return { preview, problem, ensure }

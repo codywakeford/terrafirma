@@ -26,6 +26,7 @@ namespace terragen {
 struct SystemBody
 {
 	std::string id, name;
+	std::string colour; // "#rrggbb": its swatch in lists (the page's, as it was designed)
 	BodyCauses causes;
 	double phase;       // 0..1: where on its orbit it is at day 0
 	double inclination; // degrees: its orbit's tilt from its parent's plane (the star's: the ecliptic)

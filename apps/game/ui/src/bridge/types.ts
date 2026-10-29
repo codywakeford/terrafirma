@@ -59,6 +59,28 @@ export type StateMessage = {
     [S in keyof StateSections]: { kind: "state"; section: S; value: StateSections[S] }
 }[keyof StateSections]
 
+/** A system's body as the engine holds it, in the page's units (src/shell/system.h: systemJson). */
+export type SystemBodyWire = {
+    id: string
+    name: string
+    parent: string | null // null orbits the star; else a planet
+    color: string         // its swatch in lists
+    phase: number         // 0..1: where it starts on its orbit, for the system view
+    /** The playable world: its land, tilt and year are the world code (its Surface, in the World step). */
+    playable: boolean
+    orbit: number         // AU around the star; parent radii around a planet
+    eccentricity: number
+    inclination: number   // degrees
+    mass: number          // log₁₀ Earth masses (the slider is logarithmic)
+    formed: number        // 0..1: hot and close (0) to beyond the frost line (1)
+    volatiles: number     // 0..1: the water and gases it formed with
+    day: number           // rotation period, hours
+    tilt: number          // degrees (the playable world's is in the world code)
+    life: boolean         // whether life arises where it can
+}
+/** A system: its star (StarId), age (billions of years), wind (0..1), bodies (a planet before its moons). */
+export type SystemWire = { star: string; age: number; activity: number; bodies: SystemBodyWire[] }
+
 /** One body's causes, as `system.preview` takes them (src/shell/system.cpp → terragen/body.h). */
 export type BodyCausesWire = {
     id: string
@@ -210,12 +232,17 @@ export type LabScenario = {
 export type UiValues = {
 	/** tf_player: the server permits this player to use the creative catalogue. */
 	creative: boolean
-    /** tf_player: the planet and this player's saved exploration mask. */
-    map: { code: string; size: number; radius: number; sea: number; star: StarId; tilt: number; mode: "creative" | "survival"; explored: string; grid: number }
+    /**
+     * tf_player: the body the player's on and what they've explored of it.
+     * `code` is the world's; `body` (an atlas world's) names which of its
+     * bodies, whose world is its own (size, radius); `bodies` every body
+     * that can be stood on, the home first.
+     */
+    map: { code: string; body?: string; name?: string; bodies?: { id: string; name: string }[]; size: number; radius: number; sea: number; star: StarId; tilt: number; mode: "creative" | "survival"; explored: string; grid: number }
     /** tf_flight: thrust-free projected path, sampled while the full-screen map is open. */
     map_trajectory: { points: [number, number, number][]; ending: "ground" | "time"; seconds: number }
     /** tf_player: the player's place on the world model and the current date. */
-    map_position: { x: number; z: number; date: number }
+    map_position: { x: number; z: number; body?: string; date: number }
     /** tf_player: server-approved world controls and their current state. */
     world_controls: { mode: "creative" | "survival"; damage: boolean; time: number; paused: boolean }
     /**
@@ -232,6 +259,10 @@ export type UiValues = {
         activity?: number; vapour?: string; haze?: number; awake?: boolean }
     /** tf_flight: riding the pack over the blocks, or in space (core.orbit) */
     flight: FlightNear | FlightSpace
+    /** tf_player: the body the player is on (an atlas world's; `home` the world's own) */
+    body: { id: string; name: string; home: boolean }
+    /** tf_planet: travelling to another body (/travel): the screen while its land is made */
+    travel: { body: string; name: string }
     /** tf_weather: the weather where the player stands (core.terra.weather) */
     weather: {
         temperature: number // °C
@@ -350,13 +381,20 @@ export type PlanetariumFlight = {
 
 export type PlanetariumMarker = PlanetariumPlace & { colour: string /* "#rrggbb" */ }
 /** In game the body is always the world being played (null); on the create screen, the world being made. */
-export type PlanetariumBody = null | { code: string }
+/** A world (its code); in game, `body` one of its bodies (by id), drawn from its tiles. */
+export type PlanetariumBody = null | { code: string; body?: string }
 /** Where the planet is drawn: a part of the page (page pixels), or the whole window. (A request is spread into the message, so it's never null.) */
 export type PlanetariumViewport = { whole: true } | { x: number; y: number; width: number; height: number }
+/** A body under the mouse: who it is, and its disc on screen (page pixels). */
+export type PlanetariumHover = { id: string; name: string; kind: string; x: number; y: number; radius: number }
 export type PlanetariumMessage =
     | { kind: "planetarium"; event: "picked"; latitude: number; longitude: number; cell: PlanetariumCell }
     /** The host's clock while it runs (the menu's): the date, 0..1 through the year. */
     | { kind: "planetarium"; event: "time"; date: number; running: boolean }
+    /** What's under the mouse, as it changes or moves: where it's drawn (page pixels); the star's id "star". */
+    | { kind: "planetarium"; event: "hovered"; body: PlanetariumHover | null }
+    /** A double click flew the camera to a body (the star: out to the whole system). */
+    | { kind: "planetarium"; event: "chosen"; body: string }
 
 /** Engine → UI */
 export type EngineMessage =
@@ -387,7 +425,8 @@ export type Intents = {
     /** settings: written to the world's world.mt — creative_mode, enable_damage, tf_* (src/shell/worlds.cpp) */
     "worlds.create": { request: { name: string; code: string; settings: Record<string, string | number | boolean> }; response: World }
     /** terragen's preview of a world code; date 0..1 through the year (src/shell/menu.cpp) */
-    "worldgen.preview": { request: { code: string; date: number | null; resolution: number }; response: PreviewWire }
+    /** `body`: in game, a body of the world (its world is its own, not a code) */
+    "worldgen.preview": { request: { code: string; body?: string; date: number | null; resolution: number }; response: PreviewWire }
     /** a settled year of the world's weather, `snapshots` maps through it (src/shell/menu.cpp) */
     "weather.preview": { request: { code: string; snapshots: number }; response: WeatherWire }
     "worlds.delete": { request: { path: string }; response: null }
@@ -413,6 +452,10 @@ export type Intents = {
     "matter.state": { request: { id: string; t: number; p: number }; response: { state: MatterState; boils_at: number | null; melts_at: number | null } }
     /** terragen's body model: every body's card and history from the system's causes (src/shell/system.cpp) */
     "system.preview": { request: { star: string; age: number; activity: number; bodies: BodyCausesWire[] }; response: BodyCard[] }
+    /** The system a new world's draft starts from (the menu's). */
+    "system.home": { request: {}; response: SystemWire }
+    /** A world's own system and every body's card (the game's: its map). */
+    "system.world": { request: { code: string }; response: SystemWire & { cards: BodyCard[] } }
     play: { request: { path: string }; response: null }
     /** Every Lab scenario, from the game's lab.json files (src/shell/lab.cpp). */
     "lab.list": { request: {}; response: LabScenario[] }

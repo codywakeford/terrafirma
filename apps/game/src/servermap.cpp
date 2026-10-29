@@ -581,13 +581,26 @@ void ServerMap::save(ModifiedState save_level)
 	reportMetrics(end_time - start_time, block_count, block_count_all);
 }
 
-void ServerMap::layOn(const planet::Atlas &atlas)
+void ServerMap::layOn(const planet::Atlas &atlas, const std::vector<std::string> &bodies)
 {
+	if ((int)bodies.size() != atlas.bodies())
+		throw BaseException("ServerMap::layOn: " + std::to_string(bodies.size()) + " body ids for " +
+				std::to_string(atlas.bodies()) + " bodies");
 	MutexAutoLock dblock(m_db.mutex);
 	setAtlas(&atlas);
-	m_db.dbase = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase), atlas);
-	if (m_db.dbase_ro)
-		m_db.dbase_ro = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase_ro), atlas);
+	const std::string savedir = m_savedir;
+	const auto open = [savedir, bodies](int body) -> std::unique_ptr<MapDatabase> {
+		const std::string dir = savedir + DIR_DELIM + "bodies" + DIR_DELIM + bodies.at(body);
+		if (!fs::CreateAllDirs(dir))
+			throw BaseException("body " + bodies.at(body) + "'s map directory can't be made: " + dir);
+		return std::make_unique<MapDatabaseSQLite3>(dir);
+	};
+	m_db.dbase = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase), atlas, open);
+	if (m_db.dbase_ro) // a read-only copy of the home's blocks: no other body has one
+		m_db.dbase_ro = new MapDatabasePlanet(std::unique_ptr<MapDatabase>(m_db.dbase_ro), atlas,
+				[bodies](int body) -> std::unique_ptr<MapDatabase> {
+					throw BaseException("body " + bodies.at(body) + " has no read-only map database");
+				});
 }
 
 void ServerMap::listAllLoadableBlocks(std::vector<v3s16> &dst)

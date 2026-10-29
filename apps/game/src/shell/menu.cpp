@@ -4,6 +4,7 @@
 #include "menu.h"
 #include "lab.h"
 #include "system.h"
+#include "terragen/system.h"
 #include "far/baked.h"
 #include "client/inputhandler.h"
 #include "light.h"
@@ -32,7 +33,7 @@
 namespace shell {
 
 static const char *const VERBS[] = {
-	"worlds.list", "worlds.create", "worlds.delete", "worlds.pin", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "weather.preview",
+	"worlds.list", "worlds.create", "worlds.delete", "worlds.pin", "play", "lab.list", "lab.enter", "quit", "worldgen.preview", "system.preview", "system.home", "weather.preview",
 	"social.join", "community.list", "community.mod.set", "community.texture.set",
 	"servers.list", "servers.join", "servers.favorite.set",
 };
@@ -224,6 +225,10 @@ Menu::Menu(const Opts &opts) :
 	// microseconds: a few hundred fixed-point steps per body
 	m_shell.on("system.preview", [](const Json::Value &intent) {
 		return systemPreview(intent);
+	});
+	// the system a new world's draft starts from
+	m_shell.on("system.home", [](const Json::Value &) {
+		return systemJson(terragen::SystemSpec::home());
 	});
 	m_shell.on("quit", [this](const Json::Value &) {
 		m_quit = true;

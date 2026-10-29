@@ -1945,10 +1945,16 @@ void Client::handleCommand_Horizon(NetworkPacket *pkt)
 
 void Client::handleCommand_Atlas(NetworkPacket *pkt)
 {
-	std::string code;
-	*pkt >> code;
+	u16 count;
+	*pkt >> count;
+	std::vector<terragen::Atlas::Params> bodies;
 	try {
-		m_atlas.emplace(terragen::Atlas::parse(code));
+		for (u16 b = 0; b < count; b++) {
+			std::string code;
+			*pkt >> code;
+			bodies.push_back(terragen::Atlas::parse(code));
+		}
+		m_atlas.emplace(bodies);
 	} catch (const std::invalid_argument &e) {
 		throw SerializationError(std::string("TOCLIENT_ATLAS: ") + e.what());
 	}
@@ -1971,9 +1977,10 @@ void Client::handleCommand_Window(NetworkPacket *pkt)
 		*pkt >> slot >> holds;
 		std::optional<planet::Atlas::TileId> tile;
 		if (holds) {
+			u8 body;
 			s32 region, ti, tj;
-			*pkt >> region >> ti >> tj;
-			tile = planet::Atlas::TileId{ region, ti, tj };
+			*pkt >> body >> region >> ti >> tj;
+			tile = planet::Atlas::TileId{ body, region, ti, tj };
 		}
 		if (slot >= was.size())
 			throw SerializationError("TOCLIENT_WINDOW: no slot " + std::to_string(slot));

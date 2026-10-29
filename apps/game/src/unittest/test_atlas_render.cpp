@@ -153,7 +153,7 @@ public:
 				for (s16 x = 0; x < MAP_BLOCKSIZE; x++) {
 					const planet::Atlas::Node n{ low.X + x, low.Y + y, low.Z + z };
 					const auto c = m_atlas.cell(n);
-					const content_t id = !c ? m_def.seam : solid(m_atlas.atlas().centre(*c)) ? m_def.stone : CONTENT_AIR;
+					const content_t id = !c ? m_def.seam : solid(m_atlas.body(planet::Atlas::HOME).centre(*c)) ? m_def.stone : CONTENT_AIR;
 					block->setNodeNoCheck(x, y, z, MapNode(id));
 				}
 		block->expireIsAirCache();
@@ -209,13 +209,13 @@ struct Faults
 
 Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = true)
 {
-	const terragen::Atlas &geometry = atlas.atlas();
+	const terragen::Atlas &geometry = atlas.body(planet::Atlas::HOME);
 	Faults f;
 	const double lat = e.lat * M_PI / 180, lon = e.lon * M_PI / 180;
 	const V out{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
 	const double r = PLANET.radius + ground(out) + e.above;
 	const V where{ r * out.x, r * out.y, r * out.z };
-	const planet::Atlas::Node n = atlas.node(geometry.locate(where));
+	const planet::Atlas::Node n = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, geometry.locate(where)));
 	const v3f eye(n.x, n.y, n.z);
 	if (std::getenv("ATLAS_EYE")) {
 		const auto c = *atlas.cell(n);
@@ -398,7 +398,7 @@ Faults look(const planet::Atlas &atlas, GameDef &def, const Eye &e, bool rays = 
 					ef.origin.y + ef.axes[0].y * d.X + ef.axes[1].y * d.Y + ef.axes[2].y * d.Z,
 					ef.origin.z + ef.axes[0].z * d.X + ef.axes[1].z * d.Y + ef.axes[2].z * d.Z };
 				const auto c = geometry.locate(pt);
-				const auto sn = atlas.node(c);
+				const auto sn = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, c));
 				const v3s16 b = getContainerPos(v3s16(sn.x, sn.y, sn.z), MAP_BLOCKSIZE);
 				rawstream << "    planet's cell: region " << (int)c.region << " " << c.index << " i "
 					<< c.i << " j " << c.j << " k " << c.k << "; block (" << b.X << "," << b.Y << "," << b.Z << ")"

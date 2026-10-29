@@ -1,6 +1,7 @@
 // Terra Firma
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include "terragen/worlds.h"
 #include "planetarium/planetarium.h"
 #include "constants.h"
 #include "log.h"
@@ -20,9 +21,25 @@ static unsigned buildThreads()
 	return all > 2 ? all - 2 : 1;
 }
 
+// The system's index of the body drawn from its tiles: the playable one
+// for the home, another's found from the world code (terragen/worlds.h).
+static size_t tiledOf(const Planetarium::Opts &o)
+{
+	if (!o.system)
+		throw BaseException("planetarium: a body needs its system");
+	if (o.body == planet::Atlas::HOME)
+		return o.system->playable();
+	const std::vector<terragen::BodyWorld> worlds = terragen::bodyWorlds(
+			terragen::WorldCode::decode(o.horizon.code), o.atlas.body(planet::Atlas::HOME).params());
+	if ((int)worlds.size() != o.atlas.bodies())
+		throw BaseException("planetarium: the atlas holds " + std::to_string(o.atlas.bodies()) +
+				" bodies, the world code's system " + std::to_string(worlds.size()));
+	return worlds.at(o.body).system;
+}
+
 static double seaOf(const Planetarium::Opts &o)
 {
-	return o.atlas.atlas().params().radius + o.horizon.water_level + 1;
+	return o.atlas.body(o.body).params().radius + o.horizon.water_level + 1;
 }
 
 // How far out the camera may go: to see the whole system round the body.
@@ -30,10 +47,11 @@ static double farthest(const Planetarium::Opts &o)
 {
 	if (!o.system)
 		throw BaseException("planetarium: a body needs its system");
-	const double k = o.atlas.atlas().params().radius / o.system->radius(o.system->playable());
+	const size_t tiled = tiledOf(o);
+	const double k = o.atlas.body(o.body).params().radius / o.system->radius(tiled);
 	double out = 0;
 	const terragen::System &s = *o.system;
-	const auto home = s.position(s.playable(), 0);
+	const auto home = s.position(tiled, 0);
 	for (size_t i = 0; i < s.spec().bodies.size(); i++) {
 		const auto p = s.position(i, 0);
 		out = std::max(out, std::hypot(p.x - home.x, p.y - home.y, p.z - home.z) * k);
@@ -46,20 +64,21 @@ static constexpr s32 CLICK = 4;
 
 Planetarium::Planetarium(Opts opts) :
 	m_palette(std::move(opts.palette)),
-	m_atlas(opts.atlas.atlas()),
+	m_atlas(opts.atlas.body(opts.body)),
 	m_sea(seaOf(opts)),
-	m_tiles(opts.atlas, opts.horizon, m_palette, buildThreads()),
+	m_tiles(opts.atlas, opts.body, opts.horizon, m_palette, buildThreads()),
 	m_camera(m_sea, farthest(opts)),
-	m_seams(opts.atlas.atlas().params(), m_sea),
+	m_seams(opts.atlas.body(opts.body).params(), m_sea),
 	m_markers(m_sea),
-	m_system({ opts.system, opts.system->playable(), opts.atlas.atlas().params().radius / opts.system->radius(opts.system->playable()) }),
-	m_target(opts.system->playable())
+	m_system({ opts.system, tiledOf(opts), opts.atlas.body(opts.body).params().radius / opts.system->radius(tiledOf(opts)) }),
+	m_tiled(tiledOf(opts)),
+	m_target(m_tiled)
 {
 }
 
 void Planetarium::focus(double latitude, double longitude, std::optional<double> altitude)
 {
-	m_camera.focus(latitude, longitude + (m_target == m_system.system().playable() ? m_spin : 0), altitude);
+	m_camera.focus(latitude, longitude, altitude);
 }
 
 void Planetarium::day(double days, std::optional<double> timeOfDay)
@@ -71,7 +90,7 @@ void Planetarium::day(double days, std::optional<double> timeOfDay)
 		const terragen::System::Vec star = m_system.starCentre(days);
 		m_spin = std::atan2(star.z, star.x) + 2 * M_PI * (*timeOfDay - 0.5);
 	} else {
-		const double hours = s.spec().bodies[s.playable()].causes.day / 65536.0;
+		const double hours = s.spec().bodies[m_tiled].causes.day / 65536.0;
 		m_spin = 2 * M_PI * std::fmod(days * 24 / hours, 1.0);
 	}
 }
@@ -104,16 +123,21 @@ void Planetarium::keep(const Planetarium &was)
 {
 	m_day = was.m_day;
 	m_spin = was.m_spin;
-	if (was.m_target < m_system.system().spec().bodies.size())
-		focusBody(was.m_target);
-	m_camera = was.m_camera;
+	if (was.heading() >= m_system.system().spec().bodies.size())
+		return;
+	// where it was round its body, in that body's radii: a body made bigger or
+	// smaller keeps the camera as far out, never inside it
+	m_target = was.heading();
+	const OrbitCamera fresh = cameraFor(m_target);
+	m_camera = was.m_flight ? was.m_flight->end : was.m_camera;
+	m_camera.resize(fresh.sea(), fresh.farthest());
 }
 
 OrbitCamera Planetarium::cameraFor(size_t body) const
 {
 	if (body >= m_system.system().spec().bodies.size())
 		throw BaseException("planetarium: no body " + std::to_string(body) + " in the system");
-	const double sea = body == m_system.system().playable() ? m_sea : m_system.radius(body);
+	const double sea = body == m_tiled ? m_sea : m_system.radius(body);
 	return OrbitCamera(sea, std::max(m_system.extent() * 1.5, 6 * sea));
 }
 
@@ -130,13 +154,12 @@ void Planetarium::fly(const Flight &f)
 {
 	// where it ends: round the body, as asked, the rest as the camera is (or would be)
 	OrbitCamera end = f.body == m_target ? m_camera : cameraFor(f.body);
-	const bool playable = f.body == m_system.system().playable();
-	const double sea = playable ? m_sea : m_system.radius(f.body);
+	const double sea = f.body == m_tiled ? m_sea : m_system.radius(f.body);
 	const std::optional<double> altitude = f.radii ? std::optional<double>(*f.radii * sea) : f.altitude;
 	if (f.latitude)
-		end.focus(*f.latitude, *f.longitude + (playable ? m_spin : 0), altitude);
+		end.focus(*f.latitude, *f.longitude, altitude);
 	else if (altitude)
-		end.focus(end.latitude(), end.longitude(), altitude);
+		end.altitude(*altitude);
 	if (f.seconds <= 0) {
 		m_flight.reset();
 		m_target = f.body;
@@ -150,9 +173,15 @@ void Planetarium::fly(const Flight &f)
 	m_flight = Flying{ from, { now.at.x - c.x, now.at.y - c.y, now.at.z - c.z }, f.body, end, f.seconds };
 }
 
+OrbitCamera::Vec Planetarium::offsetOf(size_t body, const OrbitCamera &camera) const
+{
+	// round the tiled body the camera turns with its ground
+	return body == m_tiled ? OrbitCamera::turn(camera.position(), m_spin) : camera.position();
+}
+
 OrbitCamera::Vec Planetarium::centreOf(size_t body) const
 {
-	if (body == m_system.system().playable())
+	if (body == m_tiled)
 		return { 0, 0, 0 };
 	const terragen::System::Vec v = m_system.centre(body, m_day);
 	return { v.x, v.y, v.z };
@@ -161,12 +190,12 @@ OrbitCamera::Vec Planetarium::centreOf(size_t body) const
 Planetarium::Pose Planetarium::pose() const
 {
 	if (!m_flight) {
-		const OrbitCamera::Vec c = centreOf(m_target), p = m_camera.position();
+		const OrbitCamera::Vec c = centreOf(m_target), p = offsetOf(m_target, m_camera);
 		return { { c.x + p.x, c.y + p.y, c.z + p.z }, c };
 	}
 	const Flying &f = *m_flight;
 	const double x = std::clamp(f.t / f.seconds, 0.0, 1.0), e = x * x * (3 - 2 * x); // eased
-	const OrbitCamera::Vec c0 = centreOf(f.from), c1 = centreOf(f.to), o0 = f.start, o1 = f.end.position();
+	const OrbitCamera::Vec c0 = centreOf(f.from), c1 = centreOf(f.to), o0 = f.start, o1 = offsetOf(f.to, f.end);
 	const auto len = [](const OrbitCamera::Vec &v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); };
 	const OrbitCamera::Vec look{ c0.x + (c1.x - c0.x) * e, c0.y + (c1.y - c0.y) * e, c0.z + (c1.z - c0.z) * e };
 	// the way out from what it looks at: turned from the start's to the end's
@@ -185,7 +214,7 @@ Planetarium::Pose Planetarium::pose() const
 core::matrix4 Planetarium::view() const
 {
 	if (!m_flight)
-		return m_camera.view();
+		return m_target == m_tiled ? OrbitCamera::turned(m_camera.view(), -m_spin) : m_camera.view();
 	const Pose p = pose();
 	core::vector3df ahead((f32)(p.look.x - p.at.x), (f32)(p.look.y - p.at.y), (f32)(p.look.z - p.at.z));
 	ahead.normalize();
@@ -202,6 +231,52 @@ OrbitCamera::Vec Planetarium::eye() const
 	return pose().at;
 }
 
+std::optional<std::optional<size_t>> Planetarium::takeChosen()
+{
+	std::optional<std::optional<size_t>> chosen = m_chosen;
+	m_chosen.reset();
+	return chosen;
+}
+
+std::optional<Planetarium::Hover> Planetarium::hoverFor(const OrbitCamera::Vec &eye, const core::matrix4 &look, float aspect) const
+{
+	if (!m_mouse)
+		return std::nullopt;
+	const double t = std::tan(OrbitCamera::FOV / 2), focal = m_screen.Y / (2 * t);
+	std::optional<Hover> best;
+	double nearest = 0;
+	const size_t count = m_system.system().spec().bodies.size();
+	for (size_t i = 0; i <= count; i++) {
+		// the bodies, then the star (i == count)
+		const bool star = i == count;
+		const OrbitCamera::Vec c = star ? [&] { const auto v = m_system.starCentre(m_day); return OrbitCamera::Vec{ v.x, v.y, v.z }; }()
+				: centreOf(i);
+		const double radius = star ? m_system.starRadius()
+				: (i == m_tiled ? m_sea : m_system.radius(i));
+		core::vector3df v((f32)(c.x - eye.x), (f32)(c.y - eye.y), (f32)(c.z - eye.z));
+		const double distance = v.getLength();
+		look.transformVect(v); // (the view has no translation: the camera is the origin)
+		if (v.Z <= 0)
+			continue; // behind
+		const double x = v.X / (v.Z * t * aspect) + m_shift.X, y = v.Y / (v.Z * t) + m_shift.Y;
+		const v2f at((f32)(m_corner.X + (x + 1) / 2 * m_screen.X), (f32)(m_corner.Y + (1 - y) / 2 * m_screen.Y));
+		const float shown = (f32)(radius / distance * focal);
+		// what's hovered now keeps it a little past where it would start:
+		// on an edge it doesn't flick on and off frame to frame
+		const bool held = m_hover && m_hover->body == (star ? std::nullopt : std::optional<size_t>(i));
+		if (!star && i == m_target && shown > m_screen.Y * (held ? 0.5f : 0.4f))
+			continue; // the body it's round, filling the screen
+		const float dx = at.X - m_mouse->X, dy = at.Y - m_mouse->Y;
+		if (std::sqrt(dx * dx + dy * dy) > std::max(shown, 10.f) + (held ? 14 : 4))
+			continue;
+		if (!best || distance < nearest) {
+			best = Hover{ star ? std::nullopt : std::optional<size_t>(i), at, shown };
+			nearest = distance;
+		}
+	}
+	return best;
+}
+
 std::optional<Planetarium::Pick> Planetarium::takeClick()
 {
 	if (!m_click)
@@ -213,7 +288,7 @@ std::optional<Planetarium::Pick> Planetarium::takeClick()
 
 std::optional<Planetarium::Pick> Planetarium::pick(double x, double y) const
 {
-	if (m_flight || m_target != m_system.system().playable())
+	if (m_flight || m_target != m_tiled)
 		return std::nullopt; // nothing to pick on another body (yet), nor mid-flight
 	// the ray from the camera through the pixel, onto the sea's sphere
 	const OrbitCamera::Vec o = m_camera.position(),
@@ -226,8 +301,8 @@ std::optional<Planetarium::Pick> Planetarium::pick(double x, double y) const
 	const double t = -b - std::sqrt(disc);
 	if (t < 0)
 		return std::nullopt;
-	// where it meets the body, in its own (unspun) frame
-	const OrbitCamera::Vec hit = OrbitCamera::turn({ o.x + t * d.x, o.y + t * d.y, o.z + t * d.z }, -m_spin);
+	// where it meets the body (the camera's in its own frame)
+	const OrbitCamera::Vec hit{ o.x + t * d.x, o.y + t * d.y, o.z + t * d.z };
 	const terragen::Atlas::Vec p{ hit.x, hit.y, hit.z };
 	const double r = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
 	// the cell at the sea there: just under the sea's radius, layer 0
@@ -242,11 +317,14 @@ bool Planetarium::handle(const SEvent &event)
 	const SEvent::SMouseInput &m = event.MouseInput;
 	const bool inside = m.X >= m_corner.X && m.Y >= m_corner.Y && m.X < m_corner.X + (s32)m_screen.X &&
 			m.Y < m_corner.Y + (s32)m_screen.Y;
-	if (!inside && !m_dragging)
+	if (!inside && !m_dragging) {
+		m_mouse.reset();
 		return false; // the page's
+	}
 	switch (m.Event) {
 	case EMIE_LMOUSE_PRESSED_DOWN:
 		m_dragging = true;
+		m_mouse.reset();
 		m_x = m_downX = m.X;
 		m_y = m_downY = m.Y;
 		return true;
@@ -254,6 +332,16 @@ bool Planetarium::handle(const SEvent &event)
 		m_dragging = false;
 		if (std::abs(m.X - m_downX) <= CLICK && std::abs(m.Y - m_downY) <= CLICK)
 			m_click = v2s32(m.X, m.Y);
+		m_mouse = v2s32(m.X, m.Y);
+		return true;
+	case EMIE_LMOUSE_DOUBLE_CLICK:
+		if (m_hover) {
+			// to a body, close; the star: out to see the whole system round the tiled body
+			const std::optional<size_t> body = m_hover->body;
+			fly(body ? Flight{ *body, std::nullopt, std::nullopt, std::nullopt, 2.5, 1.5 }
+					: Flight{ m_tiled, std::nullopt, std::nullopt, std::nullopt, 400, 1.5 });
+			m_chosen = body;
+		}
 		return true;
 	case EMIE_MOUSE_MOVED:
 		if (m_dragging && !m_flight) { // a flight has the camera
@@ -261,6 +349,8 @@ bool Planetarium::handle(const SEvent &event)
 			m_x = m.X;
 			m_y = m.Y;
 		}
+		if (!m_dragging)
+			m_mouse = v2s32(m.X, m.Y);
 		return true;
 	case EMIE_MOUSE_WHEEL:
 		if (!m_flight)
@@ -312,10 +402,12 @@ void Planetarium::draw(video::IVideoDriver *driver, core::recti view)
 
 	const float aspect = (float)screen.Width / std::max(1u, screen.Height);
 	const OrbitCamera::Vec eye = this->eye();
-	const bool round = !m_flight && m_target == m_system.system().playable();
+	const bool round = !m_flight && m_target == m_tiled;
 	// the body's own frame (its tiles', its layers'): where the camera is in it, and the view turned with it
 	const OrbitCamera::Vec ground = OrbitCamera::turn(eye, -m_spin);
 	const core::matrix4 look = this->view(), spun = OrbitCamera::turned(look, m_spin);
+	m_hover = hoverFor(eye, look, aspect);
+	m_system.highlight(m_hover ? m_hover->body : std::nullopt);
 	// the system round it, far to near; the body its tiles, in its turn
 	m_system.draw(driver, SystemLayer::Camera{ { eye.x, eye.y, eye.z }, look, OrbitCamera::FOV, aspect, m_shift, screen.Height }, m_day, [&](float near, float far) {
 		// round it: the camera's own range, tight to the ground; from afar, the layer's

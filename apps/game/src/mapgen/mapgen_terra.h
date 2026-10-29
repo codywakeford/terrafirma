@@ -10,6 +10,10 @@
 
 #include "mapgen.h"
 #include "terragen/world.h"
+#include "terragen/worlds.h"
+#include <memory>
+#include <mutex>
+#include <vector>
 #include "mapgen/terra_column.h"
 #include <string>
 
@@ -47,10 +51,10 @@ public:
 	virtual void makeChunk(BlockMakeData *data);
 	int getSpawnLevelAtPoint(v2s16 p);
 	int getGroundLevelAtPoint(v2s16 p);
-	// Terra Firma: the same at a place on the planet (radians), with no node
-	// of the map: a planet's spawn is looked for before its tile is in the
-	// window. MAX_MAP_GENERATION_LIMIT where no one spawns.
-	int spawnLevelAt(double latitude, double longitude) const;
+	// Terra Firma: the same at a place on a body (radians), with no node of
+	// the map: a spawn is looked for before its tile is in the window.
+	// MAX_MAP_GENERATION_LIMIT where no one spawns. Safe from another thread.
+	int spawnLevelAt(int body, double latitude, double longitude) const;
 
 private:
 	// Fills stone, water and air from terragen; records each column. Returns
@@ -61,7 +65,8 @@ private:
 	void paintSurface();
 	// The finished column at (x, z), or false beyond the polar edge.
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
-	bool groundOnWorld(std::array<int32_t, 2> w, terragen::Ground &ground) const; // the world model's block
+	// the world model's block
+	static bool groundOnWorld(const terragen::World &world, std::array<int32_t, 2> w, terragen::Ground &ground);
 
 	terragen::World m_world;
 	std::optional<planet::Atlas> m_atlas;   // the world's, if it's a planet (planet_atlas)
@@ -77,9 +82,31 @@ private:
 	{
 		content_t segmentA, segmentB, cap, core, segmentSeam, capEdge, cut, coreEdge, line;
 	} m_paint{};
-	terra::Columns m_columns; // what goes in each column (shared with the far view)
-	std::optional<terra::AtlasLand> m_atlasLand; // an atlas's cells (shared with the far view)
-	std::optional<terra::AtlasLand::Reader> m_land;  // this generator's reading of it
+	terra::Columns m_columns; // what goes in each column of a flat world (shared with the far view)
+	// An atlas's bodies, each a world of its own (terragen/worlds.h): its
+	// columns, its cells (shared with the far view) and this generator's
+	// reading of them. Built when a chunk first needs them.
+	struct BodyLand
+	{
+		terragen::World world;
+		terra::Columns columns;
+		terra::AtlasLand land;
+		terra::AtlasLand::Reader reader;
+		BodyLand(const terragen::WorldCode &code, const terra::Blocks &blocks, s16 water_level,
+				const planet::Atlas &atlas, int body) :
+			world(code), columns(world, blocks, water_level, &atlas, body), land(columns, atlas), reader(land)
+		{
+		}
+	};
+	std::vector<terragen::BodyWorld> m_bodyWorlds;
+	// by body; built under m_building: spawnLevelAt asks from the main
+	// thread while this generator's emerge thread makes chunks
+	mutable std::vector<std::unique_ptr<BodyLand>> m_bodies;
+	mutable std::mutex m_building;
+	BodyLand &bodyLand(int body) const;
+	// The land a storage column is of: its body's (seam's is seam in any)
+	BodyLand &landAt(s16 x, s16 z) const;
+	const terra::Columns &columnsAt(s16 x, s16 z) const { return m_atlas ? landAt(x, z).columns : m_columns; }
 	Biome *m_biomes[(int)terragen::Biome::Count];
 
 	// per column of the current chunk (z outer, x inner)

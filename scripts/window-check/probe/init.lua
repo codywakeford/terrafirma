@@ -33,8 +33,9 @@ core.after(0.5, function()
 		core.after(32, function()
 			local placed, gone = 0, false
 			for n = 0, 400 do
+				-- a quarter turn and more from the spawn, so never its tile
 				local la = math.rad(-60 + (n % 23) * 5)
-				local lo = math.rad(math.floor(n / 23) * 20 + 7)
+				local lo = lon + math.rad(90 + math.floor(n / 23) * 10)
 				local ok, err = pcall(core.planet.atlas_node, la, lo, 0)
 				if not ok then say("full, as it should be: %s", tostring(err):sub(1, 60)) end
 				placed = placed + 1

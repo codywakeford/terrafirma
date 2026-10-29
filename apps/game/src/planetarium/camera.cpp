@@ -15,26 +15,64 @@ static constexpr float CELL = 2;       // pixels a tile's cell may span before i
 
 OrbitCamera::OrbitCamera(double sea, double farthest) : m_sea(sea), m_farthest(farthest), m_altitude(2.5 * sea)
 {
+	focus(0.4, 0.3);
 }
 
 void OrbitCamera::drag(double dx, double dy)
 {
 	const double k = TURN * std::clamp(m_altitude / m_sea, 0.002, 1.0);
-	m_longitude -= dx * k;
-	m_latitude = std::clamp(m_latitude + dy * k, -1.55, 1.55);
+	// the ground follows the hand: the camera goes the other way, across the
+	// screen about its up, along it about its right
+	const Vec u = m_up, n = m_north;
+	const Vec east{ u.y * n.z - u.z * n.y, u.z * n.x - u.x * n.z, u.x * n.y - u.y * n.x };
+	const double a = -dx * k, ca = std::cos(a), sa = std::sin(a);
+	const Vec u1{ u.x * ca + east.x * sa, u.y * ca + east.y * sa, u.z * ca + east.z * sa };
+	const double b = dy * k, cb = std::cos(b), sb = std::sin(b);
+	m_up = { u1.x * cb + n.x * sb, u1.y * cb + n.y * sb, u1.z * cb + n.z * sb };
+	m_north = { n.x * cb - u1.x * sb, n.y * cb - u1.y * sb, n.z * cb - u1.z * sb };
+	// kept unit and square to each other as the rounding drifts
+	const auto unit = [](Vec v) { const double l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); return Vec{ v.x / l, v.y / l, v.z / l }; };
+	m_up = unit(m_up);
+	const double d = m_north.x * m_up.x + m_north.y * m_up.y + m_north.z * m_up.z;
+	m_north = unit({ m_north.x - d * m_up.x, m_north.y - d * m_up.y, m_north.z - d * m_up.z });
 }
 
 void OrbitCamera::zoom(double steps)
 {
-	m_altitude = std::clamp(m_altitude * std::pow(STEP, steps), LOWEST, m_farthest);
+	altitude(m_altitude * std::pow(STEP, steps));
 }
 
 void OrbitCamera::focus(double latitude, double longitude, std::optional<double> altitude)
 {
-	m_latitude = std::clamp(latitude, -1.55, 1.55);
-	m_longitude = longitude;
+	const double lat = std::clamp(latitude, -1.55, 1.55), lon = longitude;
+	m_up = { std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
+	// north along the ground under it: the screen's up
+	m_north = { -std::sin(lat) * std::cos(lon), std::cos(lat), -std::sin(lat) * std::sin(lon) };
 	if (altitude)
-		m_altitude = std::clamp(*altitude, LOWEST, m_farthest);
+		this->altitude(*altitude);
+}
+
+void OrbitCamera::altitude(double altitude)
+{
+	m_altitude = std::clamp(altitude, LOWEST, m_farthest);
+}
+
+void OrbitCamera::resize(double sea, double farthest)
+{
+	const double radii = m_altitude / m_sea;
+	m_sea = sea;
+	m_farthest = farthest;
+	altitude(radii * sea);
+}
+
+double OrbitCamera::latitude() const
+{
+	return std::asin(std::clamp(m_up.y, -1.0, 1.0));
+}
+
+double OrbitCamera::longitude() const
+{
+	return std::atan2(m_up.z, m_up.x);
 }
 
 OrbitCamera::Vec OrbitCamera::ray(double x, double y, double width, double height, v2f shift) const
@@ -53,15 +91,9 @@ OrbitCamera::Vec OrbitCamera::ray(double x, double y, double width, double heigh
 	return { d.X, d.Y, d.Z };
 }
 
-OrbitCamera::Vec OrbitCamera::up() const
-{
-	return { std::cos(m_latitude) * std::cos(m_longitude), std::sin(m_latitude),
-		std::cos(m_latitude) * std::sin(m_longitude) };
-}
-
 OrbitCamera::Vec OrbitCamera::position() const
 {
-	const Vec u = up();
+	const Vec &u = m_up;
 	const double d = m_sea + m_altitude;
 	return { u.x * d, u.y * d, u.z * d };
 }
@@ -103,10 +135,8 @@ core::matrix4 OrbitCamera::turned(const core::matrix4 &view, double spin)
 
 core::matrix4 OrbitCamera::view() const
 {
-	const Vec u = up();
-	// north along the ground under it: the screen's up
-	const core::vector3df north((float)(-std::sin(m_latitude) * std::cos(m_longitude)), (float)std::cos(m_latitude),
-			(float)(-std::sin(m_latitude) * std::sin(m_longitude)));
+	const Vec &u = m_up;
+	const core::vector3df north((float)m_north.x, (float)m_north.y, (float)m_north.z);
 	core::matrix4 m;
 	m.buildCameraLookAtMatrixLH(core::vector3df(0), core::vector3df((float)-u.x, (float)-u.y, (float)-u.z), north);
 	return m;

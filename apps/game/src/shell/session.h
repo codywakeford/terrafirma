@@ -10,6 +10,7 @@
 #include "director.h"
 #include "ui.h"
 #include "planetarium.h"
+#include "terragen/worlds.h"
 #include <optional>
 #include <string>
 
@@ -45,12 +46,20 @@ public:
 	Screens &screens() { return m_screens; }
 	// The planet under the page: this world's, when the page or a key shows it.
 	Planetarium &planetarium() { return m_planetarium; }
-	// This world, as the Planetarium shows it. Throws Refused off a planet.
-	planetarium::Planetarium::Opts world() const;
-	// Shows this world (by a key: no page asked); why not, if it can't.
+	// A body of this world (its atlas index), as the Planetarium shows it.
+	// Throws Refused off a planet.
+	planetarium::Planetarium::Opts world(int body) const;
+	// Shows the body the player is on (by a key: no page asked); why not, if it can't.
 	std::optional<std::string> showWorld();
 
 private:
+	// This world's bodies (terragen/worlds.h), the home first; Refused off a planet.
+	std::vector<terragen::BodyWorld> bodies() const;
+	// A body the page names: `{ body: id }` (none: the home), its atlas index.
+	int bodyNamed(const Json::Value &intent) const;
+	// The body the player stands on now (the home before they're on a tile).
+	int bodyHere() const;
+
 	Shell &m_shell;
 	unsigned m_page; // the page load this session last spoke to
 	Items m_items;

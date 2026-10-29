@@ -4,8 +4,11 @@
 #include "session.h"
 #include "bridge.h"
 #include "client/client.h"
+#include "terragen/worlds.h"
+#include "client/localplayer.h"
 #include "shell.h"
 #include "preview.h"
+#include "system.h"
 #include "gui/mainmenumanager.h"
 #include "porting.h"
 
@@ -14,6 +17,7 @@ namespace shell {
 static const char *const VERBS[] = {
 	"screen.close", "game.leave", "game.quit",
 	"inventory.move", "inventory.craft", "inventory.drop", "creative.list", "ui.send", "screen.open", "worldgen.preview",
+	"system.preview", "system.world",
 };
 
 Session::Session(const Opts &opts) :
@@ -28,8 +32,9 @@ Session::Session(const Opts &opts) :
 	m_client(opts.client),
 	m_planetarium(opts.shell.planetarium())
 {
-	// the page shows only this world (whatever `body` it names)
-	m_planetarium.serve([this](const Json::Value &) { return world(); });
+	// the page shows this world's bodies: `body { code, body? }`, the
+	// home's when it names none
+	m_planetarium.serve([this](const Json::Value &body) { return world(bodyNamed(body)); });
 	m_shell.on("inventory.move", [this](const Json::Value &intent) {
 		m_actions.move(intent);
 		return Json::Value();
@@ -45,8 +50,20 @@ Session::Session(const Opts &opts) :
 	m_shell.on("creative.list", [this](const Json::Value &) {
 		return m_items.catalog();
 	});
-	m_shell.onAsync("worldgen.preview", [](const Json::Value &intent) {
-		return previewJson(intent);
+	// a body of this world names it (its world isn't a code of its own);
+	// the menu's previews are codes alone
+	m_shell.onAsync("worldgen.preview", [this](const Json::Value &intent) {
+		if (!intent.isMember("body"))
+			return previewJson(intent);
+		return previewJson(intent, bodies().at(bodyNamed(intent)).code);
+	});
+	// the map's bodies as the builder shows them: each one's card (stateless, as the menu's)
+	m_shell.on("system.preview", [](const Json::Value &intent) {
+		return systemPreview(intent);
+	});
+	// the world's own system, for the map's bodies
+	m_shell.on("system.world", [](const Json::Value &intent) {
+		return worldSystem(intent);
 	});
 	m_shell.on("ui.send", [this](const Json::Value &intent) {
 		m_ui.send(intent);
@@ -89,7 +106,40 @@ void Session::update(const HudView &view)
 		m_planetarium.dayIn(m_client->getEnv().getDayCount() + m_client->getEnv().getTimeOfDayF(), m_year);
 }
 
-planetarium::Planetarium::Opts Session::world() const
+std::vector<terragen::BodyWorld> Session::bodies() const
+{
+	const planet::Atlas *atlas = m_client->getAtlas();
+	const std::optional<far::Horizon> &horizon = m_client->getHorizon();
+	if (!atlas || !horizon)
+		throw Refused("this world isn't a planet: it has no bodies");
+	return terragen::bodyWorlds(terragen::WorldCode::decode(horizon->code), atlas->body(planet::Atlas::HOME).params());
+}
+
+int Session::bodyNamed(const Json::Value &intent) const
+{
+	if (!intent.isMember("body"))
+		return planet::Atlas::HOME;
+	if (!intent["body"].isString())
+		throw Refused("a body is named by its id (a string)");
+	const std::string id = intent["body"].asString();
+	const std::vector<terragen::BodyWorld> worlds = bodies();
+	for (size_t b = 0; b < worlds.size(); b++)
+		if (worlds[b].id == id)
+			return (int)b;
+	throw Refused("this world has no body '" + id + "' to show");
+}
+
+int Session::bodyHere() const
+{
+	const planet::Atlas *atlas = m_client->getAtlas();
+	LocalPlayer *player = m_client->getEnv().getLocalPlayer();
+	if (!atlas || !player)
+		return planet::Atlas::HOME;
+	const v3f feet = player->getPosition() / BS;
+	return atlas->bodyAt(planet::Atlas::moverNode(feet.X, feet.Y, feet.Z)).value_or(planet::Atlas::HOME);
+}
+
+planetarium::Planetarium::Opts Session::world(int body) const
 {
 	const planet::Atlas *atlas = m_client->getAtlas();
 	const std::optional<far::Horizon> &horizon = m_client->getHorizon();
@@ -98,13 +148,13 @@ planetarium::Planetarium::Opts Session::world() const
 	far::Palette palette = far::Palette::live(m_client->ndef(), m_client->tsrc(), far::blocksIn(horizon->content));
 	const terragen::WorldCode code = terragen::WorldCode::decode(horizon->code);
 	m_year = code.year;
-	return { *atlas, *horizon, std::move(palette), std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(code)) };
+	return { *atlas, *horizon, std::move(palette), std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(code)), body };
 }
 
 std::optional<std::string> Session::showWorld()
 {
 	try {
-		m_planetarium.show(world());
+		m_planetarium.show(world(bodyHere()));
 	} catch (const Refused &e) {
 		return std::string(e.what());
 	}

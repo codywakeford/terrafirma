@@ -4,10 +4,27 @@
 import { inject, type InjectionKey } from "vue"
 import { BridgeError } from "../bridge"
 import { FailureCode } from "../bridge/types"
-import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, CommunityCatalog, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, PublicServer, ServerDirectory, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
+import type { Account, Player, Social, SandboxFrame, BodyCard, BodyKind, SystemWire, CommunityCatalog, CreativeItem, EngineMessage, MatterElement, MatterSubstance, IntentKind, Intents, LabScenario, LabValue, PublicServer, ServerDirectory, SlotRef, Stack, StateSections, UiValues, World } from "../bridge"
 import { DEFAULTS, decodeWorldCode, encodeWorldCode } from "../worldgen/config"
 import { mockPreview, mockWeather } from "./mockWorld"
 import { bindingScancode } from "../settings/bindings"
+
+// The gallery's stand-in for the engine's home system (src/terragen/system.cpp: SystemSpec::home): no engine here.
+export const CANNED_HOME: SystemWire = {
+    star: "yellow", age: 4.5, activity: 0.5,
+    bodies: [
+        { id: "cinder", name: "Cinder", parent: null, color: "#a76c55", phase: 0.18, orbit: 0.42, eccentricity: 0.2, mass: -1.22, formed: 0.1, volatiles: 0.05, day: 1400, tilt: 1, playable: false, life: false, inclination: 0 },
+        { id: "earth", name: "Earth", parent: null, color: "#50a4c5", phase: 0.62, orbit: 1, eccentricity: 0.017, mass: 0, formed: 0.35, volatiles: 0.6, day: 24, tilt: 23, playable: true, life: true, inclination: 0 },
+        { id: "moon", name: "Moon", parent: "earth", color: "#a8a8a1", phase: 0.1, orbit: 60, eccentricity: 0.055, mass: -1.91, formed: 0.35, volatiles: 0.05, day: 655, tilt: 7, playable: false, life: false, inclination: 5 },
+        { id: "vesper", name: "Vesper", parent: null, color: "#b47d5e", phase: 0.88, orbit: 1.6, eccentricity: 0.09, mass: -0.9, formed: 0.45, volatiles: 0.5, day: 25, tilt: 25, playable: false, life: false, inclination: 0 },
+        { id: "aster", name: "Aster", parent: "vesper", color: "#9a9188", phase: 0.4, orbit: 6, eccentricity: 0.02, mass: -2.4, formed: 0.5, volatiles: 0.05, day: 30, tilt: 0, playable: false, life: false, inclination: 0 },
+        { id: "jovian", name: "Jovian", parent: null, color: "#d7ad83", phase: 0.35, orbit: 5.2, eccentricity: 0.05, mass: 2.5, formed: 0.8, volatiles: 0.6, day: 10, tilt: 3, playable: false, life: false, inclination: 0 },
+        { id: "pyre", name: "Pyre", parent: "jovian", color: "#ce9464", phase: 0.2, orbit: 5.9, eccentricity: 0.0041, mass: -1.82, formed: 0.55, volatiles: 0.05, day: 42, tilt: 0, playable: false, life: false, inclination: 0 },
+        { id: "nacre", name: "Nacre", parent: "jovian", color: "#c9d6da", phase: 0.55, orbit: 9.4, eccentricity: 0.009, mass: -2.1, formed: 0.8, volatiles: 0.6, day: 85, tilt: 0, playable: false, life: false, inclination: 0 },
+        { id: "hale", name: "Hale", parent: "jovian", color: "#a9b9b4", phase: 0.75, orbit: 15, eccentricity: 0.0013, mass: -1.6, formed: 0.8, volatiles: 0.5, day: 172, tilt: 0, playable: false, life: false, inclination: 0 },
+        { id: "morrow", name: "Morrow", parent: "jovian", color: "#868a91", phase: 0.05, orbit: 26, eccentricity: 0.007, mass: -1.73, formed: 0.85, volatiles: 0.4, day: 400, tilt: 0, playable: false, life: false, inclination: 0 },
+    ],
+}
 
 type Handlers = { [K in IntentKind]: (request: Intents[K]["request"]) => Intents[K]["response"] }
 
@@ -486,6 +503,8 @@ export function MockBridge() {
             setSocial({ ...social!, view: { ...v, invites: v.invites.filter((i) => i.id !== id) } })
             return null
         },
+        "system.home": () => CANNED_HOME,
+        "system.world": () => ({ ...CANNED_HOME, cards: CANNED_HOME.bodies.map((b) => cannedCard(b.id, CANNED[b.id] ?? "airless")) }),
         "system.preview": ({ bodies }) => bodies.map((b) => cannedCard(b.id, CANNED[b.id] ?? "airless")),
         "matter.list": () => ({ elements: ELEMENTS, substances: [WATER], reactions: [], rocks: [] }),
         // the mixture comes back as it went in: the gallery runs no chemistry

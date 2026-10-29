@@ -107,9 +107,9 @@ class Generator
 public:
 	// A flat world's (the Lab's): columns are the world model's, block for block
 	explicit Generator(const Horizon &horizon);
-	// An atlas planet's: its tiles are its regions' (far/tiling.h), each cell
-	// the column the generator builds in the atlas cell it stands for
-	Generator(const Horizon &horizon, const planet::Atlas &atlas);
+	// One body of an atlas world: its tiles are its regions' (far/tiling.h),
+	// each cell the column the generator builds in the atlas cell it stands for
+	Generator(const Horizon &horizon, const planet::Atlas &atlas, int body);
 	~Generator();
 
 	const Horizon &horizon() const { return m_horizon; }
@@ -130,6 +130,7 @@ private:
 
 	void growCrowns();
 	Tile buildOnAtlas(const TileKey &key) const;
+	void plant(const terra::Species &s, const terragen::Cover &cover, const terra::Column &c, Cell &out) const;
 	void growExact(Tile &tile) const;
 	void growCoarse(Tile &tile) const;
 	const terra::Species *speciesAt(const terra::Column &c, s32 x, s32 z) const;
@@ -139,6 +140,7 @@ private:
 
 	std::unique_ptr<terragen::World> m_world;
 	std::optional<planet::Atlas> m_atlas;
+	int m_body = planet::Atlas::HOME; // the atlas's body drawn (a flat world has one)
 	std::unique_ptr<Tiling> m_tiling; // an atlas's tiles
 	std::unique_ptr<terra::Columns> m_columns;
 	std::unique_ptr<terra::AtlasLand> m_land; // an atlas's

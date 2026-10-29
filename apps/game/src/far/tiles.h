@@ -28,7 +28,7 @@ struct Eye
 {
 	Tiling::Vec at;   // the eye's point over the sea, from the planet's centre
 	float altitude;  // above the sea: counts toward how far a tile is seen
-	float cut;       // nearer than this along the ground, someone else draws (the near world); 0 for none
+	float cut;       // nearer than this from the eye, someone else draws (the near world); 0 for none
 	float range;     // farther than this along the ground, nothing is drawn
 	float split;     // a tile splits while nearer than this many of its spans past the cut
 };
@@ -47,7 +47,8 @@ public:
 	// `palette` outlives the tiles: the workers read it. `threads`: how many
 	// build them (the far view shares the machine with the game; the
 	// Planetarium alone has most of it).
-	Tiles(const planet::Atlas &atlas, const Horizon &horizon, const Palette &palette, unsigned threads);
+	// One body of the atlas's.
+	Tiles(const planet::Atlas &atlas, int body, const Horizon &horizon, const Palette &palette, unsigned threads);
 
 	// The threads a view may build with: a share of the machine's (0..1), at least one.
 	static unsigned threadsFor(float share);
@@ -75,8 +76,8 @@ public:
 	bool based() const;
 
 	// A layer over the land: the colour a vertex is drawn, from its own and
-	// where it is (blocks from the planet's centre). Its alpha is kept (it
-	// marks the mesh's layers: far/mesh.cpp).
+	// where it is (blocks from the planet's centre). Its alpha is ignored:
+	// the land is opaque.
 	using Tint = std::function<video::SColor(video::SColor own, const Tiling::Vec &at)>;
 	// The land recoloured by it (none: their own colours), a few tiles each
 	// update (the drawn first) so no frame stalls; each as it's built.
@@ -109,6 +110,8 @@ private:
 
 	// how far a tile is from the eye along the ground (blocks, less half its size)
 	float distance(const TileKey &key, const Eye &eye) const;
+	// whether all of a tile is within the eye's cut (the near world's range)
+	bool inside(const TileKey &key, const Eye &eye) const;
 	bool choose(const Key &key, const Eye &eye, std::vector<Key> &draw, std::vector<std::pair<float, Key>> &want);
 	void install();
 	void paint(const Key &key, Entry &e) const; // its colours, tinted or its own

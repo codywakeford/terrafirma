@@ -18,4 +18,5 @@ set(terragen_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/system.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/vegetation.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/worlds.cpp
 	PARENT_SCOPE)

@@ -201,7 +201,7 @@ void TestPlanetAtlas::testPlainStepsNeverLie()
 				if (!there)
 					continue;
 				// storage axes are the grid's: x i, z j, y k (DIRS in face order)
-				const auto truth = a.atlas().neighbours(*c, d);
+				const auto truth = a.body(planet::Atlas::HOME).neighbours(*c, d);
 				UTEST(std::find(truth.begin(), truth.end(), *there) != truth.end(),
 						"(%d,%d,%d) + dir %d is a cell that isn't its neighbour", n.x, n.y, n.z, d);
 				crossings++;
@@ -219,7 +219,7 @@ void TestPlanetAtlas::testEveryCellIsStored()
 		const Atlas a = Atlas::resident(p);
 		int stored = 0;
 		for (int n = 0; n < 20000; n++) {
-			const Atlas::Cell c = a.atlas().locate(randomPoint(a.atlas(), rng));
+			const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(randomPoint(a.body(planet::Atlas::HOME), rng)));
 			const Atlas::Node node = a.node(c); // throws if not stored
 			UASSERT(a.cell(node) && *a.cell(node) == c);
 			stored++;
@@ -236,12 +236,12 @@ void TestPlanetAtlas::testPlaceIsTheCell()
 	for (const auto &p : planets()) {
 		const Atlas a = Atlas::resident(p);
 		for (int n = 0; n < 4000; n++) {
-			const Atlas::Cell c = a.atlas().locate(randomPoint(a.atlas(), rng));
+			const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(randomPoint(a.body(planet::Atlas::HOME), rng)));
 			if (c.region == Kind::Core)
 				continue;
 			const std::optional<std::array<double, 2>> at = a.place(a.node(c));
 			UASSERT(at.has_value());
-			const terragen::Atlas::Vec m = a.atlas().centre({ c.region, c.index, c.i, c.j, 0 });
+			const terragen::Atlas::Vec m = a.body(planet::Atlas::HOME).centre({ c.region, c.index, c.i, c.j, 0 });
 			const double R = std::sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
 			UASSERT(std::abs((*at)[0] - std::asin(m.y / R)) < 1e-12);
 			UASSERT(std::abs(std::remainder((*at)[1] - std::atan2(m.z, m.x), 2 * M_PI)) < 1e-12);
@@ -265,7 +265,7 @@ void TestPlanetAtlas::testStepsCross()
 				crossed++;
 				const Atlas::Cell there = *a.cell(s->node);
 				const int face = 2 * (axis == 0 ? 0 : axis == 1 ? 2 : 1) + (sign > 0);
-				const auto truth = a.atlas().neighbours(c, face);
+				const auto truth = a.body(planet::Atlas::HOME).neighbours(c, face);
 				UTEST(std::find(truth.begin(), truth.end(), there) != truth.end(),
 						"step %d,%d from region %d (%lld,%lld,%lld) to region %d: not a neighbour", axis, sign,
 						(int)c.region, (long long)c.i, (long long)c.j, (long long)c.k, (int)there.region);
@@ -291,7 +291,7 @@ void TestPlanetAtlas::testPolewardReachesCaps()
 {
 	for (const auto &p : planets()) {
 		const Atlas a = Atlas::resident(p);
-		for (const auto &g : a.atlas().grids()) {
+		for (const auto &g : a.body(planet::Atlas::HOME).grids()) {
 			if (g.region != Kind::Segment)
 				continue;
 			for (int64_t i = g.low[0]; i <= g.high[0]; i += 7)
@@ -299,8 +299,8 @@ void TestPlanetAtlas::testPolewardReachesCaps()
 					// the column's last cell poleward
 					std::optional<Atlas::Cell> last;
 					for (int64_t j = sign > 0 ? g.high[1] : g.low[1]; j != (sign > 0 ? g.low[1] : g.high[1]); j -= sign) {
-						const Atlas::Cell c{ Kind::Segment, g.index, i, j, 0 };
-						if (a.atlas().exists(c)) {
+						const Atlas::Cell c(Atlas::HOME, { Kind::Segment, g.index, i, j, 0 });
+						if (a.body(planet::Atlas::HOME).exists(c)) {
 							last = c;
 							break;
 						}
@@ -346,11 +346,11 @@ void TestPlanetAtlas::testSeeingCarriesTheGrid()
 						// the point the grid names is inside the cell seen: within
 						// half its diagonal of its centre
 						const Atlas::Cell to = *a.cell(s->node);
-						const terragen::Atlas::Vec named = *a.point(n, q.x, q.y, q.z), centre = a.atlas().centre(to);
+						const terragen::Atlas::Vec named = *a.point(n, q.x, q.y, q.z), centre = a.body(planet::Atlas::HOME).centre(to);
 						const double off = std::sqrt(std::pow(named.x - centre.x, 2) + std::pow(named.y - centre.y, 2) +
 								std::pow(named.z - centre.z, 2));
 						UTEST(off < 0.9, "seen %.3f blocks off (region %d, kept %.3f)", off, (int)to.region,
-								a.atlas().retained(to));
+								a.body(planet::Atlas::HOME).retained(to));
 					}
 		}
 		UTEST(across > 100, "only %zu seen across", across);
@@ -385,7 +385,7 @@ void TestPlanetAtlas::testCarryKeepsThePoint()
 			// on a sliver merged into the cell (terragen::Atlas::locate), onto
 			// the cell, by the sliver's thickness
 			const Atlas::Cell into = *a.cell(m);
-			const auto q = a.atlas().grid(into.region, into.index, before);
+			const auto q = a.body(planet::Atlas::HOME).grid(into.region, into.index, before);
 			const bool merged = q[0] < into.i || q[0] >= into.i + 1 || q[1] < into.j || q[1] >= into.j + 1 ||
 					q[2] < into.k - 0.02 || q[2] >= into.k + 1.02;
 			worst = std::max(worst, gap);
@@ -407,14 +407,14 @@ void TestPlanetAtlas::testTurnsFollowTheGround()
 	const auto unit = [](V a) { const double l = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); return V{ a.x / l, a.y / l, a.z / l }; };
 	for (const auto &p : planets()) {
 		const Atlas a = Atlas::resident(p);
-		const terragen::Atlas &atlas = a.atlas();
+		const terragen::Atlas &atlas = a.body(planet::Atlas::HOME);
 		const double R = p.radius + 0.5, lat = (p.capLatitude - 1) * M_PI / 180;
 		int turned = 0, entered = 0;
 		for (int deg = 0; deg < 360; deg += 7) {
 			// north up the segment there, to the cap's circle
 			const double lon = deg * M_PI / 180;
-			Atlas::Node from = a.node(atlas.locate({ R * std::cos(lat) * std::cos(lon), R * std::sin(lat),
-				R * std::cos(lat) * std::sin(lon) }));
+			Atlas::Node from = a.node(Atlas::Cell(Atlas::HOME, atlas.locate({ R * std::cos(lat) * std::cos(lon), R * std::sin(lat),
+				R * std::cos(lat) * std::sin(lon) })));
 			std::optional<Atlas::Step> step;
 			for (int n = 0; n < 200 && !(step = a.step(from, 2, 1)); n++)
 				from.z++;
@@ -470,21 +470,21 @@ void TestPlanetAtlas::testViewIsTheGrid()
 				// the far cell holds that point: its centre is within
 				// half its diagonal of it (near the axis cells are wide), and the
 				// view adds a hair
-				const auto k = a.atlas().corners(*a.cell(s->node));
+				const auto k = a.body(planet::Atlas::HOME).corners(*a.cell(s->node));
 				const double half = 0.5 * std::sqrt(std::pow(k[7].x - k[0].x, 2) + std::pow(k[7].y - k[0].y, 2) +
 						std::pow(k[7].z - k[0].z, 2));
 				const Atlas::Cell from = *a.cell(n), to = *a.cell(s->node);
-				const terragen::Atlas::Vec mid = a.atlas().centre(from);
+				const terragen::Atlas::Vec mid = a.body(planet::Atlas::HOME).centre(from);
 				// at a cut (either side), the neighbour past the cut's edge or
 				// nearest the face's middle; or where the point is a gap merged
 				// into the cell (terragen::Atlas::locate): a little further
 				const terragen::Atlas::Vec stepped = *a.point(n, want[0], want[1], want[2]);
-				const bool cut = a.atlas().retained(*a.cell(n)) < 1 || a.atlas().retained(*a.cell(s->node)) < 1;
-				const bool merged = !(a.atlas().owner(stepped) == *a.cell(s->node));
+				const bool cut = a.body(planet::Atlas::HOME).retained(*a.cell(n)) < 1 || a.body(planet::Atlas::HOME).retained(*a.cell(s->node)) < 1;
+				const bool merged = !(a.body(planet::Atlas::HOME).owner(stepped) == *a.cell(s->node));
 				const double slack = cut || merged ? 0.6 : 0.1;
 				UTEST(off < half + slack, "a step across a seam is drawn %.3f away (cell half %.3f): region %d→%d, r %.1f, the step's point is %s the far cell",
 						off, half, (int)from.region, (int)to.region, std::sqrt(mid.x * mid.x + mid.y * mid.y + mid.z * mid.z),
-						a.atlas().locate(stepped) == to ? "in" : "NOT in");
+						a.body(planet::Atlas::HOME).locate(stepped) == to ? "in" : "NOT in");
 			}
 		}
 		UTEST(across > 200, "only %zu crossings", across);
@@ -503,7 +503,7 @@ void TestPlanetAtlas::testCutsPartitionThePlanet()
 	constexpr double HAIR = 0.01;
 	for (const auto &p : planets()) {
 		const Atlas a = Atlas::resident(p);
-		const terragen::Atlas &t = a.atlas();
+		const terragen::Atlas &t = a.body(planet::Atlas::HOME);
 		std::mt19937_64 rng(34);
 		std::uniform_real_distribution<double> unit(-0.5, 0.5);
 		size_t points = 0, gaps = 0, overlaps = 0;
@@ -512,8 +512,8 @@ void TestPlanetAtlas::testCutsPartitionThePlanet()
 			int n = 0;
 			for (const Atlas::Tile &r : a.tiles()) {
 				const std::array<double, 3> g = t.grid(r.kind, r.index, q);
-				const Atlas::Cell c{ r.kind, r.index, (int64_t)std::floor(g[0]), (int64_t)std::floor(g[1]),
-					(int64_t)std::floor(g[2]) };
+				const Atlas::Cell c(r.body, { r.kind, r.index, (int64_t)std::floor(g[0]), (int64_t)std::floor(g[1]),
+					(int64_t)std::floor(g[2]) });
 				const Atlas::Node node{ (int32_t)(r.rect.x + c.i - r.i0), (int32_t)c.k, (int32_t)(r.rect.z + c.j - r.j0) };
 				const std::optional<Atlas::Cell> stored = a.cell(node);
 				if (!stored || !(*stored == c))
@@ -580,7 +580,7 @@ void TestPlanetAtlas::testTileMovesWhole()
 {
 	Atlas a(BIG);
 	UASSERT(a.tiles().empty());
-	const Atlas::Cell somewhere = a.atlas().locate(middle());
+	const Atlas::Cell somewhere(Atlas::HOME, a.body(planet::Atlas::HOME).locate(middle()));
 	const Atlas::TileId id = a.tileOf(somewhere);
 	a.put(3, id);
 	std::vector<std::pair<Atlas::Cell, Atlas::Spot>> seen;
@@ -610,7 +610,7 @@ void TestPlanetAtlas::testTileMovesWhole()
 	// one tile, one slot
 	EXCEPTION_CHECK(std::invalid_argument, a.put(4, id));
 	// a tile off its grid isn't one
-	EXCEPTION_CHECK(std::invalid_argument, a.put(4, Atlas::TileId{ 0, 1000000, 0 }));
+	EXCEPTION_CHECK(std::invalid_argument, a.put(4, Atlas::TileId{ 0, 0, 1000000, 0 }));
 	// a cell whose tile is out of the window has no node
 	a.put(200, std::nullopt);
 	EXCEPTION_CHECK(std::invalid_argument, a.node(seen[0].first));
@@ -619,15 +619,15 @@ void TestPlanetAtlas::testTileMovesWhole()
 void TestPlanetAtlas::testWindowCode()
 {
 	Atlas a(BIG);
-	a.put(0, Atlas::TileId{ 0, 0, 0 });
-	a.put(57, Atlas::TileId{ 25, -3, 2 });
-	a.put(224, Atlas::TileId{ 7, -1, -40 });
+	a.put(0, Atlas::TileId{ 0, 0, 0, 0 });
+	a.put(57, Atlas::TileId{ 0, 25, -3, 2 });
+	a.put(224, Atlas::TileId{ 0, 7, -1, -40 });
 	Atlas b(BIG);
-	b.put(9, Atlas::TileId{ 1, 0, 0 });
+	b.put(9, Atlas::TileId{ 0, 1, 0, 0 });
 	b.setWindow(a.windowCode());
 	UASSERT(b.window() == a.window());
 	UASSERT(b.windowCode() == a.windowCode());
-	EXCEPTION_CHECK(std::invalid_argument, b.setWindow("tiles-v1 3:x"));
+	EXCEPTION_CHECK(std::invalid_argument, b.setWindow("tiles-v2 3:x"));
 	EXCEPTION_CHECK(std::invalid_argument, b.setWindow("tiles-v0"));
 }
 
@@ -636,19 +636,19 @@ void TestPlanetAtlas::testWindowCode()
 void TestPlanetAtlas::testStepsBetweenSlots()
 {
 	Atlas a(BIG);
-	const Atlas::Cell c = a.atlas().locate(middle());
+	const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(middle()));
 	const Atlas::TileId t = a.tileOf(c);
-	const Atlas::TileId east{ t.region, t.ti + 1, t.tj };
+	const Atlas::TileId east{ t.body, t.region, t.ti + 1, t.tj };
 	a.put(10, t);
 	a.put(140, east);
 	// the last column of t, at the ground
-	const Atlas::Cell last{ c.region, c.index, (int64_t)t.ti * Atlas::TILE + Atlas::TILE - 1, c.j, -2 };
+	const Atlas::Cell last(c.body, { c.region, c.index, (int64_t)t.ti * Atlas::TILE + Atlas::TILE - 1, c.j, -2 });
 	const Atlas::Node from = a.node(last);
 	const std::optional<Atlas::Step> s = a.step(from, 0, 1);
 	UASSERT(s);
 	UASSERT(s->turn == 0);
 	const Atlas::Cell next = *a.cell(s->node);
-	UASSERT(next == (Atlas::Cell{ c.region, c.index, last.i + 1, last.j, last.k }));
+	UASSERT(next == Atlas::Cell(c.body, { c.region, c.index, last.i + 1, last.j, last.k }));
 	UASSERT(*Atlas::slotAt(s->node) == 140);
 	// and back
 	const std::optional<Atlas::Step> back = a.step(s->node, 0, -1);
@@ -658,17 +658,17 @@ void TestPlanetAtlas::testStepsBetweenSlots()
 void TestPlanetAtlas::testTilesNear()
 {
 	const Atlas a(BIG);
-	const Atlas::Cell c = a.atlas().locate(middle());
+	const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(middle()));
 	const Atlas::TileId t = a.tileOf(c);
 	// at a corner of its tile, a ball reaches the three round it too
-	const Atlas::Cell corner{ c.region, c.index, (int64_t)t.ti * Atlas::TILE, (int64_t)t.tj * Atlas::TILE, 0 };
-	const std::vector<Atlas::TileId> near = a.tilesNear(a.atlas().centre(corner), 600);
+	const Atlas::Cell corner(c.body, { c.region, c.index, (int64_t)t.ti * Atlas::TILE, (int64_t)t.tj * Atlas::TILE, 0 });
+	const std::vector<Atlas::TileId> near = a.tilesNear(Atlas::HOME, a.body(planet::Atlas::HOME).centre(corner), 600);
 	UASSERT(std::find(near.begin(), near.end(), t) != near.end());
-	for (const Atlas::TileId &o : { Atlas::TileId{ t.region, t.ti - 1, t.tj }, Atlas::TileId{ t.region, t.ti, t.tj - 1 },
-				Atlas::TileId{ t.region, t.ti - 1, t.tj - 1 } })
+	for (const Atlas::TileId &o : { Atlas::TileId{ t.body, t.region, t.ti - 1, t.tj }, Atlas::TileId{ t.body, t.region, t.ti, t.tj - 1 },
+				Atlas::TileId{ t.body, t.region, t.ti - 1, t.tj - 1 } })
 		UASSERT(std::find(near.begin(), near.end(), o) != near.end());
 	UASSERT(near.size() == 4);
 	// a cap's edge reaches its segments
-	const Atlas::Cell pole = a.atlas().locate({ 0, BIG.radius - 1, 0 });
+	const Atlas::Cell pole(Atlas::HOME, a.body(planet::Atlas::HOME).locate({ 0, BIG.radius - 1, 0 }));
 	UASSERT(pole.region == terragen::Atlas::Region::Cap);
 }

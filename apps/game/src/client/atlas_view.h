@@ -40,17 +40,12 @@ public:
 
 	// How to draw a block: its mesh's coordinates (BS, on the planet from
 	// the block's middle) to the scene's. None if the eye or the block has
-	// no cell (seam).
+	// no cell (seam), or the block is another body's.
 	const core::matrix4 *transform(v3s16 block);
 	// How to draw anything on the planet given from its middle (a mesh's
 	// coordinates: BS, from `centre`, a point on the planet): the far view's
 	// tiles. None while the eye has no grid.
 	std::optional<core::matrix4> place(const terragen::Atlas::Vec &centre) const;
-	// Where a block stands in the scene, seen from above: its four upright
-	// edges at its middle height (scene x, z; BS), round it in order. None if
-	// the eye or the block has no cell, and for a block at a seam: its square
-	// reaches past its cells, where another grid's block draws (or doesn't).
-	std::optional<std::array<v2f, 4>> footprint(v3s16 block);
 	// A pointed cell's outline in the scene (BS, as its mesh is drawn): the
 	// edges of its selection boxes (BS, round its node's centre), cut as the
 	// cell is (planet::Atlas::cut), its cut faces' edges with them. None if

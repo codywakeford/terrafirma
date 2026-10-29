@@ -33,6 +33,7 @@ public:
 	void testTilesForAnEye();
 	void testSeaIsWater();
 	void testTintPaintsTheLand();
+	void testNothingInsideTheCut();
 };
 
 static TestFarPalette g_test_instance;
@@ -45,6 +46,7 @@ void TestFarPalette::runTests(IGameDef *gamedef)
 	TEST(testTilesForAnEye);
 	TEST(testSeaIsWater);
 	TEST(testTintPaintsTheLand);
+	TEST(testNothingInsideTheCut);
 }
 
 namespace {
@@ -168,7 +170,7 @@ void TestFarPalette::testTilesForAnEye()
 	const Baked b = shipped();
 	const Horizon h{ "TF5.dGVycmE", 1, b.content };
 	const planet::Atlas atlas = planet::Atlas::resident({ 300, 12, 80, 60, 0.95, 32 });
-	Tiles tiles(atlas, h, b.palette, 2);
+	Tiles tiles(atlas, planet::Atlas::HOME, h, b.palette, 2);
 	const double sea = 300 + h.water_level + 1;
 	const Eye eye{ { sea, 0, 0 }, 40, 0, 500, 2 };
 	std::vector<Tiles::Drawn> drawn;
@@ -217,7 +219,7 @@ void TestFarPalette::testSeaIsWater()
 	size_t tops = 0;
 	for (const Mesh::Part &p : m.parts)
 		for (const video::S3DVertex &v : p.vertices)
-			if (v.Color.getAlpha() == 0) { // a liquid's top (far/mesh.cpp)
+			if (v.Normal.Y > 0.5f && v.Pos.Y > 0) { // a liquid's top: up, above the floor (at 1.5, the floor's at -9.5)
 				tops++;
 				UASSERT(v.Color.getRed() + v.Color.getGreen() + v.Color.getBlue() > 60);
 				UASSERT(v.Color.getGreen() + 1 >= least.getGreen() && v.Color.getBlue() + 1 >= least.getBlue());
@@ -228,14 +230,14 @@ void TestFarPalette::testSeaIsWater()
 
 
 // A layer over the land (Tiles::tint): every drawn vertex takes the tint's
-// colour for where it is (north red, south blue here), its alpha kept;
+// colour for where it is (north red, south blue here), opaque;
 // tiles built after it take it too; taken off, every vertex is its own again.
 void TestFarPalette::testTintPaintsTheLand()
 {
 	const Baked b = shipped();
 	const Horizon h{ "TF5.dGVycmE", 1, b.content };
 	const planet::Atlas atlas = planet::Atlas::resident({ 300, 12, 80, 60, 0.95, 32 });
-	Tiles tiles(atlas, h, b.palette, 2);
+	Tiles tiles(atlas, planet::Atlas::HOME, h, b.palette, 2);
 	tiles.tint(std::make_shared<const Tiles::Tint>([](video::SColor, const Tiling::Vec &at) {
 		return at.y >= 0 ? video::SColor(255, 255, 0, 0) : video::SColor(255, 0, 0, 255);
 	}));
@@ -273,3 +275,44 @@ void TestFarPalette::testTintPaintsTheLand()
 	count(false);
 	UTEST(red + blue < other / 100 + 1, "untinted, %zu vertices still red or blue (of %zu)", red + blue, red + blue + other);
 }
+
+// Within the eye's cut the near world's blocks are the land: no tile all
+// inside it is drawn (the far view's trees stood among the near world's,
+// sprint 42), and one reaching past it still is.
+void TestFarPalette::testNothingInsideTheCut()
+{
+	const Baked b = shipped();
+	const Horizon h{ "TF5.dGVycmE", 1, b.content };
+	const planet::Atlas atlas = planet::Atlas::resident(terragen::Atlas::standard(2000));
+	const double sea = 2000 + h.water_level + 1;
+	const float CUT = 700;
+	auto drawnFor = [&](float cut) {
+		Tiles tiles(atlas, planet::Atlas::HOME, h, b.palette, 2);
+		const Eye eye{ { sea, 0, 0 }, 10, cut, 1500, 2 };
+		std::vector<Tiles::Drawn> drawn;
+		for (int i = 0; i < 1500 && (i < 50 || tiles.pending() > 0); i++) {
+			tiles.update(eye);
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		UTEST(tiles.pending() == 0, "%zu tiles still being built", tiles.pending());
+		std::vector<std::pair<double, double>> out; // each drawn tile's nearest and farthest, at the sea
+		const Tiling &g = tiles.tiling();
+		for (const Tiles::Drawn &t : tiles.drawn()) {
+			const double d = std::hypot(t.middle.x * sea / g.radius() - eye.at.x, t.middle.y * sea / g.radius() - eye.at.y,
+					t.middle.z * sea / g.radius() - eye.at.z);
+			out.emplace_back(d - g.diagonal(t.key) / 2, d + g.diagonal(t.key) / 2);
+		}
+		return out;
+	};
+	const auto whole = drawnFor(0), cut = drawnFor(CUT);
+	size_t within = 0, across = 0;
+	for (const auto &[near, far] : whole)
+		within += far + 300 < CUT; // all well inside it, peaks and all
+	for (const auto &[near, far] : cut) {
+		UTEST(far + 300 >= CUT, "a tile reaching %.0f blocks off is drawn inside the cut (%.0f)", far, CUT);
+		across += near < CUT;
+	}
+	UTEST(within > 0, "with no cut, none of %zu tiles lies inside where it would be", whole.size());
+	UTEST(across > 0, "none of %zu tiles drawn reaches inside the cut: the ring past it may be open", cut.size());
+}
+

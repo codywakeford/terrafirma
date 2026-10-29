@@ -18,12 +18,41 @@ local function can_control(player)
 	return core.check_player_privs(player, { server = true })
 end
 
-local function send_map(player, explored)
+-- An atlas world's bodies (each its own map: its world, its size, what
+-- the player explored of it); a flat terra world's one map has no body.
+local bodies = terra and core.planet.bodies() or nil
+local home = bodies and bodies[1].id or nil
+local named = {}
+local listed = {} -- for the page: every body, the home first
+for _, b in ipairs(bodies or {}) do
+	named[b.id] = b
+	listed[#listed + 1] = { id = b.id, name = b.name }
+end
+
+-- What a player has explored of a body, as kept (the home's under the
+-- key it always had).
+local function explored_key(body)
+	return (body == nil or body == home) and "tf_explored" or ("tf_explored@" .. body)
+end
+local function load_explored(player, body)
+	local stored = player:get_meta():get_string(explored_key(body))
+	local explored = stored == "" and string.rep("\0", EXPLORE_BYTES) or core.decode_base64(stored)
+	if #explored ~= EXPLORE_BYTES then
+		error("tf_player: invalid explored map of " .. (body or "the world") .. " for " .. player:get_player_name())
+	end
+	return explored
+end
+
+-- The map of the body the player's on (the page draws it from the world
+-- code and the body).
+local function send_map(player, state)
+	local b = state.body and named[state.body]
 	player:set_ui("map", {
-		code = world.code, size = world.size, radius = orbit.radius, sea = sea,
+		code = world.code, body = state.body, name = b and b.name or nil, bodies = bodies and listed or nil,
+		size = b and b.size or world.size, radius = b and b.radius or orbit.radius, sea = sea,
 		star = world.star, tilt = world.tilt,
 		mode = modes[player:get_player_name()] and "creative" or "survival",
-		explored = core.encode_base64(explored), grid = EXPLORE_GRID,
+		explored = core.encode_base64(state.explored), grid = EXPLORE_GRID,
 	})
 end
 
@@ -54,8 +83,17 @@ local function map_at(player)
 	if not terra then return end
 	local name = player:get_player_name()
 	local state = maps[name]
+	-- the body they're on (none in seam between tiles: as they were)
+	local body = home and core.planet.body_at(player:get_pos()) or state.body
+	if body ~= state.body then
+		state.body = body
+		state.explored = load_explored(player, body)
+		state.x, state.z = nil, nil
+		player:set_ui("body", { id = body, name = named[body].name, home = body == home })
+		if state.ready then send_map(player, state) end
+	end
 	local pos = core.terra.world_column(player:get_pos())
-	local size = world.size
+	local size = body and named[body].size or world.size
 	local cx = math.floor((pos.x + size / 2) * EXPLORE_GRID / size) % EXPLORE_GRID
 	local cz = math.max(0, math.min(EXPLORE_GRID - 1,
 		math.floor((size / 2 - pos.z) * EXPLORE_GRID / size)))
@@ -65,11 +103,11 @@ local function map_at(player)
 		local changed
 		state.explored, changed = reveal(state.explored, cx, cz, radius)
 		if changed then
-			player:get_meta():set_string("tf_explored", core.encode_base64(state.explored))
-			if state.ready and not modes[name] then send_map(player, state.explored) end
+			player:get_meta():set_string(explored_key(body), core.encode_base64(state.explored))
+			if state.ready and not modes[name] then send_map(player, state) end
 		end
 	end
-	player:set_ui("map_position", { x = pos.x, z = pos.z, date = core.terra.calendar().date })
+	player:set_ui("map_position", { x = pos.x, z = pos.z, body = body, date = core.terra.calendar().date })
 end
 
 local function controls_for(player)
@@ -87,13 +125,11 @@ end
 
 core.register_on_joinplayer(function(player)
 	if terra then
-		local stored = player:get_meta():get_string("tf_explored")
-		local explored = stored == "" and string.rep("\0", EXPLORE_BYTES) or core.decode_base64(stored)
-		if #explored ~= EXPLORE_BYTES then error("tf_player: invalid explored map for " .. player:get_player_name()) end
-		maps[player:get_player_name()] = { explored = explored }
+		local state = { explored = load_explored(player, home) }
+		maps[player:get_player_name()] = state
 		map_at(player)
-		send_map(player, maps[player:get_player_name()].explored)
-		maps[player:get_player_name()].ready = true
+		send_map(player, state)
+		state.ready = true
 	end
 	controls_for(player)
 end)
@@ -131,14 +167,20 @@ core.register_on_ui_event(function(player, name, payload)
 		core.log("warning", "tf_player: " .. who .. " sent a teleport that isn't a place")
 		return
 	end
-	local column = core.planet.atlas_node(lat, lon, 0)
+	-- on the body the map shows (the home's when it names none)
+	local body = type(payload) == "table" and payload.body or nil
+	if body ~= nil and not named[body] then
+		core.log("warning", "tf_player: " .. who .. " sent a teleport to no body of this world")
+		return
+	end
+	local column = core.planet.atlas_node(lat, lon, 0, body)
 	if not column then
 		core.log("warning", "tf_player: no ground at " .. lat .. ", " .. lon)
 		return
 	end
 	local layer = core.get_spawn_level(column.x, column.z) or sea + 1
 	local at_lat, at_lon = core.planet.atlas_place(column)
-	local node = core.planet.atlas_node(at_lat, at_lon, layer)
+	local node = core.planet.atlas_node(at_lat, at_lon, layer, body)
 	if not node then
 		core.log("warning", "tf_player: no node at layer " .. layer .. " there")
 		return
@@ -154,7 +196,7 @@ core.register_on_ui_event(function(player, name, payload)
 	if name == "world.mode" then
 		if payload.mode ~= "creative" and payload.mode ~= "survival" then return end
 		set_mode(player, payload.mode == "creative", true)
-		if terra then send_map(player, maps[player:get_player_name()].explored) end
+		if terra then send_map(player, maps[player:get_player_name()]) end
 	elseif name == "world.time" then
 		local time = type(payload.time) == "string" and TIMES[payload.time] or payload.time
 		if type(time) ~= "number" or time ~= time or time < 0 or time >= 1 then return end

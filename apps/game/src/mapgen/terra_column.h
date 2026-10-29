@@ -66,11 +66,14 @@ std::array<int32_t, 2> equirect(double latitude, double longitude, int32_t size)
 class Columns
 {
 public:
-	// `atlas`: the world's planet, if it's one (src/planet/atlas.h). Then a
-	// column of the map is the world model's column at its latitude and
-	// longitude on the planet: the whole world, poles and all, on the sphere.
+	// `atlas`: the world's planet, if it's one (src/planet/atlas.h), and
+	// which of its bodies `world` is. Then a column of the map is the world
+	// model's column at its latitude and longitude on the body: the whole
+	// world, poles and all, on the sphere. A column of another body's tile
+	// throws.
 	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level,
-			const planet::Atlas *atlas);
+			const planet::Atlas *atlas, int body);
+	int body() const { return m_body; }
 
 	const Blocks &blocks() const { return m_blocks; }
 	s16 waterLevel() const { return m_water_level; }
@@ -104,6 +107,9 @@ private:
 
 	const terragen::World &m_world;
 	const planet::Atlas *m_atlas;
+	int m_body;
+	// a storage column's place on the body (none: seam); throws for another body's
+	std::optional<std::array<double, 2>> placeOf(s16 x, s16 z) const;
 	Blocks m_blocks;
 	s16 m_water_level;
 };

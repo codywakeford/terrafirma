@@ -1,4 +1,4 @@
-import type { BodyCausesWire } from "../bridge"
+import type { BodyCausesWire, SystemBodyWire, SystemWire } from "../bridge"
 
 /**
  * A planetary system as the player designs it: causes only. What each body
@@ -6,43 +6,10 @@ import type { BodyCausesWire } from "../bridge"
  * terragen's body model (`system.preview`, see ./preview.ts), never from here.
  * planning/systems-and-bodies.md has the model.
  */
-export type Body = {
-    id: string
-    name: string
-    parent: string | null // null orbits the star; else a planet
-    color: string         // its swatch in lists
-    phase: number         // 0..1: where it starts on its orbit, for the system view
-    /** The playable world: its land, tilt and year are the world code (its Surface, in the World step). */
-    playable: boolean
-    orbit: number         // AU around the star; parent radii around a planet
-    eccentricity: number
-    inclination: number   // degrees
-    mass: number          // log₁₀ Earth masses (the slider is logarithmic)
-    formed: number        // 0..1: hot and close (0) to beyond the frost line (1)
-    volatiles: number     // 0..1: the water and gases it formed with
-    day: number           // rotation period, hours
-    tilt: number          // degrees (the playable world's is in the world code)
-    life: boolean         // whether life arises where it can
-}
+/** A body as the page holds it: the engine's shape (`SystemBodyWire`). */
+export type Body = SystemBodyWire
 
 export const STAR = "star" // what's selected when the star is
-
-type Starter = Omit<Body, "playable" | "life" | "inclination"> & Partial<Pick<Body, "playable" | "life" | "inclination">>
-
-// A system like ours, so the model's worlds are recognisable: a Mercury, an
-// Earth and Moon, a small Mars-like world, a Jupiter with four moons.
-const STARTER: Starter[] = [
-    { id: "cinder", name: "Cinder", parent: null, color: "#a76c55", phase: 0.18, orbit: 0.42, eccentricity: 0.2, mass: -1.22, formed: 0.1, volatiles: 0.05, day: 1400, tilt: 1 },
-    { id: "earth", name: "Earth", parent: null, color: "#50a4c5", phase: 0.62, orbit: 1, eccentricity: 0.017, mass: 0, formed: 0.35, volatiles: 0.6, day: 24, tilt: 23, playable: true, life: true },
-    { id: "moon", name: "Moon", parent: "earth", color: "#a8a8a1", phase: 0.1, orbit: 60, eccentricity: 0.055, mass: -1.91, formed: 0.35, volatiles: 0.05, day: 655, tilt: 7 },
-    { id: "vesper", name: "Vesper", parent: null, color: "#b47d5e", phase: 0.88, orbit: 1.6, eccentricity: 0.09, mass: -0.9, formed: 0.45, volatiles: 0.5, day: 25, tilt: 25 },
-    { id: "aster", name: "Aster", parent: "vesper", color: "#9a9188", phase: 0.4, orbit: 6, eccentricity: 0.02, mass: -2.4, formed: 0.5, volatiles: 0.05, day: 30, tilt: 0 },
-    { id: "jovian", name: "Jovian", parent: null, color: "#d7ad83", phase: 0.35, orbit: 5.2, eccentricity: 0.05, mass: 2.5, formed: 0.8, volatiles: 0.6, day: 10, tilt: 3 },
-    { id: "pyre", name: "Pyre", parent: "jovian", color: "#ce9464", phase: 0.2, orbit: 5.9, eccentricity: 0.0041, mass: -1.82, formed: 0.55, volatiles: 0.05, day: 42, tilt: 0 },
-    { id: "nacre", name: "Nacre", parent: "jovian", color: "#c9d6da", phase: 0.55, orbit: 9.4, eccentricity: 0.009, mass: -2.1, formed: 0.8, volatiles: 0.6, day: 85, tilt: 0 },
-    { id: "hale", name: "Hale", parent: "jovian", color: "#a9b9b4", phase: 0.75, orbit: 15, eccentricity: 0.0013, mass: -1.6, formed: 0.8, volatiles: 0.5, day: 172, tilt: 0 },
-    { id: "morrow", name: "Morrow", parent: "jovian", color: "#868a91", phase: 0.05, orbit: 26, eccentricity: 0.007, mass: -1.73, formed: 0.85, volatiles: 0.4, day: 400, tilt: 0 },
-]
 
 /** The causes the body model accepts (terragen/body.cpp: check), so sliders can't ask for a world that can't exist. */
 export const LIMITS = {
@@ -54,13 +21,14 @@ export const LIMITS = {
 
 const COLORS = ["#8c9eaa", "#ba9678", "#87a99e", "#b3a090", "#aba4bf"]
 
-export function System() {
+/** A draft of a system, from one the engine gave (`system.home`: the one every world has today). */
+export function System(from: SystemWire) {
     return {
-        age: 4.5,       // billions of years
-        activity: 0.5,  // how hard the star's wind blows
-        selected: "earth" as string,
-        bodies: STARTER.map((s): Body => ({ playable: false, life: false, inclination: 0, ...s })),
-        made: 0,        // bodies added so far, for names and ids
+        age: from.age,           // billions of years
+        activity: from.activity, // how hard the star's wind blows
+        selected: from.bodies.find((b) => b.playable)?.id ?? STAR,
+        bodies: from.bodies.map((b): Body => ({ ...b })),
+        made: 0,                 // bodies added so far, for names and ids
     }
 }
 

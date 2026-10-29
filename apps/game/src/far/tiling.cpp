@@ -3,6 +3,8 @@
 
 #include "far/tiling.h"
 #include "far/terrain.h"
+#include "far/mesh.h"
+#include "constants.h"
 #include "exceptions.h"
 #include <algorithm>
 #include <cmath>
@@ -81,6 +83,25 @@ double Tiling::diagonal(const TileKey &key) const
 	const Extent e = extent(key);
 	const Vec a = point(key, e.x0, -0.5, e.z0), b = point(key, e.x1, -0.5, e.z1);
 	return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
+}
+
+void Tiling::place(Mesh &mesh, const TileKey &key) const
+{
+	const Vec mid = middle(key);
+	const float half = key.span() / 2.0f - 0.5f;
+	// the tile's own axes at its middle, for the normals
+	const auto axis = [&](double dx, double dy, double dz) {
+		const Vec a = point(key, half + dx, -0.5 + dy, half + dz), b = point(key, half - dx, -0.5 - dy, half - dz);
+		return v3f(a.x - b.x, a.y - b.y, a.z - b.z).normalize();
+	};
+	const v3f ex = axis(0.5, 0, 0), ey = axis(0, 0.5, 0), ez = axis(0, 0, 0.5);
+	for (Mesh::Part &part : mesh.parts)
+		for (video::S3DVertex &v : part.vertices) {
+			const v3f t = v.Pos / BS;
+			const Vec p = point(key, t.X, t.Y, t.Z);
+			v.Pos = v3f(p.x - mid.x, p.y - mid.y, p.z - mid.z) * BS;
+			v.Normal = (ex * v.Normal.X + ey * v.Normal.Y + ez * v.Normal.Z).normalize();
+		}
 }
 
 } // namespace far

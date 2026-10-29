@@ -17,16 +17,6 @@ static const v3f NORMAL[6] = { { 0, 1, 0 }, { 0, -1, 0 }, { 1, 0, 0 }, { -1, 0, 
 
 namespace {
 
-// What a face is, carried in its vertex alpha for the shader: where the near
-// world draws a column, our solid faces give way to its; where it draws its
-// own liquid, our liquid's do; what lies under a liquid never gives way (the
-// near world's may not be there yet, and its liquid would lie over nothing).
-enum class Layer { SOLID, LIQUID, UNDER };
-static float alphaOf(Layer l)
-{
-	return l == Layer::SOLID ? 1.0f : l == Layer::LIQUID ? 0.0f : 0.5f;
-}
-
 // Collects quads into parts of at most 65536 vertices.
 class Builder
 {
@@ -36,13 +26,13 @@ public:
 	// a quad from four corners (in blocks), wound to face `face`. A liquid's
 	// faces carry alpha 0: the shader drops them where the near world draws
 	// its own liquid there.
-	void quad(const v3f (&corner)[4], Face face, video::SColorf colour, Layer layer = Layer::SOLID)
+	void quad(const v3f (&corner)[4], Face face, video::SColorf colour)
 	{
-		quad(corner, face, { 1, 1, 1, 1 }, colour, layer);
+		quad(corner, face, { 1, 1, 1, 1 }, colour);
 	}
 
 	// with each corner lit to its own level (0..1), as smooth lighting does
-	void quad(const v3f (&corner)[4], Face face, const float (&lit)[4], video::SColorf colour, Layer layer = Layer::SOLID)
+	void quad(const v3f (&corner)[4], Face face, const float (&lit)[4], video::SColorf colour)
 	{
 		if (mesh.parts.empty() || mesh.parts.back().vertices.size() + 4 > 65536)
 			mesh.parts.emplace_back();
@@ -50,86 +40,43 @@ public:
 		u16 base = p.vertices.size();
 		for (int k = 0; k < 4; k++) {
 			float s = SHADE[face] * lit[k];
-			video::SColor c = video::SColorf(colour.r * s, colour.g * s, colour.b * s, alphaOf(layer)).toSColor();
+			video::SColor c = video::SColorf(colour.r * s, colour.g * s, colour.b * s, 1).toSColor();
 			p.vertices.emplace_back(corner[k] * BS, NORMAL[face], c, v2f(0, 0));
 		}
 		p.indices.insert(p.indices.end(), { base, (u16)(base + 1), (u16)(base + 2), base, (u16)(base + 2), (u16)(base + 3) });
 	}
 
 	// the horizontal face at height y over [x0, x1] × [z0, z1]
-	void flat(float x0, float x1, float z0, float z1, float y, Face face, video::SColorf colour, Layer layer = Layer::SOLID)
+	void flat(float x0, float x1, float z0, float z1, float y, Face face, video::SColorf colour)
 	{
 		if (face == UP)
-			quad({ { x0, y, z0 }, { x0, y, z1 }, { x1, y, z1 }, { x1, y, z0 } }, face, colour, layer);
+			quad({ { x0, y, z0 }, { x0, y, z1 }, { x1, y, z1 }, { x1, y, z0 } }, face, colour);
 		else
-			quad({ { x0, y, z0 }, { x1, y, z0 }, { x1, y, z1 }, { x0, y, z1 } }, face, colour, layer);
+			quad({ { x0, y, z0 }, { x1, y, z0 }, { x1, y, z1 }, { x0, y, z1 } }, face, colour);
 	}
 
 	// the vertical face on the `face` side of [x0, x1] × [z0, z1], from y0 up to y1
 	// `low` and `high`: how lit its bottom and top edges are
 	void side(float x0, float x1, float z0, float z1, float y0, float y1, Face face, video::SColorf colour,
-			Layer layer = Layer::SOLID, float low = 1, float high = 1)
+			float low = 1, float high = 1)
 	{
 		if (y1 <= y0)
 			return;
 		const float lit[4] = { low, high, high, low }; // each case below runs bottom, top, top, bottom
 		switch (face) {
-		case EAST:  quad({ { x1, y0, z0 }, { x1, y1, z0 }, { x1, y1, z1 }, { x1, y0, z1 } }, face, lit, colour, layer); break;
-		case WEST:  quad({ { x0, y0, z1 }, { x0, y1, z1 }, { x0, y1, z0 }, { x0, y0, z0 } }, face, lit, colour, layer); break;
-		case NORTH: quad({ { x1, y0, z1 }, { x1, y1, z1 }, { x0, y1, z1 }, { x0, y0, z1 } }, face, lit, colour, layer); break;
-		case SOUTH: quad({ { x0, y0, z0 }, { x0, y1, z0 }, { x1, y1, z0 }, { x1, y0, z0 } }, face, lit, colour, layer); break;
+		case EAST:  quad({ { x1, y0, z0 }, { x1, y1, z0 }, { x1, y1, z1 }, { x1, y0, z1 } }, face, lit, colour); break;
+		case WEST:  quad({ { x0, y0, z1 }, { x0, y1, z1 }, { x0, y1, z0 }, { x0, y0, z0 } }, face, lit, colour); break;
+		case NORTH: quad({ { x1, y0, z1 }, { x1, y1, z1 }, { x0, y1, z1 }, { x0, y0, z1 } }, face, lit, colour); break;
+		case SOUTH: quad({ { x0, y0, z0 }, { x0, y1, z0 }, { x1, y1, z0 }, { x1, y0, z0 } }, face, lit, colour); break;
 		default: break;
 		}
 	}
 };
 
-// Top faces along a row, merged where neighbours are the same height and
-// colour: seas, plains and beaches become strips, not a quad a cell. A strip
-// is at most a few cells long: on the planet a row bends (its region's
-// chart), and a long quad's straight edges would leave slits beside the next
-// row's shorter pieces.
-static constexpr float STRIP = 4; // cells
 // How far a tile's skirt hangs below its edge cells' ground, in its cells.
 static constexpr s32 SKIRT = 2;
-class Row
-{
-public:
-	Row(Builder &b, float z0, float z1) : m_b(b), m_z0(z0), m_z1(z1) {}
-	~Row() { flush(); }
-
-	void add(float x0, float x1, float y, video::SColorf colour, Layer layer)
-	{
-		video::SColor c = colour.toSColor();
-		if (m_open && m_y == y && m_colour == c && m_layer == layer && m_x1 == x0 && x1 - m_x0 <= STRIP * (x1 - x0)) {
-			m_x1 = x1;
-			return;
-		}
-		flush();
-		m_open = true;
-		m_x0 = x0;
-		m_x1 = x1;
-		m_y = y;
-		m_colour = c;
-		m_rgb = colour;
-		m_layer = layer;
-	}
-
-	void flush()
-	{
-		if (m_open)
-			m_b.flat(m_x0, m_x1, m_z0, m_z1, m_y, UP, m_rgb, m_layer);
-		m_open = false;
-	}
-
-private:
-	Builder &m_b;
-	float m_z0, m_z1;
-	bool m_open = false;
-	float m_x0 = 0, m_x1 = 0, m_y = 0;
-	video::SColor m_colour;
-	video::SColorf m_rgb;
-	Layer m_layer = Layer::SOLID;
-};
+// How far, in its cells, a cell reaches into a seam beside it.
+static constexpr float REACH = 0.5f;
 
 struct Span
 {
@@ -151,6 +98,30 @@ static int subtract(Span s, Span cover, Span out[2])
 	return n;
 }
 
+// faces are at block edges: a block at y fills y − ½ .. y + ½
+static float top(s32 y)
+{
+	return (float)y + 0.5f;
+}
+
+// Full sunlight on the engine's light curve. (The curve is the client's:
+// set_light_curve. Unset, every level is 0.)
+static float sunLight()
+{
+	const float sun = (float)decode_light(LIGHT_SUN);
+	if (sun == 0)
+		throw BaseException("far mesh: the light curve isn't set (set_light_curve)");
+	return sun;
+}
+// Under water, light falls a level per block of it (water passes light,
+// not sunlight). At height y (a face's edge) under a surface at `water`.
+static float lightAt(float y, s32 water)
+{
+	const float sun = sunLight();
+	s32 depth = (s32)std::ceil((float)water + 0.5f - y);
+	return (float)decode_light((u8)std::clamp(LIGHT_SUN - depth, 0, (int)LIGHT_SUN)) / sun;
+}
+
 } // namespace
 
 Mesh mesh(const Tile &tile, const Palette &palette)
@@ -159,45 +130,28 @@ Mesh mesh(const Tile &tile, const Palette &palette)
 	const s32 cell = tile.key.cell();
 	static const s32 DI[4] = { 1, -1, 0, 0 }, DJ[4] = { 0, 0, 1, -1 };
 	static const Face SIDE[4] = { EAST, WEST, NORTH, SOUTH };
-	// faces are at block edges: a block at y fills y − ½ .. y + ½
-	auto top = [](s32 y) { return (float)y + 0.5f; };
-	// Under water, light falls a level per block of it (water passes light,
-	// not sunlight), on the engine's light curve. At height y (a face's edge)
-	// under a surface at `water`.
-	// (The curve is the client's: set_light_curve. Unset, every level is 0.)
-	const float sun = (float)decode_light(LIGHT_SUN);
-	if (sun == 0)
-		throw BaseException("far mesh: the light curve isn't set (set_light_curve)");
-	auto lightAt = [sun](float y, s32 water) {
-		s32 depth = (s32)std::ceil((float)water + 0.5f - y);
-		return (float)decode_light((u8)std::clamp(LIGHT_SUN - depth, 0, (int)LIGHT_SUN)) / sun;
-	};
-
+	sunLight(); // tiles are lit by it: unset, say so whatever the tile
 	for (s32 j = 0; j < TILE; j++) {
-		float z0 = (float)(j * cell) - 0.5f, z1 = z0 + (float)cell;
-		// the row's ground (or liquid) on top, and the floors under its liquids
-		Row surface(b, z0, z1), floors(b, z0, z1);
+		const float cz0 = (float)(j * cell) - 0.5f, cz1 = cz0 + (float)cell;
 		for (s32 i = 0; i < TILE; i++) {
 			const Cell &c = tile.at(i, j);
 			if (c.space)
 				continue;
 			const float cx0 = (float)(i * cell) - 0.5f, cx1 = cx0 + (float)cell;
 			const bool wet = c.water > c.ground;
-			auto draw = [&](float x0, float x1, float z0, float z1) {
-			// a cell's top goes in its row's strips
-			auto put = [&](Row &row, float y, video::SColorf colour, Layer layer) {
-				row.add(x0, x1, y, colour, layer);
-			};
-
+			// A cell beside one the atlas has none of reaches half a cell into
+			// it: a coarse cell is no cell when its middle isn't, though up to
+			// half of it is, and the region across the seam stops the same way;
+			// between them the background showed (TestFar testNoHolesFromAbove).
+			const float reach = REACH * cell;
+			const float x0 = tile.at(i - 1, j).space ? cx0 - reach : cx0, x1 = tile.at(i + 1, j).space ? cx1 + reach : cx1;
+			const float z0 = tile.at(i, j - 1).space ? cz0 - reach : cz0, z1 = tile.at(i, j + 1).space ? cz1 + reach : cz1;
 			if (!wet) {
-				put(surface, top(c.ground), palette.face(c.top, UP), Layer::SOLID);
+				b.flat(x0, x1, z0, z1, top(c.ground), UP, palette.face(c.top, UP));
 			} else {
-				float lit = lightAt(top(c.ground), c.water);
-				video::SColorf floor = palette.face(c.top, UP);
-				// the liquid, seen through as the near world's is; and the floor
-				// alone, for where the near world lays its own liquid over it
-				put(surface, top(c.water), palette.through(c.liquid, floor, lit), Layer::LIQUID);
-				put(floors, top(c.ground), video::SColorf(floor.r * lit, floor.g * lit, floor.b * lit, 1), Layer::UNDER);
+				// the liquid, seen through as the near world's is
+				const float lit = lightAt(top(c.ground), c.water);
+				b.flat(x0, x1, z0, z1, top(c.water), UP, palette.through(c.liquid, palette.face(c.top, UP), lit));
 			}
 
 			for (int k = 0; k < 4; k++) {
@@ -205,8 +159,12 @@ Mesh mesh(const Tile &tile, const Palette &palette)
 				Cell n = tile.at(ni, nj);
 				// at the tile's edge, a skirt: the next tile may be coarser or finer,
 				// its edge not meeting ours vertex for vertex; a wall hung below the
-				// ground fills what would show through (none toward a gap)
-				if ((ni < 0 || ni >= TILE || nj < 0 || nj >= TILE) && !n.space) {
+				// ground fills what would show through. Toward a seam too, from
+				// where the cell reaches: the region across it may stand lower.
+				if (n.space) {
+					n.ground = c.ground - SKIRT * cell;
+					n.water = std::max(n.ground, c.water) - SKIRT * cell;
+				} else if (ni < 0 || ni >= TILE || nj < 0 || nj >= TILE) {
 					n.ground = std::min(n.ground, c.ground - SKIRT * cell);
 					n.water = std::min(n.water, std::max(n.ground, c.water) - SKIRT * cell);
 				}
@@ -223,7 +181,6 @@ Mesh mesh(const Tile &tile, const Palette &palette)
 					for (int band = 0; band < 3 && upper > low; band++) {
 						float lower = std::max(bands[band], low);
 						b.side(x0, x1, z0, z1, lower, upper, face, palette.face(nodes[band], face),
-								under ? Layer::UNDER : Layer::SOLID,
 								under ? lightAt(lower, n.water) : 1.0f, under ? lightAt(upper, n.water) : 1.0f);
 						upper = std::min(upper, lower);
 					}
@@ -232,7 +189,7 @@ Mesh mesh(const Tile &tile, const Palette &palette)
 				if (wet) {
 					float beyond = top(std::max(n.ground, n.water));
 					b.side(x0, x1, z0, z1, std::max(beyond, top(c.ground)), top(c.water), face,
-							palette.face(c.liquid, face), Layer::LIQUID);
+							palette.face(c.liquid, face));
 				}
 			}
 
@@ -263,9 +220,7 @@ Mesh mesh(const Tile &tile, const Palette &palette)
 						b.side(x0, x1, z0, z1, pieces[p].low, pieces[p].high, SIDE[k], palette.face(run->node, SIDE[k]));
 				}
 			}
-			};
 
-			draw(cx0, cx1, z0, z1);
 		}
 	}
 	return std::move(b.mesh);

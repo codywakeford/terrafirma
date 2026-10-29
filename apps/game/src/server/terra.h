@@ -26,11 +26,11 @@ struct ServerTerra
 {
 	std::vector<terra::SpeciesDef> species; // registration order
 	std::optional<std::vector<terra::Species>> resolved; // against the node definitions
-	std::unique_ptr<terragen::World> world;
+	std::vector<std::unique_ptr<terragen::World>> worlds; // by body (a flat world's: one)
 	std::unique_ptr<matter::Matter> matter;
 	std::unique_ptr<weather::Weather> weather; // after world and matter: it refers to both
-	std::unique_ptr<far::Generator> surface;
-	std::deque<far::Tile> tiles; // the surface's last few tiles
+	std::vector<std::unique_ptr<far::Generator>> surfaces; // by body (a flat world's: one)
+	std::deque<far::Tile> tiles; // a flat world's surface's last few tiles
 
 	// The species against the node definitions. The first call closes registration.
 	const std::vector<terra::Species> &resolve(const NodeDefManager *ndef)

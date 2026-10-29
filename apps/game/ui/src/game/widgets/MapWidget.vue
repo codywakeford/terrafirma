@@ -4,7 +4,7 @@ import { useBridge } from "../../bridge/use.ts"
 import { useStore } from "../store.ts"
 import { widgetConfig } from "./config.ts"
 import WidgetFrame from "./WidgetFrame.vue"
-import { mapCoordinates, mapImage, worldMapData } from "../map/data.ts"
+import { mapCoordinates, mapImage, mapKey, worldMapData } from "../map/data.ts"
 import LocalMap from "../map/LocalMap.vue"
 import { mapUv } from "../map/data.ts"
 
@@ -12,10 +12,11 @@ const bridge = useBridge()
 const store = useStore()
 const data = worldMapData()
 const map = computed(() => store.ui.map)
-const position = computed(() => store.ui.map_position)
+// where the player is on the body the map is of (none while they're between)
+const position = computed(() => store.ui.map_position?.body === map.value?.body ? store.ui.map_position : null)
 const fields = computed(() => {
     const current = data.preview.value
-    return current && current.code === map.value?.code ? current.fields : null
+    return current && map.value && current.key === mapKey(map.value) ? current.fields : null
 })
 const image = computed(() => map.value && fields.value ? mapImage(fields.value, map.value) : null)
 const pose = computed(() => store.state.mapPose ?? (position.value && map.value ? {
@@ -24,8 +25,8 @@ const pose = computed(() => store.state.mapPose ?? (position.value && map.value 
 const coordinates = computed(() => pose.value && map.value ? mapCoordinates(pose.value, map.value.size) : null)
 const width = computed(() => 128 + widgetConfig.mapScale * 24)
 
-watch(() => [map.value?.code, widgetConfig.ready, widgetConfig.map] as const, ([code, ready, enabled]) => {
-    if (code && ready && enabled) void data.ensure(bridge, code)
+watch(() => [map.value ? mapKey(map.value) : null, widgetConfig.ready, widgetConfig.map] as const, ([key, ready, enabled]) => {
+    if (key && ready && enabled && map.value) void data.ensure(bridge, map.value)
 }, { immediate: true })
 </script>
 

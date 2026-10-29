@@ -1,5 +1,5 @@
 import { inject, reactive, type InjectionKey } from "vue"
-import type { Account, BridgeHandle, Social, ItemInfo, Mode, PlanetariumMessage, ScreenName, StateSections, UiValues } from "../bridge"
+import type { Account, BridgeHandle, Social, ItemInfo, Mode, PlanetariumHover, PlanetariumMessage, ScreenName, StateSections, UiValues } from "../bridge"
 
 type Sections = { [S in keyof StateSections]: StateSections[S] | null }
 type Ui = { [K in keyof UiValues]: UiValues[K] | null }
@@ -11,7 +11,7 @@ type Ui = { [K in keyof UiValues]: UiValues[K] | null }
  */
 export function GameStore(opts: { bridge: BridgeHandle }) {
     const empty = (): Sections => ({ hud: null, player: null, mapPose: null, hotbar: null, inventory: null })
-    const noUi = (): Ui => ({ lab: null, wiki: null, discovered: null, probe: null, weather: null, creative: null, flight: null, map: null, map_position: null, map_trajectory: null, world_controls: null })
+    const noUi = (): Ui => ({ lab: null, wiki: null, discovered: null, probe: null, weather: null, travel: null, body: null, creative: null, flight: null, map: null, map_position: null, map_trajectory: null, world_controls: null })
     const store = reactive({
         mode: null as Mode | null,
         error: null as string | null,
@@ -27,6 +27,10 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
         /** The last place clicked on the Planetarium, while it's shown. */
         picked: null as Omit<Extract<PlanetariumMessage, { event: "picked" }>, "kind" | "event"> | null,
         clock: null as { date: number; running: boolean } | null, // the planet viewer's clock, while it runs
+        /** The body under the mouse on the Planetarium, while it's shown. */
+        hover: null as PlanetariumHover | null,
+        /** The last body a double click on the Planetarium flew to (its id; "star"), once: a page takes it. */
+        chosen: null as string | null,
     })
 
     // Messages carry every change after this; the first answer fills the gap
@@ -53,8 +57,12 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
                 store.screen = message.screen
                 break
             case "planetarium":
-                if (message.event === "picked") store.picked = { latitude: message.latitude, longitude: message.longitude, cell: message.cell }
-                else store.clock = { date: message.date, running: message.running }
+                switch (message.event) {
+                    case "picked": store.picked = { latitude: message.latitude, longitude: message.longitude, cell: message.cell }; break
+                    case "time": store.clock = { date: message.date, running: message.running }; break
+                    case "hovered": store.hover = message.body; break
+                    case "chosen": store.chosen = message.body; break
+                }
                 break
             case "account":
                 store.account = message.account
@@ -83,6 +91,8 @@ export function GameStore(opts: { bridge: BridgeHandle }) {
 					case "creative": store.ui.creative = message.value; break
                     case "lab": store.ui.lab = message.value; break
                     case "weather": store.ui.weather = message.value; break
+                    case "travel": store.ui.travel = message.value; break
+                    case "body": store.ui.body = message.value; break
                     case "wiki": store.ui.wiki = message.value; break
                     case "discovered": store.ui.discovered = message.value; break
                     case "probe": store.ui.probe = message.value; break

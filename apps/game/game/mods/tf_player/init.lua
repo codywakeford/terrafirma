@@ -8,7 +8,9 @@
 -- until you stop moving forward. A run, not Luanti's fast mode.
 
 local SPRINT = 1.6 -- × walking speed
-local CREATIVE = { fly = true, fast = true, noclip = true }
+-- Creative grants every privilege; survival takes back what creative granted,
+-- and these whoever granted them (survival never moves this way)
+local MOVEMENT = { fly = true, fast = true, noclip = true }
 local creative = core.settings:get_bool("creative_mode", false)
 local damage = core.settings:get_bool("enable_damage", true)
 local modes = {} -- connected player name → build mode
@@ -51,11 +53,11 @@ local function set_mode(player, enabled, switched)
 	meta:set_string("tf_build_mode", enabled and "creative" or "survival")
 	player:set_ui("creative", enabled)
 	local privs = core.get_player_privs(name)
-	for priv in pairs(CREATIVE) do
+	for priv in pairs(core.registered_privileges) do
 		if enabled and not privs[priv] then
 			privs[priv] = true
 			meta:set_string("tf_granted_" .. priv, "1")
-		elseif not enabled and (switched or meta:get_string("tf_granted_" .. priv) == "1") then
+		elseif not enabled and (meta:get_string("tf_granted_" .. priv) == "1" or (switched and MOVEMENT[priv])) then
 			privs[priv] = nil
 			meta:set_string("tf_granted_" .. priv, "")
 		end

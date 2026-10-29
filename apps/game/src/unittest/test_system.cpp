@@ -4,6 +4,8 @@
 #include "test.h"
 
 #include "terragen/system.h"
+#include "shell/system.h"
+#include "terragen/body.h"
 #include <cmath>
 #include <stdexcept>
 
@@ -26,6 +28,7 @@ public:
 	void testOrbitsCloseAfterAPeriod();
 	void testMoonsGoRoundTheirPlanet();
 	void testOnePlayableBody();
+	void testThePagesSystemIsTheEngines();
 };
 
 static TestSystem g_test_instance;
@@ -36,6 +39,7 @@ void TestSystem::runTests(IGameDef *gamedef)
 	TEST(testOrbitsCloseAfterAPeriod);
 	TEST(testMoonsGoRoundTheirPlanet);
 	TEST(testOnePlayableBody);
+	TEST(testThePagesSystemIsTheEngines);
 }
 
 namespace {
@@ -105,4 +109,34 @@ void TestSystem::testOnePlayableBody()
 		refused = true;
 	}
 	UTEST(refused, "a system with no playable body was taken (%d)", 0);
+}
+
+// The page holds no system of its own: its draft is the engine's
+// (shell::systemJson), and sent back as causes (`system.preview`, as
+// ui/src/system/model.ts causes() does) it's the same bodies, the same cards.
+void TestSystem::testThePagesSystemIsTheEngines()
+{
+	const SystemSpec home = SystemSpec::home();
+	const Json::Value page = shell::systemJson(home);
+	UASSERT(page["bodies"].size() == home.bodies.size());
+	Json::Value request;
+	request["star"] = page["star"];
+	request["age"] = page["age"];
+	request["activity"] = page["activity"];
+	request["bodies"] = Json::Value(Json::arrayValue);
+	for (const Json::Value &b : page["bodies"]) {
+		Json::Value c;
+		for (const char *field : { "id", "parent", "orbit", "eccentricity", "formed", "volatiles", "day", "life" })
+			c[field] = b[field];
+		c["mass"] = std::pow(10.0, b["mass"].asDouble());
+		request["bodies"].append(c);
+	}
+	const Json::Value cards = shell::systemPreview(request);
+	const System system(home);
+	UASSERT(cards.size() == system.cards().size());
+	for (Json::ArrayIndex i = 0; i < cards.size(); i++) {
+		UASSERT(cards[i]["id"].asString() == home.bodies[i].id);
+		UASSERT(cards[i]["kind"].asString() == terragen::KIND_NAMES[(int)system.cards()[i].kind]);
+		UASSERT(std::fabs(cards[i]["radius"].asDouble() - (double)system.cards()[i].radius / terragen::ONE) < 1e-3);
+	}
 }

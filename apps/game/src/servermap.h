@@ -63,7 +63,10 @@ public:
 
 	// Terra Firma: this map is a planet's window (planet/atlas.h). Its blocks
 	// are kept by where they are on the planet (database/database-planet.h).
-	void layOn(const planet::Atlas &atlas);
+	// An atlas world: its blocks kept by body and spot. `bodies`: each
+	// body's id (the home's blocks are the world's own; another's are in
+	// bodies/<id>/).
+	void layOn(const planet::Atlas &atlas, const std::vector<std::string> &bodies);
 	/// @brief copy data from map to prepare for mapgen
 	/// @return true if mapgen should actually happen
 	bool initBlockMake(v3s16 blockpos, BlockMakeData *data);

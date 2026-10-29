@@ -3599,10 +3599,22 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	// Terra Firma: the far view, once the server says this is a terra world.
 	// Created after the sky, so it draws right after it. The fog moves out to
 	// what it reaches (from high up, the planet's horizon).
-	// The planet comes before the horizon (Server::SendPlanet).
-	if (!far_view && client->getHorizon() && client->getAtlas()) // a terra world: a planet
-		far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(), *client->getHorizon(),
-				*client->getAtlas());
+	// The planet comes before the horizon (Server::SendPlanet). On an atlas
+	// world it's the body the player stands on: made again when that's
+	// another (kept while they're in seam, between tiles).
+	if (client->getHorizon() && client->getAtlas()) {
+		const v3f feet = player->getPosition() / BS;
+		const std::optional<int> on = client->getAtlas()->bodyAt(planet::Atlas::moverNode(feet.X, feet.Y, feet.Z));
+		if (far_view && on && *on != far_body) {
+			far_view->remove(); // the scene manager holds it too
+			far_view.reset();
+		}
+		if (!far_view && on) {
+			far_view = make_irr<far::View>(smgr, shader_src, texture_src, client->ndef(), *client->getHorizon(),
+					*client->getAtlas(), *on);
+			far_body = *on;
+		}
+	}
 	if (far_view) {
 		std::optional<float> fog_limit;
 		if (sky->getFogDistance() >= 0)

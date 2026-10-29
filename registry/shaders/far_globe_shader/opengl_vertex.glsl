@@ -8,8 +8,6 @@ uniform mat4 mWorld;
 uniform vec3 dayLight;
 
 VARYING_ lowp vec4 varColor;
-VARYING_ lowp float varLayer; // vertex alpha: 1 solid, 0 a liquid, ½ under a liquid
-VARYING_ highp vec2 flatPos;  // scene xz
 VARYING_ highp vec3 eyeVec;
 VARYING_ highp float varAltitude; // m above the sea
 VARYING_ lowp vec3 varDay;        // the daylight, for the air
@@ -18,7 +16,6 @@ VARYING_ highp float varSeen;     // how far off it's seen, scene units
 void main(void)
 {
 	vec3 world = (mWorld * inVertexPosition).xyz;
-	flatPos = world.xz;
 	varAltitude = inTexCoord0.x;
 	varDay = dayLight;
 	gl_Position = mWorldViewProj * inVertexPosition;
@@ -27,7 +24,6 @@ void main(void)
 
 	// as nodes_shader lights a block in full sun
 	vec4 color = inVertexColor;
-	varLayer = color.a;
 	color.a = 1.0;
 	color.rgb *= dayLight;
 	float brightness = (color.r + color.g + color.b) / 3.0;

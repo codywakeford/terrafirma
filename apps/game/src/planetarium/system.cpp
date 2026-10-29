@@ -17,7 +17,9 @@ using V = terragen::System::Vec;
 namespace {
 
 constexpr int LONGITUDES = 48, LATITUDES = 24; // a sphere's pieces
-constexpr int ORBIT = 160;                     // an orbit line's pieces
+constexpr int ORBIT = 512;                     // an orbit line's pieces
+constexpr int STARS = 2400;                    // the sky's
+constexpr double FADED = 0.12;                 // an orbit's brightness where its body is going
 constexpr double DOT = 2.5;                    // pixels: the least a body is drawn across
 constexpr double GLOW = 8;                     // the star's glow, in its radii
 constexpr u32 GLOW_SIZE = 128;                 // its texture, pixels a side
@@ -40,6 +42,23 @@ video::SColor colourOf(terragen::Kind kind)
 	case K::Count: break;
 	}
 	throw BaseException("planetarium: a body of no kind");
+}
+
+// An orbit's colour, a body's own (by its place in the system), apart from
+// its neighbours'.
+video::SColor orbitColour(size_t body)
+{
+	static const video::SColor COLOURS[] = {
+		{ 255, 236, 176, 110 }, { 255, 120, 210, 220 }, { 255, 150, 120, 240 }, { 255, 240, 220, 90 },
+		{ 255, 230, 110, 120 }, { 255, 130, 220, 130 }, { 255, 240, 150, 210 }, { 255, 110, 160, 240 },
+		{ 255, 220, 220, 220 }, { 255, 250, 130, 60 },
+	};
+	return COLOURS[body % (sizeof(COLOURS) / sizeof(COLOURS[0]))];
+}
+
+video::SColor scaled(video::SColor c, double k)
+{
+	return { 255, (u32)(c.getRed() * k), (u32)(c.getGreen() * k), (u32)(c.getBlue() * k) };
 }
 
 } // namespace
@@ -117,6 +136,7 @@ void SystemLayer::draw(video::IVideoDriver *driver, const Camera &camera, double
 	std::sort(bodies.begin(), bodies.end(), [](const Body &a, const Body &b) { return a.distance > b.distance; });
 
 	driver->setTransform(video::ETS_VIEW, camera.view);
+	stars(driver, camera);
 	orbits(driver, camera, day);
 
 	const double focal = camera.height / (2 * std::tan(camera.fov / 2));
@@ -144,6 +164,8 @@ void SystemLayer::draw(video::IVideoDriver *driver, const Camera &camera, double
 		}
 		if (b.index == (int)m_opts.focus) {
 			focused(near, far);
+			// the focused body draws in its own (spun) view: the rest are in the scene's
+			driver->setTransform(video::ETS_VIEW, camera.view);
 			continue;
 		}
 		Body drawn = b;
@@ -302,7 +324,10 @@ void SystemLayer::orbits(video::IVideoDriver *driver, const Camera &camera, doub
 			}
 			const V q = scene({ p.x - home.x, p.y - home.y, p.z - home.z });
 			const v3f at((f32)(q.x - camera.at.x), (f32)(q.y - camera.at.y), (f32)(q.z - camera.at.z));
-			vertices.emplace_back(at * BS, v3f(), parent >= 0 ? video::SColor(255, 70, 84, 96) : video::SColor(255, 64, 92, 118), v2f());
+			// n runs forward from the body: just behind it (n near ORBIT) brightest
+			const double fresh = FADED + (1 - FADED) * n / (ORBIT - 1);
+			const double own = (m_highlight == i ? 1.0 : 0.6) * (parent >= 0 ? 0.7 : 1.0);
+			vertices.emplace_back(at * BS, v3f(), scaled(orbitColour(i), fresh * own), v2f());
 			indices.push_back((u16)(first + n));
 			indices.push_back((u16)(first + (n + 1) % ORBIT));
 		}
@@ -319,6 +344,48 @@ void SystemLayer::orbits(video::IVideoDriver *driver, const Camera &camera, doub
 	driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
 	driver->drawVertexPrimitiveList(vertices.data(), (u32)vertices.size(), indices.data(), (u32)indices.size() / 2,
 			video::EVT_STANDARD, scene::EPT_LINES, video::EIT_16BIT);
+}
+
+void SystemLayer::stars(video::IVideoDriver *driver, const Camera &camera)
+{
+	if (m_starsFor != camera.height) {
+		// the same sky every time (a fixed seed); a square a pixel or two
+		// across at this screen's height, on the unit sphere
+		m_starsFor = camera.height;
+		m_stars.clear();
+		m_starIndices.clear();
+		const double pixel = 2 * std::tan(camera.fov / 2) / camera.height;
+		uint32_t seed = 0x9e3779b9;
+		const auto next = [&seed]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0; };
+		for (int n = 0; n < STARS; n++) {
+			const double y = next() * 2 - 1, a = next() * 2 * M_PI, r = std::sqrt(1 - y * y);
+			const v3f d((f32)(r * std::cos(a)), (f32)y, (f32)(r * std::sin(a)));
+			const double bright = std::pow(next(), 3);
+			const f32 h = (f32)(pixel * (0.6 + bright));
+			const double tint = next();
+			const u32 l = (u32)(60 + 195 * bright);
+			const video::SColor c(255, (u32)(l * (tint < 0.2 ? 0.8 : 1.0)), (u32)(l * 0.92), (u32)(l * (tint > 0.8 ? 0.8 : 1.0)));
+			// two axes across the way to it
+			v3f side = std::fabs(d.Y) < 0.9f ? d.crossProduct(v3f(0, 1, 0)) : d.crossProduct(v3f(1, 0, 0));
+			side.normalize();
+			const v3f up = side.crossProduct(d);
+			const u16 first = (u16)m_stars.size();
+			for (const v2f &corner : { v2f(-1, -1), v2f(1, -1), v2f(1, 1), v2f(-1, 1) })
+				m_stars.emplace_back(d + (side * corner.X + up * corner.Y) * h, v3f(), c, v2f());
+			m_starIndices.insert(m_starIndices.end(), { first, (u16)(first + 1), (u16)(first + 2), first, (u16)(first + 2), (u16)(first + 3) });
+		}
+	}
+	driver->setTransform(video::ETS_PROJECTION, OrbitCamera::perspective(camera.aspect, 0.1f, 10.f, camera.shift));
+	video::SMaterial mat;
+	mat.MaterialType = video::EMT_SOLID;
+	mat.FogEnable = false;
+	mat.BackfaceCulling = false;
+	mat.ZBuffer = video::ECFN_DISABLED; // behind everything: drawn first
+	mat.ZWriteEnable = video::EZW_OFF;
+	mat.ColorMask = video::ECP_RGB;
+	driver->setMaterial(mat);
+	driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+	driver->drawIndexedTriangleList(m_stars.data(), (u32)m_stars.size(), m_starIndices.data(), (u32)m_starIndices.size() / 3);
 }
 
 } // namespace planetarium
