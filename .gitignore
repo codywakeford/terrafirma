@@ -157,3 +157,6 @@ dist/
 account*.json
 /profiles/
 /lab/
+
+# Terra Firma: saved worlds are local user data pending migration into .output.
+/registry/worlds/
