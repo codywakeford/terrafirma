@@ -1,50 +1,38 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import Corner from "../account/Corner.vue"
 import { useBridge } from "../bridge/use.ts"
-import { Button, Panel } from "../kit/index.ts"
+import { Button } from "../kit/index.ts"
 import SettingsPanel from "../settings/SettingsPanel.vue"
-import WorldControlsWidget from "./widgets/WorldControlsWidget.vue"
 
-/** Esc in-game. The engine has paused singleplayer while this is open; Esc again resumes. */
+/**
+ * Esc in-game. The engine has paused singleplayer while this is open; Esc again resumes. The world isn't
+ * dimmed and the HUD stays up (the map, the profile, the building rails), clickable round the buttons.
+ */
 const bridge = useBridge()
-defineProps<{ controlsInitiallyOpen?: boolean; controlsInitialPage?: "mode" | "time" }>()
 const view = ref<"menu" | "settings">("menu")
 const settingsQuery = ref("")
 </script>
 
 <template>
     <div class="pause">
-        <Corner v-if="view === 'menu'" />
-        <WorldControlsWidget v-if="view === 'menu'" :initial-open="controlsInitiallyOpen" :initial-page="controlsInitialPage" />
-        <Panel v-if="view === 'menu'" title="Paused" class="menu">
-            <nav>
-                <Button variant="primary" size="lg" @click="bridge.send('screen.close', {})">Resume</Button>
-                <Button size="lg" @click="view = 'settings'">Settings</Button>
-                <Button size="lg" @click="bridge.send('screen.open', { name: 'map' })">Map</Button>
-                <div class="pair">
-                    <Button size="lg" @click="bridge.send('game.leave', {})">Main menu</Button>
-                    <Button size="lg" variant="danger" @click="bridge.send('game.quit', {})">Quit game</Button>
-                </div>
-            </nav>
-            <template #footer><span class="hint">esc to resume</span></template>
-        </Panel>
-
+        <nav v-if="view === 'menu'" class="menu" aria-label="Paused">
+            <Button variant="primary" @click="bridge.send('screen.close', {})">Resume</Button>
+            <Button @click="view = 'settings'">Settings</Button>
+            <Button @click="bridge.send('screen.open', { name: 'map' })">Map</Button>
+            <div class="pair">
+                <Button @click="bridge.send('game.leave', {})">Main menu</Button>
+                <Button variant="danger" @click="bridge.send('game.quit', {})">Quit</Button>
+            </div>
+        </nav>
         <SettingsPanel v-else-if="view === 'settings'" v-model:query="settingsQuery" close-label="Back" @close="view = 'menu'" />
     </div>
 </template>
 
 <style scoped>
-.pause {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgb(4 8 12 / 0.55);
-}
-.menu { width: max-content; min-width: 440px; }
-nav { display: grid; gap: 12px; }
-nav > :deep(.btn), .pair :deep(.btn) { width: 100%; }
-.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hint { margin-right: auto; font: 11px var(--font-display); text-transform: uppercase; color: var(--ink-faint); }
+/* over the HUD, but only the buttons take the mouse */
+.pause { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.pause > * { pointer-events: auto; }
+.menu { display: grid; gap: 10px; width: 300px; }
+.menu > :deep(.btn), .pair :deep(.btn) { width: 100%; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 </style>

@@ -364,7 +364,9 @@ static bool add_area_node_boxes(const v3s16 min, const v3s16 max, v3s16 from, IG
 			u8 neighbors = n.getNeighbors(p, map);
 
 			nodeboxes.clear();
-			n.getCollisionBoxes(nodedef, &nodeboxes, neighbors);
+			// Terra Firma: a cut node and smoothed ground are stood on as drawn
+			if (!map->getShapedBoxes(p, nodeboxes))
+				n.getCollisionBoxes(nodedef, &nodeboxes, neighbors);
 
 			v3f posf = intToFloat(p, BS);
 			for (auto box : nodeboxes) {

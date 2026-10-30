@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useBridge } from "../../bridge/use"
 import { Button, ListGroup, ListItem, Notice, Panel, Section, Segmented, Slider, Toggle, WorkbenchColumns } from "../../kit"
+import IconButton from "../../kit/IconButton.vue"
 import { useStore } from "../store"
 import { widgetConfig } from "./config"
 
@@ -10,7 +11,6 @@ const bridge = useBridge()
 const store = useStore()
 const controls = computed(() => store.ui.world_controls)
 const root = ref<HTMLElement | null>(null)
-const trigger = ref<HTMLButtonElement | null>(null)
 const expanded = ref(!!props.initialOpen)
 const page = ref<"mode" | "time">(props.initialPage ?? "mode")
 const problem = ref<string | null>(null)
@@ -40,7 +40,7 @@ function keydown(event: KeyboardEvent) {
         event.preventDefault()
         event.stopPropagation()
         expanded.value = false
-        trigger.value?.focus()
+        root.value?.querySelector<HTMLButtonElement>(".world-trigger")?.focus()
     }
 }
 onMounted(() => {
@@ -79,14 +79,14 @@ function setTime(value: number) {
 <template>
     <div v-if="widgetConfig.ready && widgetConfig.worldControls && controls" ref="root" class="world-controls"
         :class="`corner-${widgetConfig.worldControlsCorner}`">
-        <button ref="trigger" class="world-trigger" :class="{ active: expanded }" aria-label="World controls"
+        <IconButton class="world-trigger" label="World controls" :on="expanded"
             aria-controls="world-controls-panel" :aria-expanded="expanded" @click="expanded = !expanded">
             <svg viewBox="0 0 16 16" width="25" height="25" shape-rendering="crispEdges" aria-hidden="true">
                 <path fill="currentColor" d="M1 3h14v2H1zm0 4h14v2H1zm0 4h14v2H1z" />
                 <path fill="var(--accent-hi)" d="M4 2h3v4H4zm6 4h3v4h-3zm-5 4h3v4H5z" />
             </svg>
             <span class="mode-badge">{{ controls.mode === 'creative' ? 'C' : 'S' }}</span>
-        </button>
+        </IconButton>
 
         <Panel v-if="expanded" id="world-controls-panel" title="World controls" class="world-panel">
             <template #actions><Button size="sm" @click="expanded = false">Done</Button></template>
@@ -149,9 +149,6 @@ function setTime(value: number) {
 .corner-1 { top: 20px; right: 80px; }
 .corner-2 { bottom: 20px; left: 20px; }
 .corner-3 { bottom: 20px; right: 20px; }
-.world-trigger { position: relative; display: grid; place-items: center; width: 48px; height: 48px; padding: 0; color: var(--ink); background: var(--stone-2); border: var(--b) solid var(--edge); box-shadow: var(--raised), var(--ledge); }
-.world-trigger:hover, .world-trigger.active { background: var(--stone-3); outline: var(--b) solid var(--accent); }
-.world-trigger:focus-visible { outline: var(--b) solid var(--accent-hi); }
 .mode-badge { position: absolute; right: 2px; bottom: 2px; width: 15px; height: 15px; background: var(--accent-lo); border: 1px solid var(--edge); color: var(--ink); font: 10px/13px var(--font-display); text-align: center; }
 .world-panel { position: absolute; top: 56px; left: 0; width: min(850px, calc(100vw - 40px)); height: min(570px, calc(100vh - 104px)); }
 .corner-1 .world-panel { left: auto; right: 0; width: min(850px, calc(100vw - 100px)); }

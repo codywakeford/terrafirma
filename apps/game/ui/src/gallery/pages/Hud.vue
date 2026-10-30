@@ -13,8 +13,6 @@ import { mapUv } from "../../game/map/data.ts"
 const bridge = useMock()
 const store = useStore()
 const creativePreview = new URLSearchParams(location.search).has("creative")
-const controlsPreview = new URLSearchParams(location.search).has("controls")
-const controlsPage = new URLSearchParams(location.search).has("time") ? "time" : "mode"
 const code = encodeWorldCode({ ...DEFAULTS, seed: "pine ridge" })
 const exploredBytes = new Uint8Array(256 * 256 / 8)
 for (let z = 96; z < 160; z++) for (let x = 96; x < 160; x++) {
@@ -84,7 +82,7 @@ onMounted(() => {
         <div class="world">
             <div class="sky" />
             <Hud />
-            <PauseScreen v-if="store.screen === 'pause'" :controls-initially-open="controlsPreview" :controls-initial-page="controlsPage" />
+            <PauseScreen v-if="store.screen === 'pause'" />
             <MapScreen v-else-if="store.screen === 'map'" />
         </div>
         <aside>

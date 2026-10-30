@@ -12,6 +12,7 @@
 #include "util/numeric.h"
 #include "client/tile.h"
 #include "voxel.h"
+#include "shape/shape.h"
 #include <unordered_map>
 #include <map>
 
@@ -58,6 +59,8 @@ struct MeshMakeData
 	std::unordered_map<v3s16, std::vector<MapNode>> m_cuts;
 	// Terra Firma: an atlas's: the mesh is bent onto the planet (bendOntoAtlas)
 	const planet::Atlas *m_atlas = nullptr;
+	// Terra Firma: the cut nodes of the area and its margin, by node (absolute)
+	std::unordered_map<v3s16, shape::Shape> m_shapes;
 	float m_ao_gamma_inv = 0.0f;
 	bool m_generate_minimap = false;
 	bool m_smooth_lighting = false;

@@ -3,6 +3,8 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "server.h"
+#include "workshop/workshop.h"
+#include "server/luaentity_sao.h"
 
 #include "activeobject.h"
 #include "chat_interface.h"
@@ -434,6 +436,7 @@ Server::~Server()
 		m_env->saveMeta();
 
 		// Delete classes that depend on the environment
+		m_workshop.reset();
 		m_inventory_mgr.reset();
 		m_script.reset();
 
@@ -606,6 +609,7 @@ void Server::init()
 	m_script->loadBuiltin();
 
 	m_gamespec.checkAndLog();
+	m_materials = std::make_unique<workshop::Materials>();
 	m_modmgr->loadMods(*m_script);
 
 	m_script->saveGlobals();
@@ -640,6 +644,7 @@ void Server::init()
 	m_env = new ServerEnvironment(std::move(startup_server_map),
 		this, m_metrics_backend.get());
 	m_env->init();
+	m_workshop = std::make_unique<workshop::Workshop>(workshop::Workshop::Opts{ *m_env, this, m_path_world, *m_materials });
 
 	m_inventory_mgr->setEnv(m_env);
 	m_clients.setEnv(m_env);
@@ -836,6 +841,10 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 		max_lag = std::max(max_lag, dtime),
 
 		m_env->reportMaxLagEstimate(max_lag);
+
+		// Terra Firma: machines move by physics, then the environment steps (sprint 57)
+		if (m_workshop)
+			m_workshop->step(dtime);
 
 		// Step environment
 		m_env->step(dtime);
@@ -1070,6 +1079,8 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 
 						if (cmd >= AO_CMD_STOP_ANIMATION && client->net_proto_version < 52)
 							continue; // AO_CMD_STOP_ANIMATION added in protocol version 52
+						if (cmd >= AO_CMD_SET_PARTS && client->net_proto_version < 70)
+							continue; // Terra Firma: AO_CMD_SET_PARTS added in protocol version 70
 
 						// Add full new data to appropriate buffer
 						std::string &buffer = aom.reliable ? reliable_data : unreliable_data;
@@ -1152,6 +1163,10 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 				}
 				break;
 			}
+			case MEET_SHAPE:
+				prof.add("MEET_SHAPE", 1);
+				sendShape(event->p, &far_players, disable_single_change_sending ? 5 : 30);
+				break;
 			case MEET_OTHER:
 				prof.add("MEET_OTHER", 1);
 				m_clients.markBlocksNotSent(event->modified_blocks, event->low_priority);
@@ -1494,6 +1509,10 @@ void Server::setTimeOfDay(u32 time)
 
 void Server::onMapEditEvent(const MapEditEvent &event)
 {
+	// Terra Firma: the physics' ground follows every edit (sprint 57)
+	if (m_workshop)
+		m_workshop->mapEdited(event);
+
 	if (m_ignore_map_edit_events_area.contains(event.getArea()))
 		return;
 
@@ -2578,6 +2597,30 @@ void Server::sendAddNode(v3s16 p, MapNode n, std::unordered_set<u16> *far_player
 	pkt << p << n.param0 << n.param1 << n.param2
 			<< (u8) (remove_metadata ? 0 : 1);
 	sendNodeChangePkt(pkt, block_pos, p_f, far_d_nodes, far_players);
+}
+
+void Server::SendBlueprints(session_t peer_id, const std::string &player)
+{
+	const std::vector<std::string> names = m_workshop->blueprints(player);
+	NetworkPacket pkt(TOCLIENT_BLUEPRINTS, 2, peer_id);
+	pkt << u16(names.size());
+	for (const std::string &name : names)
+		pkt << name;
+	Send(&pkt);
+}
+
+void Server::sendShape(v3s16 p, std::unordered_set<u16> *far_players, float far_d_nodes)
+{
+	NetworkPacket pkt(TOCLIENT_SHAPE, 6 + 1 + shape::CELLS / 8);
+	const shape::Shape *s = m_env->getMap().getShape(p);
+	pkt << p << u8(s ? 0 : 1);
+	if (s) {
+		std::ostringstream os(std::ios::binary);
+		s->serialize(os);
+		const std::string bytes = os.str();
+		pkt.putRawString(bytes.data(), bytes.size());
+	}
+	sendNodeChangePkt(pkt, getNodeBlockPos(p), intToFloat(p, BS), far_d_nodes, far_players);
 }
 
 void Server::sendNodeChangePkt(NetworkPacket &pkt, v3s16 block_pos,

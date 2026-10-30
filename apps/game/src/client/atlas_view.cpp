@@ -131,11 +131,6 @@ std::optional<core::matrix4> AtlasView::place(const terragen::Atlas::Vec &centre
 
 std::optional<std::vector<AtlasView::Line>> AtlasView::outline(v3s16 node, const std::vector<aabb3f> &boxes)
 {
-	const v3s16 block = getContainerPos(node, MAP_BLOCKSIZE);
-	const auto &c = chart(block);
-	const core::matrix4 *m = transform(block);
-	if (!c || !m)
-		return std::nullopt;
 	const std::optional<planet::Atlas::Cut> cut = m_atlas.cut({ node.X, node.Y, node.Z });
 	const std::vector<Plane> planes = cut ? cut->planes : std::vector<Plane>{};
 	std::vector<std::vector<v3f>> faces; // node coordinates, from its centre
@@ -162,6 +157,20 @@ std::optional<std::vector<AtlasView::Line>> AtlasView::outline(v3s16 node, const
 				faces.push_back(poly);
 		}
 	}
+	std::vector<Line> lines;
+	for (const std::vector<v3f> &f : faces)
+		for (size_t i = 0; i < f.size(); i++)
+			lines.emplace_back(f[i], f[(i + 1) % f.size()]);
+	return place(node, lines);
+}
+
+std::optional<std::vector<AtlasView::Line>> AtlasView::place(v3s16 node, const std::vector<std::pair<v3f, v3f>> &lines)
+{
+	const v3s16 block = getContainerPos(node, MAP_BLOCKSIZE);
+	const auto &c = chart(block);
+	const core::matrix4 *m = transform(block);
+	if (!c || !m)
+		return std::nullopt;
 	// each point onto the planet as the mesh's vertices are, then drawn as its block is
 	const auto scene = [&](const v3f &p) {
 		const terragen::Atlas::Vec q = m_atlas.onPlanet(*c, node.X + p.X, node.Y + p.Y, node.Z + p.Z);
@@ -169,9 +178,8 @@ std::optional<std::vector<AtlasView::Line>> AtlasView::outline(v3s16 node, const
 		m->transformVect(at);
 		return at;
 	};
-	std::vector<Line> lines;
-	for (const std::vector<v3f> &f : faces)
-		for (size_t i = 0; i < f.size(); i++)
-			lines.emplace_back(scene(f[i]), scene(f[(i + 1) % f.size()]));
-	return lines;
+	std::vector<Line> out;
+	for (const auto &[a, b] : lines)
+		out.emplace_back(scene(a), scene(b));
+	return out;
 }

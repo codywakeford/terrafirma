@@ -160,6 +160,13 @@ void set_default_settings()
 	settings->setDefault("keymap_lab", "SYSTEM_SCANCODE_15"); // KEY_KEY_L (Terra Firma: the Lab panel)
 	settings->setDefault("keymap_planetarium", "SYSTEM_SCANCODE_64"); // KEY_F7 (Terra Firma: the planet viewer)
 	settings->setDefault("keymap_wiki", "SYSTEM_SCANCODE_10"); // KEY_KEY_G (Terra Firma: the wiki)
+	settings->setDefault("keymap_tools", "SYSTEM_SCANCODE_27"); // KEY_KEY_X (Terra Firma: the tools in hand)
+	settings->setDefault("keymap_tool_next", "SYSTEM_SCANCODE_21"); // KEY_KEY_R (Terra Firma: the next tool)
+	settings->setDefault("keymap_focus", "SYSTEM_SCANCODE_9"); // KEY_KEY_F (Terra Firma: the focus view)
+	settings->setDefault("keymap_mirror", "SYSTEM_SCANCODE_28"); // KEY_KEY_Y (Terra Firma: mirrored strokes)
+	settings->setDefault("keymap_undo", "SYSTEM_SCANCODE_24"); // KEY_KEY_U (Terra Firma: undo a stroke)
+	settings->setDefault("keymap_piece_new", "SYSTEM_SCANCODE_17"); // KEY_KEY_N (Terra Firma: a new object)
+	settings->setDefault("keymap_cursor", "SYSTEM_SCANCODE_43"); // KEY_TAB (Terra Firma: the cursor freed)
 	settings->setDefault("keymap_pause", "GAMEPAD_BUTTON_6"); // Gamepad Start
 	settings->setDefault("keymap_aux1", "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2"); // KEY_LCONTROL|Gamepad West (Terra Firma: sprint, as Minecraft; E is the inventory)
 	settings->setDefault("keymap_chat", "SYSTEM_SCANCODE_23"); // KEY_KEY_T
@@ -175,7 +182,7 @@ void set_default_settings()
 	settings->setDefault("keymap_pitchmove", "");
 	settings->setDefault("keymap_fastmove", "SYSTEM_SCANCODE_13"); // KEY_KEY_J
 	settings->setDefault("keymap_noclip", "SYSTEM_SCANCODE_11"); // KEY_KEY_H
-	settings->setDefault("keymap_hotbar_next", "SYSTEM_SCANCODE_17|GAMEPAD_BUTTON_10"); // KEY_KEY_N|Gamepad RB
+	settings->setDefault("keymap_hotbar_next", "GAMEPAD_BUTTON_10"); // Gamepad RB (Terra Firma: N makes an object)
 	settings->setDefault("keymap_hotbar_previous", "SYSTEM_SCANCODE_5|GAMEPAD_BUTTON_9"); // KEY_KEY_B|Gamepad LB
 	settings->setDefault("keymap_mute", "SYSTEM_SCANCODE_16"); // KEY_KEY_M
 	settings->setDefault("keymap_increase_volume", "");

@@ -31,7 +31,7 @@ watch(() => [map.value ? mapKey(map.value) : null, widgetConfig.ready, widgetCon
 </script>
 
 <template>
-    <WidgetFrame v-if="widgetConfig.ready && widgetConfig.map && map && store.state.hud?.visible && !store.screen"
+    <WidgetFrame v-if="widgetConfig.ready && widgetConfig.map && map && store.state.hud?.visible && (!store.screen || store.screen === 'pause')"
         title="Map" :corner="widgetConfig.mapCorner" interactive bare>
         <button class="open-map" :class="{ round: widgetConfig.mapShape === 1 }" :style="{ width: `${width}px` }" aria-label="Open world map"
             @click="bridge.send('screen.open', { name: 'map' })">

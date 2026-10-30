@@ -4,6 +4,8 @@
 
 #pragma once
 
+namespace piece { class Machine; }
+
 #include "irrlichttypes.h"
 
 #include <EMaterialTypes.h>
@@ -16,6 +18,7 @@
 #include "itemgroup.h"
 #include "client/tile.h"
 #include <cassert>
+#include <memory>
 #include <memory>
 
 namespace scene {
@@ -115,6 +118,31 @@ private:
 	v3f m_velocity;
 	v3f m_acceleration;
 	v3f m_rotation;
+	std::unique_ptr<piece::Machine> m_machine; // Terra Firma
+	// Terra Firma (sprint 57): its rigid groups but the first, each drawn on
+	// its own (a wheel turns), and where each is in the first's (BS; x y z w)
+	std::vector<scene::IMeshSceneNode *> m_group_nodes;
+	struct GroupPose
+	{
+		v3f offset;
+		f32 x, y, z, w;
+	};
+	std::vector<GroupPose> m_group_poses;
+	void poseGroups();
+	// Terra Firma: how its parts are drawn
+	struct Look
+	{
+		std::optional<u64> selected; // drawn tinted; the rest dimmed
+		std::optional<u64> hovered;  // drawn as it is, the rest see-through, when looking through
+		bool through = false;        // see-through (selecting): what's under the cursor drawn solid
+		bool lit = false;            // all of it lit: pointed at in the world, a press grabs it
+		bool operator==(const Look &o) const
+		{
+			return selected == o.selected && hovered == o.hovered && through == o.through && lit == o.lit;
+		}
+	};
+	Look m_look;
+	std::optional<std::pair<v3f, v3f>> m_posed;
 	u16 m_hp = 1;
 	SmoothTranslator<v3f> pos_translator;
 	SmoothTranslatorWrappedv3f rot_translator;
@@ -198,6 +226,18 @@ public:
 	const v3f getVelocity() const override final { return m_velocity; }
 
 	inline const v3f &getRotation() const { return m_rotation; }
+	// Terra Firma: its piece's blocks, if it's a piece (visual "piece")
+	// Terra Firma: the machine it carries (visual "piece"), if it's one
+	const piece::Machine *getMachine() const { return m_machine.get(); }
+	// Terra Firma: the part selected tinted, the rest dimmed; looking
+	// through (selecting), all see-through but the part hovered and the
+	// part selected
+	void setLook(const Look &look);
+	// Terra Firma: drawn where this client says (BS, and its rotation in
+	// degrees), carried or held; none: where the server says
+	void setPosed(std::optional<std::pair<v3f, v3f>> posed);
+	// Terra Firma: its grid in the world as it's drawn (piece::frame)
+	core::matrix4 getFrame() const;
 
 	bool isImmortal() const;
 

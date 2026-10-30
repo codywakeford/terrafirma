@@ -198,6 +198,27 @@ keymap_planetarium (Planetarium) key SYSTEM_SCANCODE_64
 #    Open the wiki: what everything is made of and how it behaves (where the world's rules allow it).
 keymap_wiki (Open the wiki) key SYSTEM_SCANCODE_10
 
+#    Terra Firma: the tools in hand out or away: dig and place work the world in shapes, the wheel sizes them.
+keymap_tools (Tools) key SYSTEM_SCANCODE_27
+
+#    Terra Firma: with the tools out, the next one (Sculpt cube, Sculpt ball, Cut, Bore).
+keymap_tool_next (Next tool) key SYSTEM_SCANCODE_21
+
+#    Terra Firma: pick up the object pointed at (it lifts, held still): the camera round it, the mouse free. Again to let it go.
+keymap_focus (Pick up an object) key SYSTEM_SCANCODE_9
+
+#    Terra Firma: strokes mirrored left to right (in the focus view, across the block focused).
+keymap_mirror (Mirror strokes) key SYSTEM_SCANCODE_28
+
+#    Terra Firma: undo your last stroke.
+keymap_undo (Undo a stroke) key SYSTEM_SCANCODE_24
+
+#    Terra Firma: with the tools out, a new object (a block of the block held, not fixed to the world), held up in front of you.
+keymap_piece_new (New object) key SYSTEM_SCANCODE_17
+
+#    Terra Firma: free the cursor (to click the tool rails and menus; the world's pointed at through it), and take it back.
+keymap_cursor (Free the cursor) key SYSTEM_SCANCODE_43
+
 #    Key for opening the pause menu in-game.
 #    Pressing the escape key always opens the pause menu.
 keymap_pause (Open pause menu) key GAMEPAD_BUTTON_6
@@ -223,7 +244,7 @@ keymap_fastmove (Toggle fast) key SYSTEM_SCANCODE_13
 
 keymap_noclip (Toggle noclip) key SYSTEM_SCANCODE_11
 
-keymap_hotbar_next (Hotbar: select next item) key SYSTEM_SCANCODE_17|GAMEPAD_BUTTON_10
+keymap_hotbar_next (Hotbar: select next item) key GAMEPAD_BUTTON_10
 
 keymap_hotbar_previous (Hotbar: select previous item) key SYSTEM_SCANCODE_5|GAMEPAD_BUTTON_9
 

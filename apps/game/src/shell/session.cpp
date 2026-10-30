@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "session.h"
+#include "client/hand.h"
+#include "piece/machine.h"
 #include "bridge.h"
 #include "client/client.h"
 #include "terragen/worlds.h"
@@ -17,14 +19,28 @@ namespace shell {
 static const char *const VERBS[] = {
 	"screen.close", "game.leave", "game.quit",
 	"inventory.move", "inventory.craft", "inventory.drop", "creative.list", "ui.send", "screen.open", "worldgen.preview",
-	"system.preview", "system.world",
+	"system.preview", "system.world", "tools.pick", "tools.ask", "tools.mode", "tools.brush", "hotbar.select",
 };
+
+namespace {
+
+// The index of the row of `table` whose id is `id`; else the page is wrong.
+template <class Row, class Id>
+size_t lookup(const std::string &id, const Row *table, size_t count, Id idOf, const char *what)
+{
+	for (size_t i = 0; i < count; i++)
+		if (id == idOf(table[i]))
+			return i;
+	throw Refused(std::string("no ") + what + " \"" + id + "\"");
+}
+
+} // namespace
 
 Session::Session(const Opts &opts) :
 	m_shell(opts.shell),
 	m_page(opts.shell.pageLoads()),
 	m_items({ opts.client, opts.driver, opts.shell.itemDir(), std::to_string(porting::getTimeMs()) }),
-	m_state({ opts.shell, opts.client, m_items }),
+	m_state({ opts.shell, opts.client, m_items, opts.hand }),
 	m_ui({ opts.shell, opts.client }),
 	m_director({ m_ui, opts.client }),
 	m_screens({ opts.shell, opts.guienv, m_ui }),
@@ -64,6 +80,87 @@ Session::Session(const Opts &opts) :
 	// the world's own system, for the map's bodies
 	m_shell.on("system.world", [](const Json::Value &intent) {
 		return worldSystem(intent);
+	});
+	// a tool picked on the page's rail (the focus view frees the mouse for it)
+	m_shell.on("tools.pick", [&hand = opts.hand](const Json::Value &intent) {
+		if (!intent["tool"].isString())
+			throw Refused("tools.pick needs a string 'tool'");
+		hand.pick(intent["tool"].asString());
+		return Json::Value();
+	});
+	// an action on the page's rail: what a key does, or the library's
+	m_shell.on("tools.ask", [&hand = opts.hand](const Json::Value &intent) {
+		if (!intent["action"].isString() || (intent.isMember("name") && !intent["name"].isString()))
+			throw Refused("tools.ask needs a string 'action', and 'name' a string if given");
+		if (intent["action"].asString() == "relink") {
+			// the selected part's joint to another: its id (a string: it's 64 bits) and kind
+			if (!intent["other"].isString() || !intent["joint"].isString())
+				throw Refused("tools.ask relink needs string 'other' and 'joint'");
+			u64 other;
+			try {
+				other = std::stoull(intent["other"].asString());
+			} catch (const std::exception &) {
+				throw Refused("tools.ask relink: 'other' isn't a part's id");
+			}
+			// "none": the joint taken away
+			const std::string joint = intent["joint"].asString();
+			hand.relink(other, joint == "none" ? std::nullopt : std::optional<piece::Joint>(piece::Joint(lookup(joint,
+					piece::JOINTS, size_t(piece::Joint::Count), [](const piece::JointKind &j) { return j.id; }, "joint"))));
+			return Json::Value();
+		}
+		// a socket on the face the menu's on, of a joint; one taken away, by its id
+		if (intent["action"].asString() == "socket") {
+			if (!intent["joint"].isString())
+				throw Refused("tools.ask socket needs a string 'joint'");
+			hand.socket(piece::Joint(lookup(intent["joint"].asString(), piece::JOINTS, size_t(piece::Joint::Count),
+					[](const piece::JointKind &j) { return j.id; }, "joint")));
+			return Json::Value();
+		}
+		if (intent["action"].asString() == "unsocket") {
+			if (!intent["socket"].isString())
+				throw Refused("tools.ask unsocket needs a string 'socket'");
+			try {
+				hand.unsocket(std::stoull(intent["socket"].asString()));
+			} catch (const std::logic_error &) {
+				throw Refused("tools.ask unsocket: 'socket' isn't a socket's id");
+			}
+			return Json::Value();
+		}
+		hand.ask(intent["action"].asString(), intent.get("name", "").asString());
+		return Json::Value();
+	});
+	// what the brush does with a shape: add, cut, paint, a new part
+	m_shell.on("tools.brush", [&hand = opts.hand](const Json::Value &intent) {
+		if (!intent["brush"].isString())
+			throw Refused("tools.brush needs a string 'brush'");
+		hand.pickBrush(intent["brush"].asString());
+		// a new part's joint, if it's said
+		if (intent.isMember("joint")) {
+			if (!intent["joint"].isString())
+				throw Refused("tools.brush: 'joint' must be a string");
+			hand.setPartJoint(piece::Joint(lookup(intent["joint"].asString(), piece::JOINTS,
+					size_t(piece::Joint::Count), [](const piece::JointKind &j) { return j.id; }, "joint")));
+		}
+		return Json::Value();
+	});
+	// what a click does: draw, or select a part
+	m_shell.on("tools.mode", [&hand = opts.hand](const Json::Value &intent) {
+		if (!intent["click"].isString())
+			throw Refused("tools.mode needs a string 'click'");
+		Hand::Mode mode;
+		mode.click = Hand::Click(lookup(intent["click"].asString(), Hand::CLICKS, size_t(Hand::Click::Count),
+				[](const char *c) { return c; }, "click"));
+		hand.setMode(mode);
+		return Json::Value();
+	});
+	// a hotbar slot clicked (the mouse free: an object held, or paused)
+	m_shell.on("hotbar.select", [this](const Json::Value &intent) {
+		LocalPlayer *player = m_client->getEnv().getLocalPlayer();
+		const u32 slots = player->getMaxHotbarItemcount();
+		if (!intent["slot"].isUInt() || intent["slot"].asUInt() >= slots)
+			throw Refused("hotbar.select needs a 'slot' under " + std::to_string(slots));
+		m_client->setPlayerItem(u16(intent["slot"].asUInt()));
+		return Json::Value();
 	});
 	m_shell.on("ui.send", [this](const Json::Value &intent) {
 		m_ui.send(intent);

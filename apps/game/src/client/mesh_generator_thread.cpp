@@ -52,14 +52,18 @@ void QueuedMeshUpdate::retrieveBlocks(Map *map, u16 cell_size)
 		}
 		i++;
 	}
+	shapes.clear();
+	for (MapBlock *block : map_blocks)
+		if (block)
+			block->m_shapes.each([&](v3s16 rel, const shape::Shape &s) {
+				shapes.emplace_back(block->getPosRelative() + rel, s);
+			});
 
 	// Terra Firma: the border past an atlas's seams, read now (this is the
 	// main thread; meshes are made on others)
 	halo.clear();
 	read.clear();
 	atlas = map->getAtlas();
-	const s16 n = cell_size * MAP_BLOCKSIZE;
-	const v3s16 low = p * MAP_BLOCKSIZE;
 	if (atlas) {
 		// every node the mesh reads that isn't a cell (seam: over
 		// a seam, or the gap between shells, which can lie inside a block)
@@ -129,6 +133,9 @@ void QueuedMeshUpdate::fill(MeshMakeData *data) const
 	data->m_cuts.clear();
 	for (const auto &[pos, faces] : cuts)
 		data->m_cuts.emplace(pos, faces);
+	data->m_shapes.clear();
+	for (const auto &[pos, s] : shapes)
+		data->m_shapes.emplace(pos, s);
 
 	// NOTE: the "data race" mentioned by MapBlock::tryShrinkNodes() is right here
 	for (auto *block : map_blocks) {
@@ -556,23 +563,17 @@ MeshUpdateManager::MeshUpdateManager(Client *client):
 void MeshUpdateManager::updateBlock(Map *map, v3s16 p, bool ack_block_to_server,
 		bool urgent, bool update_neighbors)
 {
-	static thread_local const bool many_neighbors =
-			g_settings->getBool("smooth_lighting")
-			&& !g_settings->getFlag("performance_tradeoffs");
 	if (!m_queue_in.addBlock(map, p, ack_block_to_server, urgent, false)) {
 		warningstream << "Update requested for non-existent block at "
 				<< p << std::endl;
 		return;
 	}
-	if (update_neighbors) {
-		if (many_neighbors) {
-			for (v3s16 dp : g_26dirs)
-				m_queue_in.addBlock(map, p + dp, false, urgent, true);
-		} else {
-			for (v3s16 dp : g_6dirs)
-				m_queue_in.addBlock(map, p + dp, false, urgent, true);
-		}
-	}
+	// Terra Firma: every neighbour, edges and corners too: the ground's shape
+	// reads the columns round a block (ground::Ground), across them (was:
+	// only with smooth lighting)
+	if (update_neighbors)
+		for (v3s16 dp : g_26dirs)
+			m_queue_in.addBlock(map, p + dp, false, urgent, true);
 	deferUpdate();
 }
 

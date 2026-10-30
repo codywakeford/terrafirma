@@ -23,6 +23,7 @@ enum ObjectVisual : u8 {
 	OBJECTVISUAL_ITEM,
 	OBJECTVISUAL_WIELDITEM,
 	OBJECTVISUAL_NODE,
+	OBJECTVISUAL_PIECE, // Terra Firma: a piece (src/piece), its blocks in `piece`
 };
 
 extern const EnumString es_ObjectVisual[];
@@ -65,6 +66,8 @@ struct ObjectProperties
 	float zoom_fov = 0.0f;
 	std::optional<u32> nametag_fontsize;
 	MapNode node = MapNode(CONTENT_IGNORE);
+	// Terra Firma: a piece's blocks (piece::Piece::write), for visual "piece"
+	std::string piece;
 	u16 hp_max = 1;
 	u16 breath_max = 0;
 	s8 glow = 0;

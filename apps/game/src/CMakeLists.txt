@@ -457,6 +457,11 @@ add_subdirectory(terragen)
 add_subdirectory(planet)
 add_subdirectory(far)
 add_subdirectory(ground)
+add_subdirectory(shape)
+add_subdirectory(sculpt)
+add_subdirectory(piece)
+add_subdirectory(workshop)
+add_subdirectory(physics)
 add_subdirectory(planetarium)
 add_subdirectory(matter)
 add_subdirectory(fluid)
@@ -567,6 +572,11 @@ set(common_SRCS
 	${planet_SRCS}
 	${far_SRCS}
 	${ground_SRCS}
+	${shape_SRCS}
+	${sculpt_SRCS}
+	${piece_SRCS}
+	${workshop_SRCS}
+	${physics_SRCS}
 	${matter_SRCS}
 	${fluid_SRCS}
 	${orbit_SRCS}
@@ -771,6 +781,7 @@ if(BUILD_CLIENT)
 
 	target_link_libraries(
 		${PROJECT_NAME}
+		Jolt
 		${ZLIB_LIBRARIES}
 		libzip::zip
 		IrrlichtMt::IrrlichtMt
@@ -883,6 +894,7 @@ if(BUILD_SERVER)
 	target_include_directories(${PROJECT_NAME}server PRIVATE ${IRRLICHT_INCLUDES})
 	target_link_libraries(
 		${PROJECT_NAME}server
+		Jolt
 		${ZLIB_LIBRARIES}
 		${ZSTD_LIBRARY}
 		${SQLITE3_LIBRARY}

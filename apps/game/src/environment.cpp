@@ -289,8 +289,8 @@ void Environment::continueRaycast(RaycastState *state, PointedThing *result_p)
 			PointedThing result;
 
 			boxes.clear();
-			n.getSelectionBoxes(nodedef, &boxes,
-				n.getNeighbors(np, &map));
+			// Terra Firma: a cut node's sixteenths, smoothed ground's columns
+			map.getPointedBoxes(np, n, boxes);
 
 			// Is there a collision with a selection box?
 			bool is_colliding = false;

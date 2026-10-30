@@ -178,7 +178,9 @@ void LuaEntitySAO::step(float dtime, bool send_recommended)
 		m_acceleration = v3f(0,0,0);
 	} else {
 		const v3f was = getBasePosition(); // Terra Firma: for carry()
-		if(m_prop.physical){
+		if (m_driven) {
+			// Terra Firma: the workshop's physics moved it (sprint 57)
+		} else if(m_prop.physical){
 			aabb3f box = m_prop.collisionbox;
 			box.MinEdge *= BS;
 			box.MaxEdge *= BS;
@@ -602,6 +604,14 @@ bool LuaEntitySAO::getSelectionBox(aabb3f *toset) const
 bool LuaEntitySAO::collideWithObjects() const
 {
 	return m_prop.collideWithObjects;
+}
+
+void LuaEntitySAO::sendParts(const std::string &data)
+{
+	std::ostringstream os(std::ios::binary);
+	writeU8(os, AO_CMD_SET_PARTS);
+	os << data;
+	m_messages_out.emplace(getId(), false, os.str());
 }
 
 void LuaEntitySAO::carry(const v3f &was)

@@ -70,6 +70,9 @@ public:
 		bool flowing = false;  // a liquid the engine flows itself (water, lava): not poured here
 	};
 	int32_t kind(const Spec &spec); // returns its id
+	// A kind's mass per cubic metre (a block's) at room temperature: what
+	// it weighs as a thing that moves (sprint 57). Throws on no such kind.
+	double density(int32_t kind) const;
 	const std::string &node(int32_t kind) const;
 
 	// Bring a block to at least a temperature (a spark, a torch): wakes it.

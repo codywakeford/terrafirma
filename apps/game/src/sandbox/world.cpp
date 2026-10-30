@@ -96,6 +96,17 @@ const std::string &WorldMatter::node(int32_t kind) const
 	return m_kinds[kind].node;
 }
 
+double WorldMatter::density(int32_t kind) const
+{
+	if (kind < 0 || (size_t)kind >= m_kinds.size())
+		throw SandboxError("no matter kind " + std::to_string(kind));
+	const Kind &k = m_kinds[kind];
+	double kg = 0;
+	for (const auto &[s, volume] : k.by_volume)
+		kg += volume * m_matter.substances()[s].density(k.state, 293.15, matter::ATMOSPHERE);
+	return kg;
+}
+
 matter::Mixture WorldMatter::made(const Kind &k, double temperature) const
 {
 	matter::Mixture b(m_matter);

@@ -816,8 +816,12 @@ static void clipToTerritory(MeshCollector &collector, const planet::Atlas &atlas
 	std::vector<const planet::Atlas::Cut *> cutAt((size_t)MAP_BLOCKSIZE * MAP_BLOCKSIZE * MAP_BLOCKSIZE, nullptr);
 	for (const planet::Atlas::CutCell &c : cuts)
 		cutAt[((size_t)(c.node.z - low.Z) * MAP_BLOCKSIZE + (c.node.y - low.Y)) * MAP_BLOCKSIZE + (c.node.x - low.X)] = &c.cut;
-	for (auto &layer : collector.prebuffers)
+	for (auto &layer : collector.prebuffers) {
+		// a clipped piece that won't fit its buffer's 16-bit indices goes to
+		// one of its own (fine ground and cut blocks fill buffers near full)
+		std::vector<PreMeshBuffer> spilled;
 		for (PreMeshBuffer &buf : layer) {
+			const size_t mine = spilled.size(); // this buffer's spill starts here: its material
 			std::vector<u16> kept;
 			kept.reserve(buf.indices.size());
 			const size_t count = buf.indices.size();
@@ -871,15 +875,21 @@ static void clipToTerritory(MeshCollector &collector, const planet::Atlas &atlas
 				}
 				if (poly.size() < 3)
 					continue;
-				const size_t base = buf.vertices.size();
-				if (base + poly.size() > U16_MAX)
-					throw BaseException("mesh: a cut block's clipped buffer outgrew 16-bit indices");
-				buf.vertices.insert(buf.vertices.end(), poly.begin(), poly.end());
+				const bool fits = buf.vertices.size() + poly.size() <= U16_MAX;
+				if (!fits && (spilled.size() == mine || spilled.back().vertices.size() + poly.size() > U16_MAX))
+					spilled.emplace_back(buf.layer);
+				PreMeshBuffer &into = fits ? buf : spilled.back();
+				std::vector<u16> &indices = fits ? kept : into.indices;
+				const size_t base = into.vertices.size();
+				into.vertices.insert(into.vertices.end(), poly.begin(), poly.end());
 				for (size_t k = 1; k + 1 < poly.size(); k++)
-					kept.insert(kept.end(), { (u16)base, (u16)(base + k), (u16)(base + k + 1) });
+					indices.insert(indices.end(), { (u16)base, (u16)(base + k), (u16)(base + k + 1) });
 			}
 			buf.indices = std::move(kept);
 		}
+		for (PreMeshBuffer &b : spilled)
+			layer.push_back(std::move(b));
+	}
 }
 
 void bendOntoAtlas(MeshCollector &collector, const planet::Atlas &atlas, v3s16 blockpos)

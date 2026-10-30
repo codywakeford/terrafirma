@@ -670,6 +670,11 @@ void MapblockMeshGenerator::drawSolidNode()
 		v3s16 p2 = p1 + tile_dirs[face];
 		MapNode neighbor = data->m_vmanip.getNodeRefUnsafeCheckFlags(p2);
 		content_t n2 = neighbor.getContent();
+		// Terra Firma: a cut node covers only some of the face
+		if (cutShape(p2)) {
+			add_face(face, neighbor, !LIQUID);
+			continue;
+		}
 		if (n2 == n1)
 			continue;
 		if (n2 == CONTENT_IGNORE)
@@ -2011,7 +2016,10 @@ void MapblockMeshGenerator::drawNode()
 	cur_node.origin = intToFloat(cur_node.p, BS);
 	// Solid nodes don't need the usual setup
 	if (cur_node.f->drawtype == NDT_NORMAL) {
-		drawSolidNode<false>();
+		if (const shape::Shape *cut = cutShape(blockpos_nodes + cur_node.p))
+			drawShape(*cut);
+		else
+			drawSolidNode<false>();
 		drawCutFace();
 		return;
 	}
@@ -2053,20 +2061,27 @@ void MapblockMeshGenerator::drawNode()
 }
 
 // Terra Firma: the shape the ground at p takes, if it's smoothed. A cut
-// cell (the atlas's) keeps its cube: its cut faces are drawn for it.
+// cell (the atlas's) keeps its cube (its cut faces are drawn for it), and
+// the ground beside it is shaped against a cube.
 std::optional<ground::Top> MapblockMeshGenerator::groundTop(v3s16 p) const
 {
-	if (data->m_atlas && data->m_cuts.count(p))
+	// cut, or under a cut node (what rose from it, kept): as it's cut
+	if (cutShape(p) || cutShape(p + v3s16(0, 1, 0)))
 		return std::nullopt;
-	const auto get = [&](v3s16 q) { return data->m_vmanip.getNodeNoExNoEmerge(q); };
-	return ground::Ground(*nodedef).top(get, p);
+	const auto get = [&](v3s16 q) { return ground::seen(data->m_vmanip.getNodeNoExNoEmerge(q), cutShape(q)); };
+	const auto cut = [&](v3s16 q) { return data->m_atlas && data->m_cuts.count(q) > 0; };
+	return ground::Ground(*nodedef).top(get, cut, p);
 }
 
 /*
-	Terra Firma: smoothed ground (ground::Top). Its top, two triangles through
-	its corners split from corner 0 to 3 (as Top::height); on each side a wall
-	from the neighbour's surface up to its own, where its own is higher. In
-	sixteenths above the node's base; the top may rise into the cell above.
+	Terra Firma: smoothed ground (ground::Top), in voxels of a sixteenth: each
+	row of columns' tops, a quad a run of one height; a riser where two
+	columns side by side stand differently, from the lower to the higher;
+	at the block's sides, a wall from where the neighbour stands no lower
+	than (Top::beside) up to each column, where it's higher. Its bottom is
+	the cube's. Textured as the cube's faces: a top as the cube's top; a
+	riser from its own top edge down, as a cube's side from its top, so
+	each step shows the side's top (grass on a grass block).
 */
 void MapblockMeshGenerator::drawGround(const ground::Top &top)
 {
@@ -2077,84 +2092,206 @@ void MapblockMeshGenerator::drawGround(const ground::Top &top)
 	const video::SColor flat = encode_light(getFaceLight(cur_node.n,
 			data->m_vmanip.getNodeNoExNoEmerge(p + v3s16(0, 1, 0)), nodedef),
 			cur_node.f->light_source);
+	TileSpec tiles[6];
+	for (int face = 0; face < 6; face++) {
+		getTile(tile_dirs[face], &tiles[face]);
+		for (auto &layer : tiles[face].layers)
+			layer.material_flags |= MATERIAL_FLAG_BACKFACE_CULLING;
+	}
 
-	// node coordinates (from its centre, BS) of corner i at height h
-	auto at = [](int i, int h) {
-		return v3f(((i & 1) - 0.5f) * BS, (h / float(STEPS) - 0.5f) * BS, ((i >> 1) - 0.5f) * BS);
+	// node coordinates (from its centre, BS) of voxel corner (x, h, z), in sixteenths
+	auto at = [](int x, int h, int z) {
+		return v3f((x / float(STEPS) - 0.5f) * BS, (h / float(STEPS) - 0.5f) * BS,
+				(z / float(STEPS) - 0.5f) * BS);
 	};
-	auto vertex = [&](const v3f &pos, const v3f &normal, v2f uv) {
-		video::S3DVertex v;
-		v.Pos = pos + cur_node.origin;
+	auto quad = [&](int face, const std::array<v3f, 4> &q, const std::function<v2f(const v3f &)> &uv) {
+		voxelQuad(tiles[face], face, q, uv, flat);
+	};
+	const auto top_uv = [](const v3f &q) { return v2f(q.X / BS + 0.5f, 0.5f - q.Z / BS); };
+	// a riser facing `face`, between heights low..high, from (x0, z0) to (x1, z1)
+	auto riser = [&](int face, int x0, int z0, int x1, int z1, int low, int high) {
+		const bool along_x = z0 == z1;
+		const float sense = (face == 3 || face == 4) ? -1.f : 1.f; // the cube's u runs this way
+		const float edge = (high / float(STEPS) - 0.5f) * BS;
+		quad(face, { at(x0, high, z0), at(x1, high, z1), at(x1, low, z1), at(x0, low, z0) },
+				[&](const v3f &q) {
+			const float u = (along_x ? q.X : q.Z) / BS * sense + 0.5f;
+			return v2f(u, (edge - q.Y) / BS);
+		});
+	};
+
+	// the tops, in runs along x
+	for (int z = 0; z < STEPS; z++)
+		for (int x = 0; x < STEPS;) {
+			const int h = top.cells[x][z];
+			int end = x + 1;
+			while (end < STEPS && top.cells[end][z] == h)
+				end++;
+			quad(0, { at(x, h, z), at(end, h, z), at(end, h, z + 1), at(x, h, z + 1) }, top_uv);
+			x = end;
+		}
+
+	// risers between columns
+	for (int x = 0; x < STEPS; x++)
+		for (int z = 0; z < STEPS; z++) {
+			const int h = top.cells[x][z];
+			if (x + 1 < STEPS && top.cells[x + 1][z] != h) {
+				const int other = top.cells[x + 1][z];
+				// facing the lower side: +x if this one's higher
+				riser(h > other ? 2 : 3, x + 1, z, x + 1, z + 1, std::min(h, other), std::max(h, other));
+			}
+			if (z + 1 < STEPS && top.cells[x][z + 1] != h) {
+				const int other = top.cells[x][z + 1];
+				riser(h > other ? 4 : 5, x, z + 1, x + 1, z + 1, std::min(h, other), std::max(h, other));
+			}
+		}
+
+	// walls at the block's sides
+	static constexpr int FACE[4] = { 3, 2, 5, 4 }; // −x, +x, −z, +z → tile_dirs
+	bool open[4];
+	for (int s = 0; s < 4; s++)
+		open[s] = cutShape(p + v3s16(ground::SIDE_DIR[s][0], 0, ground::SIDE_DIR[s][1]));
+	for (int s = 0; s < 4; s++)
+		for (int k = 0; k < STEPS; k++) {
+			// the column along side s at k (from its first corner: 0 or 1 along it)
+			const bool along_x = s >= 2;
+			const int edge = (s == 1 || s == 3) ? STEPS : 0;
+			const int x = along_x ? k : (edge ? STEPS - 1 : 0), z = along_x ? (edge ? STEPS - 1 : 0) : k;
+			// against a cut node, down to the base: it may not cover the side
+			const int h = top.cells[x][z], low = open[s] ? 0 : top.beside(s, k);
+			if (h <= low)
+				continue;
+			if (along_x)
+				riser(FACE[s], k, edge, k + 1, edge, low, h);
+			else
+				riser(FACE[s], edge, k, edge, k + 1, low, h);
+		}
+}
+
+void MapblockMeshGenerator::voxelQuad(const TileSpec &tile, int face, std::array<v3f, 4> q,
+		const std::function<v2f(const v3f &)> &uv, video::SColor flat)
+{
+	const v3f normal = v3f::from(tile_dirs[face]);
+	if ((q[1] - q[0]).crossProduct(q[3] - q[0]).dotProduct(normal) < 0)
+		std::swap(q[1], q[3]);
+	video::S3DVertex vertices[4];
+	for (int k = 0; k < 4; k++) {
+		video::S3DVertex &v = vertices[k];
+		v.Pos = q[k] + cur_node.origin;
 		v.Normal = normal;
 		if (data->m_smooth_lighting) {
-			v.Color = blendLightColor(pos, normal);
+			v.Color = blendLightColor(q[k], normal);
 		} else {
 			v.Color = flat;
 			if (!cur_node.f->light_source)
 				applyFacesShading(v.Color, normal);
 		}
-		v.TCoords = uv;
-		return v;
-	};
-	auto polygon = [&](const TileSpec &tile, const std::vector<v3f> &points, const v3f &normal,
-			auto uv) {
-		std::vector<video::S3DVertex> vertices;
-		for (const v3f &q : points)
-			vertices.push_back(vertex(q, normal, uv(q)));
-		std::vector<u16> indices;
-		for (u16 i = 1; i + 1 < points.size(); i++)
-			indices.insert(indices.end(), { 0, i, (u16)(i + 1) });
-		collector->append(tile, vertices.data(), vertices.size(), indices.data(), indices.size());
-	};
-
-	// the top: as the cube's, wound the same (corners 2, 3, 1, 0)
-	TileSpec up;
-	getTile(tile_dirs[0], &up);
-	const auto top_uv = [](const v3f &q) { return v2f(q.X / BS + 0.5f, 0.5f - q.Z / BS); };
-	for (const std::array<int, 3> &tri : { std::array<int, 3>{ 2, 3, 0 }, std::array<int, 3>{ 3, 1, 0 } }) {
-		const v3f a = at(tri[0], top.corners[tri[0]]), b = at(tri[1], top.corners[tri[1]]),
-				c = at(tri[2], top.corners[tri[2]]);
-		const v3f normal = (b - a).crossProduct(c - a).normalize();
-		polygon(up, { a, b, c }, normal, top_uv);
+		v.TCoords = uv(q[k]);
 	}
+	collector->append(tile, vertices, 4, quad_indices, 6);
+}
 
-	// the sides: each as the cube's face that way, wound the same (its
-	// corners first and second along the top, then back along the bottom)
-	static constexpr int FACE[4] = { 3, 2, 5, 4 }; // −x, +x, −z, +z → tile_dirs
-	static constexpr int ORDER[4][2] = { { 2, 0 }, { 1, 3 }, { 0, 1 }, { 3, 2 } };
-	for (int s = 0; s < 4; s++) {
-		const int i0 = ORDER[s][0], i1 = ORDER[s][1];
-		// which of the side's two heights belongs to each corner
-		auto side = [&](int i) { return top.sides[s][ground::SIDE_CORNERS[s][0] == i ? 0 : 1]; };
-		const int t0 = top.corners[i0], t1 = top.corners[i1];
-		const int b0 = std::max(0, side(i0)), b1 = std::max(0, side(i1));
-		if (t0 <= b0 && t1 <= b1)
-			continue;
-		std::vector<v3f> points;
-		if (t0 > b0 && t1 > b1) {
-			points = { at(i0, t0), at(i1, t1), at(i1, b1), at(i0, b0) };
-		} else {
-			// the wall ends where top and bottom cross
-			const float f = float(b0 - t0) / float((t1 - b1) + (b0 - t0));
-			const v3f top0 = at(i0, t0), top1 = at(i1, t1), crossing = top0 + (top1 - top0) * f;
-			const v3f cross(crossing.X, (at(i0, b0) + (at(i1, b1) - at(i0, b0)) * f).Y, crossing.Z);
-			if (t0 > b0)
-				points = { at(i0, t0), cross, at(i0, b0) };
-			else
-				points = { cross, at(i1, t1), at(i1, b1) };
-		}
+const shape::Shape *MapblockMeshGenerator::cutShape(v3s16 p) const
+{
+	const auto it = data->m_shapes.find(p);
+	return it == data->m_shapes.end() ? nullptr : &it->second;
+}
+
+/*
+	Terra Firma: a cut node (shape::Shape): each face of a sixteenth that's
+	open, merged into rectangles a plane at a time. Open: the next sixteenth
+	is empty, or, at the node's side, what's across doesn't cover it (a
+	whole opaque cube that isn't smoothed ground, the same material whole,
+	or a cut node's sixteenth there). Textured as the cube is, so a cut
+	block looks carved from it.
+*/
+void MapblockMeshGenerator::drawShape(const shape::Shape &s)
+{
+	using shape::STEPS;
+	if (data->m_smooth_lighting)
+		getSmoothLightFrame();
+	const v3s16 p = blockpos_nodes + cur_node.p;
+	auto at = [](int v) { return (v / float(STEPS) - 0.5f) * BS; };
+	// the cube's face mapping, per face (tile_dirs): u, v from node coordinates
+	static const std::function<v2f(const v3f &)> UV[6] = {
+		[](const v3f &q) { return v2f(q.X / BS + 0.5f, 0.5f - q.Z / BS); },
+		[](const v3f &q) { return v2f(q.X / BS + 0.5f, q.Z / BS + 0.5f); },
+		[](const v3f &q) { return v2f(q.Z / BS + 0.5f, 0.5f - q.Y / BS); },
+		[](const v3f &q) { return v2f(0.5f - q.Z / BS, 0.5f - q.Y / BS); },
+		[](const v3f &q) { return v2f(0.5f - q.X / BS, 0.5f - q.Y / BS); },
+		[](const v3f &q) { return v2f(q.X / BS + 0.5f, 0.5f - q.Y / BS); },
+	};
+
+	for (int face = 0; face < 6; face++) {
+		const v3s16 d = tile_dirs[face];
+		const int axis = d.X ? 0 : d.Y ? 1 : 2;
+		const int sign = d.X + d.Y + d.Z;
+		const int ua = axis == 0 ? 2 : 0, va = axis == 1 ? 2 : 1; // the plane's axes
+		auto cell = [&](int a, int u, int v) {
+			v3s16 c;
+			c[axis] = s16(a);
+			c[ua] = s16(u);
+			c[va] = s16(v);
+			return c;
+		};
+
+		// what's across this side
+		const v3s16 p2 = p + d;
+		const MapNode across = data->m_vmanip.getNodeNoExNoEmerge(p2);
+		const shape::Shape *across_cut = cutShape(p2);
+		const ContentFeatures &f2 = nodedef->get(across);
+		const bool covered = !across_cut && (across.getContent() == CONTENT_IGNORE
+				|| ((across.getContent() == cur_node.n.getContent() || NDT_solidness[f2.drawtype] == 2)
+					&& !groundTop(p2)));
+		auto open = [&](int a, int u, int v) {
+			const int next = a + sign;
+			if (next >= 0 && next < STEPS)
+				return !s.has(cell(next, u, v));
+			if (across_cut)
+				return !across_cut->has(cell(sign > 0 ? 0 : STEPS - 1, u, v));
+			return !covered;
+		};
+
 		TileSpec tile;
-		getTile(tile_dirs[FACE[s]], &tile);
+		getTile(d, &tile);
 		for (auto &layer : tile.layers)
 			layer.material_flags |= MATERIAL_FLAG_BACKFACE_CULLING;
-		const v3f normal = v3f::from(tile_dirs[FACE[s]]);
-		// along the face as the cube's texture runs, down from its top edge
-		const bool along_x = s >= 2;
-		const float sense = (s == 0 || s == 3) ? -1.f : 1.f;
-		polygon(tile, points, normal, [&](const v3f &q) {
-			const float u = (along_x ? q.X : q.Z) / BS * sense + 0.5f;
-			return v2f(u, 0.5f - q.Y / BS);
-		});
+		const video::SColor flat = encode_light(getFaceLight(cur_node.n, across, nodedef),
+				cur_node.f->light_source);
+
+		for (int a = 0; a < STEPS; a++) {
+			bool mask[STEPS][STEPS];
+			for (int u = 0; u < STEPS; u++)
+				for (int v = 0; v < STEPS; v++)
+					mask[u][v] = s.has(cell(a, u, v)) && open(a, u, v);
+			// the plane's rectangles: a run along v, grown along u
+			const int plane = a + (sign > 0 ? 1 : 0);
+			for (int u = 0; u < STEPS; u++)
+				for (int v = 0; v < STEPS;) {
+					if (!mask[u][v]) {
+						v++;
+						continue;
+					}
+					int v1 = v + 1;
+					while (v1 < STEPS && mask[u][v1])
+						v1++;
+					int u1 = u + 1;
+					while (u1 < STEPS && std::all_of(&mask[u1][v], &mask[u1][v1], [](bool b) { return b; }))
+						u1++;
+					for (int i = u; i < u1; i++)
+						std::fill(&mask[i][v], &mask[i][v1], false);
+					auto corner = [&](int cu, int cv) {
+						v3f c;
+						c[axis] = at(plane);
+						c[ua] = at(cu);
+						c[va] = at(cv);
+						return c;
+					};
+					voxelQuad(tile, face, { corner(u, v), corner(u1, v), corner(u1, v1), corner(u, v1) },
+							UV[face], flat);
+					v = v1;
+				}
+		}
 	}
 }
 

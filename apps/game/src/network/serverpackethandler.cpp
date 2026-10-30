@@ -20,6 +20,9 @@
 #include "scripting_server.h"
 #include "serialization.h"
 #include "settings.h"
+#include "sculpt/sculpt.h"
+#include "server/luaentity_sao.h"
+#include "workshop/workshop.h"
 #include "tool.h"
 #include "network/connection.h"
 #include "network/networkexceptions.h"
@@ -402,6 +405,7 @@ void Server::handleCommand_ClientReady(NetworkPacket* pkt)
 	s64 last_login;
 	m_script->getAuth(playersao->getPlayer()->getName(), nullptr, nullptr, &last_login);
 	m_script->on_joinplayer(playersao, last_login);
+	SendBlueprints(peer_id, playersao->getPlayer()->getName()); // Terra Firma
 
 	// Send shutdown timer if shutdown has been scheduled
 	if (m_shutdown_state.isTimerRunning())
@@ -1845,4 +1849,253 @@ void Server::handleCommand_Ui(NetworkPacket *pkt)
 		return;
 	}
 	m_script->on_ui_event(playersao, name, value);
+}
+
+// Terra Firma: the tools in hand (sprints 45–47). Creative only for now; the
+// server applies the stroke, to the world (its changes go out as the map's
+// Terra Firma: a workshop verb (sprint 48) for a player who may use the
+// tools in hand: interact, in creative
+template <class F>
+void Server::inWorkshop(session_t peer_id, const char *what, F &&f)
+{
+	RemotePlayer *player = m_env->getPlayer(peer_id);
+	if (!player)
+		return;
+	PlayerSAO *sao = player->getPlayerSAO();
+	if (!sao)
+		return;
+	auto refuse = [&](const std::string &why) {
+		warningstream << "Refusing " << player->getName() << "'s " << what << ": " << why << std::endl;
+		SendChatMessage(peer_id, ChatMessage(CHATMESSAGE_TYPE_SYSTEM, utf8_to_wide(why)));
+	};
+	if (!checkPriv(player->getName(), "interact"))
+		return refuse("You can't use the tools here (no interact)");
+	if (!checkPriv(player->getName(), "creative") && !g_settings->getBool("creative_mode"))
+		return refuse("The tools are only in creative for now");
+	try {
+		f(*sao);
+	} catch (const workshop::Refused &e) {
+		refuse(e.what());
+	}
+}
+
+// Terra Firma: a stroke of the tools in hand (sprint 45), on the world or a piece
+void Server::handleCommand_Sculpt(NetworkPacket *pkt)
+{
+	u16 piece_id;
+	u64 part;
+	u8 tool, size, x, y, z, act, axis;
+	v3s16 node, normal;
+	s32 twice;
+	u8 dragged, apart;
+	*pkt >> piece_id >> part >> tool >> size >> node >> x >> y >> z >> normal >> act >> axis >> twice >> dragged;
+	std::optional<shape::Sixteenth> to;
+	if (dragged) {
+		v3s16 to_node;
+		u8 tx, ty, tz;
+		*pkt >> to_node >> tx >> ty >> tz;
+		to = shape::Sixteenth{ to_node, v3s16(tx, ty, tz) };
+	}
+	u8 has_deep;
+	*pkt >> apart >> has_deep;
+	std::optional<s32> deep;
+	if (has_deep) {
+		u16 d;
+		*pkt >> d;
+		deep = d;
+	}
+	inWorkshop(pkt->getPeerId(), "stroke", [&](PlayerSAO &sao) {
+		if (axis != 255 && axis > 2)
+			throw workshop::Refused("No such mirror axis");
+		const sculpt::Stroke stroke{ sculpt::Tool(tool), size, { node, v3s16(x, y, z) }, normal, sculpt::Act(act),
+			axis == 255 ? std::nullopt : std::optional<sculpt::Stroke::Mirror>({ axis, twice }), to, deep };
+		if (!stroke.valid())
+			throw workshop::Refused("That's not a stroke");
+		// apart: 0 none, else the new part's joint, one on (piece::Joint)
+		if (apart > u8(piece::Joint::Count))
+			throw workshop::Refused("No such joint for a part");
+		m_workshop->stroke(sao, piece_id, part, stroke,
+				apart ? std::optional<piece::Joint>(piece::Joint(apart - 1)) : std::nullopt);
+	});
+}
+
+// Terra Firma: undo the player's last stroke (sprint 46), on what it was made on
+void Server::handleCommand_Undo(NetworkPacket *pkt)
+{
+	inWorkshop(pkt->getPeerId(), "undo", [&](PlayerSAO &sao) { m_workshop->undo(sao); });
+}
+
+// Terra Firma: a new object, held up in front of the player (sprint 49)
+void Server::handleCommand_PieceNew(NetworkPacket *pkt)
+{
+	inWorkshop(pkt->getPeerId(), "new object", [&](PlayerSAO &sao) {
+		const u16 id = m_workshop->start(sao);
+		NetworkPacket held(TOCLIENT_HELD, 2, pkt->getPeerId());
+		held << id;
+		Send(&held);
+	});
+}
+
+// Terra Firma: a piece kept as a blueprint (sprint 48)
+void Server::handleCommand_BlueprintSave(NetworkPacket *pkt)
+{
+	u16 piece_id;
+	std::string name;
+	*pkt >> piece_id >> name;
+	inWorkshop(pkt->getPeerId(), "blueprint", [&](PlayerSAO &sao) {
+		m_workshop->save(sao, piece_id, name);
+		SendBlueprints(pkt->getPeerId(), sao.getPlayer()->getName());
+		SendChatMessage(pkt->getPeerId(), ChatMessage(CHATMESSAGE_TYPE_SYSTEM, utf8_to_wide("Saved \"" + name + "\"")));
+	});
+}
+
+// Terra Firma: a blueprint put down as ghosts (sprint 48)
+void Server::handleCommand_BlueprintPlace(NetworkPacket *pkt)
+{
+	std::string name;
+	v3s16 at;
+	*pkt >> name >> at;
+	inWorkshop(pkt->getPeerId(), "blueprint", [&](PlayerSAO &sao) { m_workshop->place(sao, name, at); });
+}
+
+// Terra Firma: an object held or let go (sprint 49)
+void Server::handleCommand_ObjectHold(NetworkPacket *pkt)
+{
+	u16 id;
+	u8 held;
+	*pkt >> id >> held;
+	inWorkshop(pkt->getPeerId(), "hold", [&](PlayerSAO &sao) { m_workshop->hold(sao, id, held != 0); });
+}
+
+// Terra Firma: where a held object is (sprint 50)
+void Server::handleCommand_ObjectPose(NetworkPacket *pkt)
+{
+	u16 id;
+	v3f position, rotation;
+	*pkt >> id >> position >> rotation;
+	inWorkshop(pkt->getPeerId(), "pose", [&](PlayerSAO &sao) { m_workshop->pose(sao, id, position, rotation); });
+}
+
+// Terra Firma: an object's design made a shell (sprint 50)
+void Server::handleCommand_Hollow(NetworkPacket *pkt)
+{
+	u16 id;
+	u64 part;
+	u8 thickness;
+	*pkt >> id >> part >> thickness;
+	inWorkshop(pkt->getPeerId(), "hollow", [&](PlayerSAO &sao) { m_workshop->hollow(sao, id, part, thickness); });
+}
+
+// Terra Firma: a face of a machine's part, off the wire (sprint 52)
+static piece::Machine::Face readFace(NetworkPacket &pkt)
+{
+	piece::Machine::Face f;
+	u8 x, y, z;
+	pkt >> f.part >> f.at.node >> x >> y >> z >> f.normal;
+	f.at.cell = v3s16(x, y, z);
+	return f;
+}
+
+static void checkFace(const piece::Machine::Face &f)
+{
+	if (!shape::Shape::inside(f.at.cell) || std::abs(f.normal.X) + std::abs(f.normal.Y) + std::abs(f.normal.Z) != 1)
+		throw workshop::Refused("That's not a face");
+}
+
+// Terra Firma: the joint between two parts set (sprint 53)
+void Server::handleCommand_Link(NetworkPacket *pkt)
+{
+	u16 id;
+	u64 a, b;
+	u8 joint, at;
+	*pkt >> id >> a >> b >> joint >> at;
+	std::optional<piece::Machine::Face> face;
+	if (at)
+		face = readFace(*pkt);
+	inWorkshop(pkt->getPeerId(), "joint", [&](PlayerSAO &sao) {
+		if (face)
+			checkFace(*face);
+		// 255: the joint taken away
+		if (joint != 255 && joint >= u8(piece::Joint::Count))
+			throw workshop::Refused("No such joint");
+		m_workshop->relink(sao, id, a, b, joint == 255 ? std::nullopt : std::optional<piece::Joint>(piece::Joint(joint)), face);
+	});
+}
+
+// Terra Firma: two machines made one, face to face (sprint 52)
+void Server::handleCommand_Join(NetworkPacket *pkt)
+{
+	u16 a, b;
+	*pkt >> a;
+	const piece::Machine::Face on_a = readFace(*pkt);
+	*pkt >> b;
+	const piece::Machine::Face on_b = readFace(*pkt);
+	u8 joint;
+	*pkt >> joint;
+	inWorkshop(pkt->getPeerId(), "join", [&](PlayerSAO &sao) {
+		checkFace(on_a);
+		checkFace(on_b);
+		if (joint >= u8(piece::Joint::Count))
+			throw workshop::Refused("No such joint");
+		m_workshop->join(sao, a, on_a, b, on_b, piece::Joint(joint));
+	});
+}
+
+// Terra Firma: a part made a machine of its own, or deleted (sprints 52–53)
+void Server::handleCommand_Part(NetworkPacket *pkt)
+{
+	u16 id;
+	u64 part;
+	u8 action;
+	*pkt >> id >> part >> action;
+	inWorkshop(pkt->getPeerId(), "part", [&](PlayerSAO &sao) {
+		if (action > 1)
+			throw workshop::Refused("No such thing to do to a part");
+		if (action == 0)
+			m_workshop->detach(sao, id, part);
+		else
+			m_workshop->remove(sao, id, part);
+	});
+}
+
+// Terra Firma: a socket made on a face, or taken away (sprint 56)
+void Server::handleCommand_Socket(NetworkPacket *pkt)
+{
+	u16 id;
+	u8 action;
+	*pkt >> id >> action;
+	if (action == 1) {
+		u64 socket;
+		*pkt >> socket;
+		inWorkshop(pkt->getPeerId(), "socket", [&](PlayerSAO &sao) { m_workshop->unsocket(sao, id, socket); });
+		return;
+	}
+	const piece::Machine::Face face = readFace(*pkt);
+	u8 joint, axis;
+	s32 twice;
+	*pkt >> joint >> axis >> twice;
+	inWorkshop(pkt->getPeerId(), "socket", [&](PlayerSAO &sao) {
+		checkFace(face);
+		if (action != 0)
+			throw workshop::Refused("No such thing to do to a socket");
+		if (joint >= u8(piece::Joint::Count))
+			throw workshop::Refused("No such joint");
+		if (axis != 255 && axis > 2)
+			throw workshop::Refused("No such mirror axis");
+		m_workshop->socket(sao, id, face, piece::Joint(joint),
+				axis == 255 ? std::nullopt : std::optional<sculpt::Stroke::Mirror>({ axis, twice }));
+	});
+}
+
+// Terra Firma: a machine carried onto another's socket (sprint 56)
+void Server::handleCommand_Plug(NetworkPacket *pkt)
+{
+	u16 a, b;
+	u64 socket;
+	*pkt >> a >> socket >> b;
+	const piece::Machine::Face on_b = readFace(*pkt);
+	inWorkshop(pkt->getPeerId(), "plug", [&](PlayerSAO &sao) {
+		checkFace(on_b);
+		m_workshop->plug(sao, a, socket, b, on_b);
+	});
 }

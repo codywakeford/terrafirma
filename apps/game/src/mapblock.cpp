@@ -227,9 +227,18 @@ void MapBlock::copyFrom(const VoxelManipulator &src)
 	VoxelArea data_area(v3s16(0,0,0), data_size - v3s16(1,1,1));
 
 	expandNodesIfNeeded();
+	// Terra Firma: a shape is its material's; what's become something
+	// else is whole
+	std::vector<std::pair<v3s16, content_t>> cut;
+	m_shapes.each([&](v3s16 rel, const shape::Shape &) {
+		cut.emplace_back(rel, getNodeNoCheck(rel).getContent());
+	});
 	// Copy from VoxelManipulator to data
 	src.copyTo(data, data_area, v3s16(0,0,0),
 			getPosRelative(), data_size);
+	for (const auto &[rel, was] : cut)
+		if (getNodeNoCheck(rel).getContent() != was)
+			m_shapes.erase(rel);
 	tryShrinkNodes();
 }
 
@@ -461,6 +470,8 @@ void MapBlock::serialize(std::ostream &os_compressed, u8 version, bool disk, int
 		// prior to 29 node data was compressed individually
 		compress(os_raw.str(), os, version, compression_level);
 	}
+	if (version >= 30)
+		m_shapes.serialize(os);
 
 	/*
 		Data that goes to disk, but not the network
@@ -567,6 +578,8 @@ void MapBlock::deSerializeUncompressed(std::istream &is, u8 version, bool disk)
 	TRACESTREAM(<<"MapBlock::deSerialize "<<getPos()
 			<<": Node metadata"<<std::endl);
 	m_node_metadata.deSerialize(is, m_gamedef->idef());
+	if (version >= 30)
+		m_shapes.deSerialize(is);
 
 	/*
 		Data that is only on disk

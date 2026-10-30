@@ -29,6 +29,7 @@ set(common_SCRIPT_LUA_API_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/l_terra.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_planet.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_matter.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/l_physics.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_orbit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_util.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_vmanip.cpp

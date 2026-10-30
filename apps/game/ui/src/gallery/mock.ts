@@ -560,6 +560,11 @@ export function MockBridge() {
             publish()
             return null
         },
+        "tools.pick": () => null,
+        "tools.ask": () => null,
+        "tools.mode": () => null,
+        "tools.brush": () => null,
+        "hotbar.select": () => null,
         "inventory.drop": ({ from, count }) => {
             take(from, count)
             publish()

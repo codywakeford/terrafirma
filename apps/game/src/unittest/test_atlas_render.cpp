@@ -49,6 +49,7 @@ public:
 
 	void testViewsMatchThePlanet();
 	void testWithinBudget();
+	void testClippingSpillsOver();
 };
 
 static TestAtlasRender g_test_instance;
@@ -56,6 +57,7 @@ static TestAtlasRender g_test_instance;
 void TestAtlasRender::runTests(IGameDef *gamedef)
 {
 	TEST(testWithinBudget);
+	TEST(testClippingSpillsOver);
 	if (!std::getenv("ATLAS_BUDGET")) // ATLAS_BUDGET: the costs alone (the views take minutes)
 		TEST(testViewsMatchThePlanet);
 }
@@ -502,4 +504,76 @@ void TestAtlasRender::testWithinBudget()
 		over += f.blocks > b.blocks || f.choosing > b.choosing || perMesh > b.perMesh;
 	}
 	UTEST(over == 0, "%d of %zu views over budget", over, budgets.size());
+}
+
+/*
+	A seam block's mesh clipped to its territory (bendOntoAtlas) whose
+	buffer is near its 16-bit limit already (fine ground and cut blocks
+	fill one): what the clipping adds goes to buffers of its own, each under
+	the limit, every index in its buffer. It threw, and the mesh thread died
+	with the game.
+*/
+void TestAtlasRender::testClippingSpillsOver()
+{
+	const planet::Atlas atlas = planet::Atlas::resident(PLANET);
+	const terragen::Atlas &geometry = atlas.body(planet::Atlas::HOME);
+	// a block with cut cells: near a band's seam
+	std::optional<v3s16> seam;
+	for (double lon = 0; lon < 360 && !seam; lon += 7) {
+		const double lat = 84.6 * M_PI / 180, lo = lon * M_PI / 180;
+		const V out{ std::cos(lat) * std::cos(lo), std::sin(lat), std::cos(lat) * std::sin(lo) };
+		const V where{ PLANET.radius * out.x, PLANET.radius * out.y, PLANET.radius * out.z };
+		const planet::Atlas::Node n = atlas.node(planet::Atlas::Cell(planet::Atlas::HOME, geometry.locate(where)));
+		for (const planet::Atlas::Block b : atlas.blocksAt(n, n.x, n.y, n.z))
+			if (!atlas.interior(b)) {
+				atlas.prepare(b);
+				if (!atlas.cutsIn(b).empty() && atlas.blockChart(b)) {
+					seam = v3s16(b.x, b.y, b.z);
+					break;
+				}
+			}
+	}
+	UASSERT(seam);
+	const v3s16 low = *seam * MAP_BLOCKSIZE;
+
+	// one buffer: all but a few hundred vertices taken, then a cube's faces
+	// over every cut cell (some cross its planes: clipped, they grow)
+	MeshCollector collector(v3f(0));
+	PreMeshBuffer buf{ TileLayer() };
+	buf.vertices.resize(U16_MAX - 300);
+	size_t cubes = 0;
+	for (const planet::Atlas::CutCell &c : atlas.cutsIn({ seam->X, seam->Y, seam->Z })) {
+		const v3f at = v3f(c.node.x - low.X, c.node.y - low.Y, c.node.z - low.Z) * BS;
+		for (int face = 0; face < 6; face++) {
+			const int a = face / 2, sign = face % 2 ? 1 : -1;
+			const int u = (a + 1) % 3, v = (a + 2) % 3;
+			v3f q[4];
+			for (int k = 0; k < 4; k++) {
+				v3f p;
+				p[a] = sign * BS / 2;
+				p[u] = (k == 1 || k == 2 ? 1 : -1) * BS / 2;
+				p[v] = (k >= 2 ? 1 : -1) * BS / 2;
+				q[k] = at + p;
+			}
+			v3f normal;
+			normal[a] = f32(sign);
+			const u16 base = u16(buf.vertices.size());
+			if (base + 4 > U16_MAX)
+				break;
+			for (const v3f &p : q)
+				buf.vertices.emplace_back(p, normal, video::SColor(0xffffffff), v2f(0));
+			buf.indices.insert(buf.indices.end(), { base, u16(base + 1), u16(base + 2), base, u16(base + 2), u16(base + 3) });
+		}
+		cubes++;
+	}
+	UASSERT(cubes > 0);
+	collector.prebuffers[0].push_back(std::move(buf));
+
+	bendOntoAtlas(collector, atlas, *seam);
+	UASSERT(collector.prebuffers[0].size() > 1); // it spilled
+	for (const PreMeshBuffer &b : collector.prebuffers[0]) {
+		UASSERT(b.vertices.size() <= U16_MAX);
+		for (u16 i : b.indices)
+			UASSERT(i < b.vertices.size());
+	}
 }

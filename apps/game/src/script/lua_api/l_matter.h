@@ -24,6 +24,7 @@
 	  ambient(pos, kelvin)         the weather's temperature for that 16-block cube
 	  temperature(pos) → kelvin
 	  capacity(pos) → J/K the block's matter holds (nil: no matter registered)
+	  density(node [, param2]) → kg/m³ of a registered block at room temperature (nil: not registered)
 	  awake(minp, maxp) → { { pos, temperature, activity, substance, state, fill, vapour, haze }, … }
 	  happened() → { { pos, reaction }, … } (reactions that ran since the last call)
 	  count() → blocks awake
@@ -43,6 +44,7 @@ private:
 	static int l_ambient(lua_State *L);
 	static int l_temperature(lua_State *L);
 	static int l_capacity(lua_State *L);
+	static int l_density(lua_State *L);
 	static int l_awake(lua_State *L);
 	static int l_happened(lua_State *L);
 	static int l_count(lua_State *L);

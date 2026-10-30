@@ -3,8 +3,13 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "game_internal.h"
+#include "piece/frame.h"
+#include "piece/header.h"
+#include "piece/machine.h"
 
 #include <cmath>
+#include <set>
+#include <ISceneCollisionManager.h>
 #include <csignal>
 #include "client/atlas_view.h" // Terra Firma
 #include "client/gameui.h"
@@ -477,7 +482,7 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 #if USE_SHELL
 	sanity_check(g_shell);
 	m_shell_session = std::make_unique<shell::Session>(shell::Session::Opts{
-		*g_shell, client, driver, guienv });
+		*g_shell, client, driver, guienv, m_hand });
 	// the Planetarium, while shown, takes the mouse where the page doesn't;
 	// the keyboard only when its key opened it (a screen over it keeps its own)
 	input->capture([this](const SEvent &event) {
@@ -1520,6 +1525,19 @@ void Game::processUserInput(f32 dtime)
 
 void Game::processKeyInput()
 {
+	// Terra Firma: N, a new object (holding one, a part on it): once a press
+	if (wasKeyPressed(KeyType::PIECE_NEW)) {
+		m_hand.ask(Hand::ACTIONS[size_t(Hand::Verb::Start)].id, "");
+		return;
+	}
+	// Terra Firma: Tab frees the cursor (the rails, the menus; the world
+	// pointed at through it) and takes it back
+	if (wasKeyPressed(KeyType::CURSOR)) {
+		m_cursor = !m_cursor;
+		m_menu.reset();
+		m_game_ui->showTranslatedStatusText(m_cursor ? "The cursor's free (Tab: look again)" : "Looking");
+		return;
+	}
 	if (wasKeyDown(KeyType::DROP)) {
 		dropSelectedItem(isKeyDown(KeyType::SNEAK));
 	} else if (wasKeyDown(KeyType::AUTOFORWARD)) {
@@ -1541,6 +1559,29 @@ void Game::processKeyInput()
 #endif
 	} else if (wasKeyDown(KeyType::PLANETARIUM)) {
 		openPlanetarium();
+	} else if (wasKeyDown(KeyType::TOOLS) && !m_hold) {
+		m_hand.toggle();
+		if (m_hand.out())
+			showTool();
+		else
+			m_game_ui->showTranslatedStatusText("Tools away");
+	} else if (m_hand.out() && wasKeyDown(KeyType::TOOL_NEXT)) {
+		m_hand.next();
+		showTool();
+	} else if (m_hand.out() && wasKeyDown(KeyType::MIRROR)) {
+		m_hand.ask(Hand::ACTIONS[size_t(Hand::Verb::Mirror)].id, "");
+	} else if (wasKeyDown(KeyType::UNDO)) {
+		m_hand.ask(Hand::ACTIONS[size_t(Hand::Verb::Undo)].id, "");
+	} else if (wasKeyDown(KeyType::FOCUS)) {
+		m_hand.ask(Hand::ACTIONS[size_t(Hand::Verb::Focus)].id, "");
+	} else if (m_menu && input->cancelPressed()) {
+		m_menu.reset();
+	} else if (m_draw && input->cancelPressed()) {
+		m_draw.reset(); // a shape stopped, not drawn
+	} else if (m_hold && m_part && input->cancelPressed()) {
+		pickPart(std::nullopt);
+	} else if (m_hold && input->cancelPressed()) {
+		toggleFocus();
 	} else if (input->cancelPressed()) {
 #ifdef __ANDROID__
 		m_android_chat_open = false;
@@ -1668,6 +1709,12 @@ void Game::processItemSelection(u16 *new_playeritem)
 	/* Item selection using mouse wheel
 	 */
 	s32 wheel = input->getMouseWheel();
+	// Terra Firma: with the tools out the wheel sizes them
+	if (m_hand.out() && wheel != 0) {
+		m_hand.resize(wheel > 0 ? 1 : -1);
+		showTool();
+		wheel = 0;
+	}
 	if (!m_enable_hotbar_mouse_wheel)
 		wheel = 0;
 	if (m_invert_hotbar_mouse_wheel)
@@ -2090,6 +2137,29 @@ void Game::checkZoomEnabled()
 void Game::updateCameraDirection(CameraOrientation *cam, float dtime)
 {
 	auto *cur_control = device->getCursorControl();
+
+	// Terra Firma: the object the server made for us, focused when it's here
+	if (const std::optional<u16> held = client->takeHeld())
+		m_awaited = held;
+	if (m_awaited && pieceMiddle(*m_awaited)) {
+		focusOn(*m_awaited);
+		m_awaited.reset();
+	}
+
+	// Terra Firma: an object on the workbench, turned by its handle
+	if (m_hold)
+		benchStep(dtime);
+	// Terra Firma: the cursor free (Tab, or a part's menu open): the view
+	// stays, the mouse points
+	if (m_cursor || m_menu) {
+		if (cur_control) {
+			cur_control->setRelativeMode(false);
+			if (!cur_control->isVisible())
+				cur_control->setVisible(true);
+		}
+		m_first_loop_after_window_activation = true;
+		return;
+	}
 
 	/* On Linux and Windows, enabling relative mouse mode somehow results
 	in simulated mouse events being generated from touch events, even though
@@ -2868,6 +2938,16 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 	}
 	shootline.end = shootline.start + camera_direction * BS * d;
 
+	// Terra Firma: the cursor free, through it, as far as the hand reaches
+	if (m_cursor || m_menu) {
+		core::line3d<f32> through = smgr->getSceneCollisionManager()->getRayFromScreenCoordinates(
+				input->getMousePos(), camera->getCameraNode());
+		const v3f offset = intToFloat(camera->getOffset(), BS);
+		const v3f dir = (through.end - through.start).normalize();
+		shootline.start = through.start + offset;
+		shootline.end = shootline.start + dir * BS * d;
+	}
+
 	if (isTouchShootlineUsed()) {
 		shootline = g_touchcontrols->getShootline();
 		// Scale shootline to the acual distance the player can reach
@@ -2877,6 +2957,7 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 		shootline.end += intToFloat(camera_offset, BS);
 	}
 
+	m_pointed_from = shootline; // Terra Firma: pieces are pointed at again in their own grid
 	PointedThing pointed = updatePointedThing(shootline,
 			selected_def.liquids_pointable,
 			selected_def.pointabilities,
@@ -2952,7 +3033,30 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 	else
 		runData.repeat_place_timer = 0;
 
-	if (selected_def.usable && isKeyDown(KeyType::DIG)) {
+	// Terra Firma: what the page's rail asked, now what's pointed at is known
+	for (const Hand::Ask &ask : m_hand.take())
+		handleAsk(ask, pointed);
+	// Terra Firma: an object pointed at in the world is lit, and what a
+	// press would do said: with the tools away it's carried, out it's
+	// worked on where it is
+	const u16 lit = !m_hold && !m_carry && pointed.type == POINTEDTHING_OBJECT && pieceMiddle(pointed.object_id)
+			? pointed.object_id : 0;
+	if (lit != m_lit) {
+		for (const u16 id : { m_lit, lit })
+			if (auto *obj = id ? dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id)) : nullptr)
+				obj->setLook({ std::nullopt, std::nullopt, false, id == lit });
+		if (lit)
+			m_game_ui->showTranslatedStatusText(m_hand.out() ? "Draw on it here · F to pick it up · X: hands to carry it"
+					: "Hold left to carry it · F to pick it up and work on it");
+		m_lit = lit;
+	}
+	if (m_carry || (!m_hold && !m_hand.out() && wasKeyPressed(KeyType::DIG) && lit)) {
+		// Terra Firma: with the tools away, an object pressed on is carried
+		handleCarry(pointed, dtime);
+	} else if (m_hand.out()) {
+		// Terra Firma: the tools in hand make strokes, on the world or what's held
+		handleTools(pointed);
+	} else if (selected_def.usable && isKeyDown(KeyType::DIG)) {
 		if (wasKeyPressed(KeyType::DIG) && (!client->modsLoaded() ||
 				!client->getScript()->on_item_use(selected_item, pointed)))
 			client->interact(INTERACT_USE, pointed);
@@ -3032,8 +3136,20 @@ PointedThing Game::updatePointedThing(
 		// Update selection boxes
 		MapNode n = map.getNode(result.node_undersurface);
 		std::vector<aabb3f> boxes;
-		n.getSelectionBoxes(nodedef, &boxes,
-			n.getNeighbors(result.node_undersurface, &map));
+		// Terra Firma: a shaped node (cut, smoothed ground) is outlined
+		// round what's there, not each of its boxes
+		std::vector<aabb3f> shaped;
+		if (map.getShapedBoxes(result.node_undersurface, shaped)) {
+			if (!shaped.empty()) {
+				aabb3f all = shaped[0];
+				for (const aabb3f &b : shaped)
+					all.addInternalBox(b);
+				boxes.push_back(all);
+			}
+		} else {
+			n.getSelectionBoxes(nodedef, &boxes,
+				n.getNeighbors(result.node_undersurface, &map));
+		}
 
 		f32 d = 0.002f * BS;
 		for (aabb3f box : boxes) {
@@ -3049,6 +3165,22 @@ PointedThing Game::updatePointedThing(
 		if (AtlasView *view = map.atlasView())
 			if (auto lines = view->outline(result.node_undersurface, *selectionboxes))
 				*hud->getSelectionLines() = std::move(*lines);
+	}
+
+	// Terra Firma: the tools: a ghost of what a dig would take, its own
+	// edges drawn, on the world or a piece
+	// (drawing only: selecting and joining outline the part instead)
+	const sculpt::Act act = Hand::BRUSHES[size_t(m_hand.brush())].act;
+	if (m_hand.mode().click != Hand::Click::Draw) {
+	} else if (m_draw && m_draw->pulling) {
+		if (const std::optional<sculpt::Stroke> stroke = drawn(*m_draw))
+			showGhost(m_draw->start, *stroke, camera_offset);
+	} else if (m_draw) {
+		if (const std::optional<sculpt::Stroke> stroke = strokeAt(m_draw->start, act, m_draw->to))
+			showGhost(m_draw->start, *stroke, camera_offset);
+	} else if (const std::optional<Aim> aim = aimAt(result)) {
+		if (const std::optional<sculpt::Stroke> stroke = strokeAt(*aim, act))
+			showGhost(*aim, *stroke, camera_offset);
 	}
 
 	// Update selection mesh light level and vertex colors
@@ -3152,6 +3284,927 @@ void Game::handlePointingAtNode(const PointedThing &pointed,
 		if (placed && client->modsLoaded())
 			client->getScript()->on_placenode(pointed, def);
 	}
+}
+
+std::optional<Game::Aim> Game::aimAt(const PointedThing &pointed) const
+{
+	if (!m_hand.out())
+		return std::nullopt;
+	if (!m_hold && pointed.type == POINTEDTHING_NODE)
+		return Aim{ 0, 0, core::matrix4(), pointed.node_undersurface, pointed.intersection_point,
+			floatToInt(pointed.intersection_normal, 1) };
+	// holding an object, only it's aimed at (the ground round it isn't
+	// cut by a stroke that misses it); in the world, the object pointed at
+	if (!m_hold && pointed.type != POINTEDTHING_OBJECT)
+		return std::nullopt;
+	const u16 id = m_hold ? m_hold->object() : pointed.object_id;
+	// a machine: the ray again in each part's own grid, the nearest hit
+	// (holding it with a part picked, only that part)
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id));
+	if (!obj || !obj->getMachine())
+		return std::nullopt;
+	std::optional<Aim> best;
+	f32 best_d = 0;
+	for (const piece::Machine::Part &part : obj->getMachine()->parts()) {
+		if (m_hold && m_part && *m_part != part.object.id())
+			continue;
+		const core::matrix4 frame = obj->getFrame() * part.pose.matrix();
+		core::matrix4 into;
+		if (!frame.getInverse(into))
+			throw BaseException("a part's frame has no inverse");
+		v3f start = m_pointed_from.start, end = m_pointed_from.end;
+		into.transformVect(start);
+		into.transformVect(end);
+		const std::optional<piece::Piece::Hit> hit = part.object.design().raycast({ start, end });
+		if (!hit)
+			continue;
+		const f32 d = (hit->point - start).getLengthSQ();
+		if (!best || d < best_d) {
+			best = Aim{ id, part.object.id(), frame, hit->node, hit->point, hit->normal };
+			best_d = d;
+		}
+	}
+	return best;
+}
+
+std::optional<sculpt::Stroke> Game::strokeAt(const Aim &aim, sculpt::Act act, std::optional<shape::Sixteenth> to) const
+{
+	// past the player's reach the server would refuse it (the focus view's
+	// camera can be further out than the player stands)
+	v3f there = aim.point;
+	aim.frame.transformVect(there);
+	const v3f eye = client->getEnv().getLocalPlayer()->getEyePosition();
+	if (eye.getDistanceFrom(there) > (sculpt::REACH + m_hand.size() / 16.f) * BS)
+		return std::nullopt;
+	sculpt::Stroke s{ m_hand.tool(), m_hand.size(), shape::hit(aim.node, aim.point, aim.normal),
+		aim.normal, act, std::nullopt, to, std::nullopt };
+	if (m_hand.mirrored()) {
+		// across the focus's middle (in its frame); outside the focus view,
+		// across the pointed block's, left to right as the player faces
+		const v3f look = camera->getDirection();
+		int axis = std::abs(look.X) > std::abs(look.Z) ? 2 : 0;
+		f32 middle = aim.node[axis];
+		if (m_hold && m_hold->object() == aim.piece) {
+			// the machine's middle, across its axis left to right, in the
+			// part's own grid
+			const piece::Pose &pose = partPose(aim.piece, aim.part);
+			const int machine_axis = m_hold->across();
+			for (int a = 0; a < 3; a++)
+				if (piece::turn(pose.turn).axes[a][machine_axis] != 0)
+					axis = a;
+			const v3f local = pose.unapply((m_hold->middle() + v3f(0.5f)) * shape::STEPS) / shape::STEPS - v3f(0.5f);
+			middle = local[axis];
+		}
+		s.mirror = sculpt::Stroke::Mirror{ axis, s32(std::lround(middle * 2 * shape::STEPS)) + shape::STEPS };
+	}
+	if (!s.valid())
+		return std::nullopt;
+	return s;
+}
+
+void Game::handleTools(const PointedThing &pointed)
+{
+	if (!client->checkPrivilege("interact"))
+		return;
+	// the primary button draws or selects, from what it's pressed on;
+	// nothing's done till it's let go (and a shape, till it's pulled and
+	// clicked). The other button turns what's held.
+	const Hand::BrushKind &brush = Hand::BRUSHES[size_t(m_hand.brush())];
+	if (!m_draw) {
+		if (!wasKeyPressed(KeyType::DIG))
+			return;
+		const std::optional<Aim> aim = aimAt(pointed);
+		if (!aim)
+			return;
+		m_draw = Draw{ *aim, std::nullopt, false, 1, std::nullopt };
+		m_drag = {}; // not a turn
+		m_menu.reset();
+		if (brush.pulls && m_hand.mode().click == Hand::Click::Draw) {
+			// the flat stretch pressed on, pulled from now
+			const auto flat = flatFace(*aim);
+			if (!flat) {
+				m_draw.reset();
+				return;
+			}
+			m_draw->to = flat->second;
+			m_draw->pulling = true;
+			m_draw->pull_from = flat->first;
+		}
+		return;
+	}
+	if (m_hand.mode().click != Hand::Click::Draw) {
+		if (isKeyDown(KeyType::DIG))
+			return;
+		if (!dragTo(*m_draw))
+			clickMode(m_draw->start);
+		m_draw.reset();
+		return;
+	}
+
+	if (!m_draw->pulling) {
+		// the footprint, as it's dragged; let go, pulled
+		m_draw->to = dragTo(*m_draw);
+		if (const std::optional<sculpt::Stroke> s = strokeAt(m_draw->start, brush.act, m_draw->to))
+			m_game_ui->showStatusText(utf8_to_wide(std::string(sculpt::KINDS[size_t(s->tool)].name) + " · " + s->measure()
+					+ (m_draw->to ? "" : " · let go, then pull it out")));
+		if (!isKeyDown(KeyType::DIG))
+			m_draw->pulling = true;
+		return;
+	}
+	m_draw->deep = pullDepth(*m_draw);
+	const std::optional<sculpt::Stroke> s = drawn(*m_draw);
+	if (s)
+		m_game_ui->showStatusText(utf8_to_wide(std::string(brush.pulls ? "Pull" : sculpt::KINDS[size_t(s->tool)].name)
+				+ " · " + s->measure() + (brush.pulls ? " · let go to make it" : " · click to make it, Esc to stop")));
+	// the other button stops it
+	if (wasKeyPressed(KeyType::PLACE)) {
+		m_draw.reset();
+		return;
+	}
+	// a face's pulled as it's held, let go it's made; a shape's made on a click
+	const bool made = brush.pulls ? !isKeyDown(KeyType::DIG) : wasKeyPressed(KeyType::DIG);
+	if (!made)
+		return;
+	if (s)
+		client->sendStroke(m_draw->start.piece, m_draw->start.part, *s,
+				brush.apart ? std::optional<piece::Joint>(m_hand.partJoint()) : std::nullopt);
+	m_draw.reset();
+}
+
+std::optional<sculpt::Stroke> Game::drawn(const Draw &draw) const
+{
+	// pulled out, the brush adds; in, it cuts (or, adding, it's at least a sixteenth out)
+	const Hand::BrushKind &brush = Hand::BRUSHES[size_t(m_hand.brush())];
+	sculpt::Act act = brush.act;
+	if (brush.pulls)
+		act = draw.deep >= 0 ? sculpt::Act::Add : sculpt::Act::Cut;
+	const s32 into = act == sculpt::Act::Add ? std::max(1, draw.deep) : std::max(1, -draw.deep);
+	std::optional<sculpt::Stroke> s = brush.pulls
+			? sculpt::Stroke{ sculpt::Tool::Box, 1, *draw.pull_from, draw.start.normal, act, std::nullopt, draw.to, std::nullopt }
+			: strokeAt(draw.start, act, draw.to);
+	if (!s)
+		return std::nullopt;
+	s->deep = std::min<s32>(into, sculpt::MAX_DEEP);
+	if (!s->valid())
+		return std::nullopt;
+	return s;
+}
+
+s32 Game::pullDepth(const Draw &draw) const
+{
+	// the line out of the face, and the cursor's ray, in the face's frame
+	core::matrix4 into;
+	if (!draw.start.frame.getInverse(into))
+		throw BaseException("an aim's frame has no inverse");
+	v3f s = m_pointed_from.start, e = m_pointed_from.end;
+	into.transformVect(s);
+	into.transformVect(e);
+	const shape::Sixteenth from = draw.pull_from ? *draw.pull_from
+			: shape::hit(draw.start.node, draw.start.point, draw.start.normal);
+	const v3s32 g = sculpt::world(from);
+	const int a = draw.start.normal.X ? 0 : draw.start.normal.Y ? 1 : 2;
+	const int sign = draw.start.normal.X + draw.start.normal.Y + draw.start.normal.Z;
+	v3f p0 = (v3f(g.X, g.Y, g.Z) + v3f(0.5f)) / shape::STEPS - v3f(0.5f);
+	p0[a] = f32(g[a] + (sign > 0 ? 1 : 0)) / shape::STEPS - 0.5f;
+	p0 *= BS;
+	const std::optional<f32> t = sculpt::nearestAlong(p0, v3f::from(draw.start.normal), { s, e });
+	if (!t)
+		return draw.deep; // looking along it: as it was
+	return s32(std::lround(*t / BS * shape::STEPS));
+}
+
+std::optional<std::pair<shape::Sixteenth, shape::Sixteenth>> Game::flatFace(const Aim &aim) const
+{
+	// what's solid there, in the aim's grid: the world's, or the part's
+	const piece::Piece *part = nullptr;
+	if (aim.piece) {
+		auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(aim.piece));
+		const piece::Machine::Part *p = obj && obj->getMachine() ? obj->getMachine()->part(aim.part) : nullptr;
+		if (!p)
+			return std::nullopt;
+		part = &p->object.design();
+	}
+	Map &world = client->getEnv().getClientMap();
+	const NodeDefManager *ndef = client->ndef();
+	auto solid = [&](v3s32 w) {
+		const shape::Sixteenth c = sculpt::local(w);
+		bool valid = true;
+		const MapNode n = part ? part->node(c.node) : world.getNode(c.node, &valid);
+		if (!valid || n.getContent() == CONTENT_AIR || n.getContent() == CONTENT_IGNORE
+				|| ndef->get(n).drawtype != NDT_NORMAL)
+			return false;
+		const shape::Shape *cut = part ? part->shape(c.node) : world.getShape(c.node);
+		return !cut || cut->has(c.cell);
+	};
+	// the face: solid on this side, open past it; spread across its plane
+	const v3s32 start = sculpt::world(shape::hit(aim.node, aim.point, aim.normal));
+	const v3s32 n(aim.normal.X, aim.normal.Y, aim.normal.Z);
+	auto face = [&](v3s32 w) { return solid(w) && !solid(w + n); };
+	if (!face(start))
+		return std::nullopt;
+	const int a = n.X ? 0 : n.Y ? 1 : 2, u = (a + 1) % 3, v = (a + 2) % 3;
+	std::set<std::pair<s32, s32>> seen{ { start[u], start[v] } };
+	std::vector<v3s32> todo{ start };
+	v3s32 lo = start, hi = start;
+	while (!todo.empty()) {
+		const v3s32 c = todo.back();
+		todo.pop_back();
+		for (const auto &[du, dv] : { std::pair{ 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) {
+			v3s32 q = c;
+			q[u] += du;
+			q[v] += dv;
+			// no wider than a stroke's footprint
+			if (std::abs(q[u] - start[u]) >= sculpt::MAX_SIZE / 2 || std::abs(q[v] - start[v]) >= sculpt::MAX_SIZE / 2)
+				continue;
+			if (!seen.insert({ q[u], q[v] }).second || !face(q))
+				continue;
+			for (const int b : { u, v }) {
+				lo[b] = std::min(lo[b], q[b]);
+				hi[b] = std::max(hi[b], q[b]);
+			}
+			todo.push_back(q);
+		}
+	}
+	return std::make_pair(sculpt::local(lo), sculpt::local(hi));
+}
+
+std::optional<shape::Sixteenth> Game::dragTo(const Draw &draw) const
+{
+	const Aim &aim = draw.start;
+	core::matrix4 into;
+	if (!aim.frame.getInverse(into))
+		throw BaseException("an aim's frame has no inverse");
+	v3f s = m_pointed_from.start, e = m_pointed_from.end;
+	into.transformVect(s);
+	into.transformVect(e);
+	// the face's plane, in its frame (BS): node p spans p ± BS/2
+	const shape::Sixteenth from = shape::hit(aim.node, aim.point, aim.normal);
+	const v3s32 g = sculpt::world(from);
+	const int a = aim.normal.X ? 0 : aim.normal.Y ? 1 : 2;
+	const int sign = aim.normal.X + aim.normal.Y + aim.normal.Z;
+	const f32 plane = (f32(g[a] + (sign > 0 ? 1 : 0)) / shape::STEPS - 0.5f) * BS;
+	const f32 along = e[a] - s[a];
+	if (std::abs(along) < 1e-4f)
+		return draw.to; // the ray runs along the face: where it was
+	const f32 t = (plane - s[a]) / along;
+	if (t < 0 || t > 1)
+		return draw.to;
+	const v3f p = s + (e - s) * t;
+	v3s32 w = g;
+	for (int b = 0; b < 3; b++) {
+		if (b == a)
+			continue;
+		const s32 at = s32(std::floor((p[b] / BS + 0.5f) * shape::STEPS));
+		// no wider than the largest footprint
+		w[b] = std::clamp(at, g[b] - (sculpt::MAX_SIZE - 1), g[b] + (sculpt::MAX_SIZE - 1));
+	}
+	if (w == g)
+		return std::nullopt;
+	return sculpt::local(w);
+}
+
+f32 Game::pieceRadius(u16 id, v3f middle) const
+{
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id));
+	if (!obj || !obj->getMachine())
+		throw BaseException("pieceRadius: no object " + std::to_string(id));
+	const std::optional<aabb3f> box = obj->getMachine()->designed();
+	if (!box)
+		return 0.5f;
+	f32 radius = 0.5f;
+	for (int c = 0; c < 8; c++) {
+		const v3f corner(c & 1 ? box->MaxEdge.X : box->MinEdge.X, c & 2 ? box->MaxEdge.Y : box->MinEdge.Y,
+				c & 4 ? box->MaxEdge.Z : box->MinEdge.Z);
+		radius = std::max(radius, (corner - middle).getLength());
+	}
+	return radius;
+}
+
+Game::View Game::view(v3f look)
+{
+	// the view's right, up and forward (left-handed: up × forward is right)
+	const v3f forward = look.normalize();
+	v3f right = v3f(0, 1, 0).crossProduct(forward);
+	if (right.getLengthSQ() < 1e-6f)
+		right = v3f(1, 0, 0); // looking straight up or down
+	right.normalize();
+	return { right, forward.crossProduct(right), forward };
+}
+
+void Game::handleCarry(const PointedThing &pointed, f32 dtime)
+{
+	constexpr f32 SEND = 0.05f; // seconds between poses sent
+	constexpr f32 REACH = 4.f;  // nodes past where it's held a face is looked for
+	LocalPlayer *player = client->getEnv().getLocalPlayer();
+	const v3f eye = player->getEyePosition(), look = camera->getDirection();
+	if (!m_carry) {
+		// grabbed where it's pointed at, held as far off as it was; its
+		// origin from there kept in the view's own terms, so it turns with it
+		const v3f hit = pointed.intersection_point;
+		auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(pointed.object_id));
+		const View v = view(look);
+		const v3f off = obj->getPosition() - hit;
+		m_carry = Carry{ pointed.object_id, eye.getDistanceFrom(hit),
+			v3f(off.dotProduct(v.right), off.dotProduct(v.up), off.dotProduct(v.forward)), obj->getRotation(),
+			player->getYaw(), SEND, std::nullopt };
+		client->sendHold(m_carry->object, true);
+	}
+	auto *carried = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(m_carry->object));
+	if (!carried || !carried->getMachine()) { // it's gone
+		m_carry.reset();
+		hud->getGuides()->clear();
+		return;
+	}
+
+	// where it's carried: as far along the look as it was grabbed, turned
+	// as the player's turned since; drawn there now, the server told so often
+	const View v = view(look);
+	const v3f at = eye + look * m_carry->distance + v.right * m_carry->offset.X + v.up * m_carry->offset.Y
+			+ v.forward * m_carry->offset.Z;
+	const v3f turned = m_carry->rotation + v3f(0, player->getYaw() - m_carry->yaw, 0);
+	carried->setPosed(std::make_pair(at, turned));
+	m_carry->age += dtime;
+	if (m_carry->age >= SEND) {
+		client->sendPose(m_carry->object, at, turned);
+		m_carry->age = 0;
+	}
+
+	// a socket near where it's carried (along the look, within a node of
+	// it) first; else a face of something else the look meets
+	m_carry->snap.reset();
+	std::vector<Hud::Guide> *guides = hud->getGuides();
+	guides->clear();
+	std::vector<DistanceSortedActiveObject> near;
+	const f32 far_as = m_carry->distance + REACH * BS;
+	client->getEnv().getActiveObjects(eye, far_as, near);
+	f32 nearest = 0;
+	for (const DistanceSortedActiveObject &d : near) {
+		auto *other = dynamic_cast<GenericCAO *>(d.obj);
+		if (!other || other->getId() == m_carry->object || !other->getMachine())
+			continue;
+		showSockets(*other, false);
+		for (const piece::Machine::Socket &k : other->getMachine()->sockets()) {
+			v3f w = (k.point / shape::STEPS - v3f(0.5f)) * BS;
+			other->getFrame().transformVect(w);
+			const f32 along = (w - eye).dotProduct(look);
+			const f32 off = (eye + look * along).getDistanceFrom(w);
+			if (along < 0 || along > far_as || off > BS)
+				continue;
+			if (m_carry->snap && m_carry->snap->socket && off >= nearest)
+				continue;
+			nearest = off;
+			m_carry->snap = Carry::Snap{ other->getId(), {}, {}, k.id };
+		}
+	}
+	for (const DistanceSortedActiveObject &d : near) {
+		if (m_carry->snap && m_carry->snap->socket)
+			break; // a socket's nearer than any face
+		auto *other = dynamic_cast<GenericCAO *>(d.obj);
+		if (!other || other->getId() == m_carry->object || !other->getMachine())
+			continue;
+		for (const piece::Machine::Part &part : other->getMachine()->parts()) {
+			const core::matrix4 frame = other->getFrame() * part.pose.matrix();
+			core::matrix4 into;
+			if (!frame.getInverse(into))
+				throw BaseException("a part's frame has no inverse");
+			v3f s = eye, e = eye + look * far_as;
+			into.transformVect(s);
+			into.transformVect(e);
+			const std::optional<piece::Piece::Hit> hit = part.object.design().raycast({ s, e });
+			if (!hit)
+				continue;
+			const f32 far = (hit->point - s).getLengthSQ();
+			if (m_carry->snap && far >= nearest)
+				continue;
+			nearest = far;
+			m_carry->snap = Carry::Snap{ other->getId(),
+				{ part.object.id(), shape::hit(hit->node, hit->point, hit->normal), hit->normal }, {}, std::nullopt };
+		}
+	}
+	if (m_carry->snap) {
+		// its face meeting theirs (or the socket's): the one turned most against it
+		auto *target = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(m_carry->snap->object));
+		const piece::Machine &into = *target->getMachine();
+		v3s16 n;
+		if (m_carry->snap->socket) {
+			const auto k = std::find_if(into.sockets().begin(), into.sockets().end(),
+					[&](const piece::Machine::Socket &s) { return s.id == *m_carry->snap->socket; });
+			n = k->axis;
+		} else {
+			n = into.normal(m_carry->snap->on);
+		}
+		// their normal, in the world, then in what's carried: the axis most against it
+		v3f world = v3f::from(n);
+		core::matrix4 turned = target->getFrame();
+		turned.setTranslation(v3f(0));
+		turned.transformVect(world);
+		core::matrix4 back = carried->getFrame();
+		back.setTranslation(v3f(0));
+		core::matrix4 inv;
+		back.getTransposed(inv);
+		inv.transformVect(world);
+		v3s16 d(0, 0, 0);
+		const int a = std::abs(world.X) >= std::abs(world.Y) && std::abs(world.X) >= std::abs(world.Z) ? 0
+				: std::abs(world.Y) >= std::abs(world.Z) ? 1 : 2;
+		d[a] = world[a] > 0 ? -1 : 1;
+		const std::optional<piece::Machine::Face> mine = carried->getMachine()->faceToward(d);
+		if (!mine) {
+			m_carry->snap.reset();
+		} else {
+			m_carry->snap->mine = *mine;
+			// the ghost: both made one, as the server will, and what's carried
+			// drawn where it'd sit
+			piece::Machine joined(client), theirs(client);
+			joined.read(into.write());
+			theirs.read(carried->getMachine()->write());
+			const size_t had = joined.parts().size();
+			if (m_carry->snap->socket)
+				joined.plug(*m_carry->snap->socket, std::move(theirs), *mine);
+			else
+				joined.join(m_carry->snap->on, std::move(theirs), *mine, piece::Joint::Fixed);
+			const core::matrix4 frame = target->getFrame();
+			const v3f offset = intToFloat(client->getEnv().getCameraOffset(), BS);
+			for (size_t i = had; i < joined.parts().size(); i++) {
+				const piece::Machine::Part &p = joined.parts()[i];
+				const std::optional<aabb3f> box = piece::boxOf(p.object.design().write());
+				if (!box)
+					continue;
+				v3f c[8];
+				for (int k = 0; k < 8; k++) {
+					v3f q = (p.pose.apply((v3f(k & 1 ? box->MaxEdge.X : box->MinEdge.X, k & 2 ? box->MaxEdge.Y : box->MinEdge.Y,
+							k & 4 ? box->MaxEdge.Z : box->MinEdge.Z) + v3f(0.5f)) * f32(shape::STEPS)) / shape::STEPS - v3f(0.5f)) * BS;
+					frame.transformVect(q);
+					c[k] = q - offset;
+				}
+				const video::SColor colour = isKeyDown(KeyType::SNEAK) ? video::SColor(255, 255, 140, 60)
+						: video::SColor(255, 150, 230, 255);
+				for (int k = 0; k < 8; k++)
+					for (const int bit : { 1, 2, 4 })
+						if (!(k & bit))
+							guides->push_back({ c[k], c[k | bit], colour });
+			}
+			m_game_ui->showTranslatedStatusText(m_carry->snap->socket ? "Let go to put it on the socket"
+					: isKeyDown(KeyType::SNEAK) ? "Let go to hinge it on" : "Let go to weld it on (Shift: hinge)");
+		}
+	}
+
+	if (isKeyDown(KeyType::DIG))
+		return;
+	// let go: on what it's pointed at, joined; else dropped (where it's
+	// been drawn, told the server first)
+	carried->setPosed(std::nullopt);
+	client->sendPose(m_carry->object, at, turned);
+	if (m_carry->snap && m_carry->snap->socket)
+		client->sendPlug(m_carry->snap->object, *m_carry->snap->socket, m_carry->object, m_carry->snap->mine);
+	else if (m_carry->snap)
+		client->sendJoin(m_carry->snap->object, m_carry->snap->on, m_carry->object, m_carry->snap->mine,
+				isKeyDown(KeyType::SNEAK) ? piece::Joint::Hinge : piece::Joint::Fixed);
+	else
+		client->sendHold(m_carry->object, false);
+	m_carry.reset();
+	guides->clear();
+}
+
+void Game::showSockets(GenericCAO &obj, bool lit) const
+{
+	std::vector<Hud::Guide> &guides = *hud->getGuides();
+	// a socket: a stub out of its face along its axis, a ring round its foot
+	const core::matrix4 frame = obj.getFrame();
+	const v3f offset = intToFloat(client->getEnv().getCameraOffset(), BS);
+	auto at = [&](v3f sixteenths) {
+		v3f p = (sixteenths / shape::STEPS - v3f(0.5f)) * BS;
+		frame.transformVect(p);
+		return p - offset;
+	};
+	const video::SColor colour = lit ? video::SColor(255, 255, 255, 120) : video::SColor(255, 110, 230, 130);
+	for (const piece::Machine::Socket &k : obj.getMachine()->sockets()) {
+		const v3f axis = v3f::from(k.axis);
+		const v3f u = std::abs(axis.Y) > 0.9f ? v3f(1, 0, 0) : v3f(0, 1, 0).crossProduct(axis).normalize();
+		const v3f w = axis.crossProduct(u);
+		guides.push_back({ at(k.point), at(k.point + axis * 10), colour });
+		constexpr int SIDES = 16;
+		constexpr f32 R = 5; // sixteenths
+		for (int i = 0; i < SIDES; i++) {
+			const f32 a = core::PI * 2 * i / SIDES, b = core::PI * 2 * (i + 1) / SIDES;
+			guides.push_back({ at(k.point + (u * std::cos(a) + w * std::sin(a)) * R),
+				at(k.point + (u * std::cos(b) + w * std::sin(b)) * R), colour });
+		}
+	}
+}
+
+void Game::benchStep(f32 dtime)
+{
+	constexpr f32 SEND = 0.05f; // seconds between poses sent
+	const std::optional<v3f> middle = pieceMiddle(m_hold->object());
+	if (!middle) { // the object is gone
+		m_hold.reset();
+		hud->getGuides()->clear();
+		return;
+	}
+	// it's held by its middle, however it's grown; its ring faces the player
+	const f32 radius = pieceRadius(m_hold->object(), *middle);
+	if (*middle != m_hold->middle() || radius != m_hold->radius())
+		m_hold->reshape(*middle, radius);
+	m_hold->watch(client->getEnv().getLocalPlayer()->getEyePosition() / BS, camera->getDirection());
+
+	// pressed on the disc or the ring, it turns as they're looked round
+	// (or pointed round) till it's let go, in steps (Shift: quarters)
+	const core::line3d<f32> ray = m_pointed_from;
+	const f32 step = (isKeyDown(KeyType::SNEAK) ? 90.f : 15.f) * core::DEGTORAD;
+	const bool down = isKeyDown(KeyType::DIG) || isKeyDown(KeyType::PLACE);
+	if (!down) {
+		// the other button clicked on a part (not turned): its menu
+		if (m_drag.held && m_drag.place && !m_drag.turned)
+			if (const std::optional<Aim> aim = aimAt(PointedThing())) {
+				pickPart(aim->part);
+				m_menu_face = faceOf(*aim);
+				const v2u32 screen = driver->getScreenSize();
+				m_menu = m_cursor ? input->getMousePos() : v2s32(screen.X / 2, screen.Y / 2);
+			}
+		m_hold->end();
+		m_drag = {};
+	} else if (!m_draw) {
+		if (!m_drag.held) {
+			m_drag = { true, v2s32(), m_hold->grip(ray), false, false, isKeyDown(KeyType::PLACE) };
+			if (m_drag.grip)
+				m_hold->begin(m_drag.grip->spin);
+		}
+		if (m_drag.grip)
+			if (const std::optional<f32> at = m_hold->angle(m_drag.grip->spin, ray)) {
+				m_hold->spin(*at - m_drag.grip->angle, step);
+				m_drag.turned = true;
+			}
+	}
+	showHandle(client->getEnv().getCameraOffset());
+
+	// where it is: drawn there now; to the server, as it changes, so often
+	m_pose_age += dtime;
+	const Hold::Pose pose = m_hold->pose();
+	if (auto *held = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(m_hold->object())))
+		held->setPosed(std::make_pair(pose.position, pose.rotation));
+	const bool moved = !m_pose_sent || m_pose_sent->position != pose.position || m_pose_sent->rotation != pose.rotation;
+	if (moved && m_pose_age >= SEND) {
+		client->sendPose(m_hold->object(), pose.position, pose.rotation);
+		m_pose_sent = pose;
+		m_pose_age = 0;
+	}
+}
+
+void Game::showHandle(v3s16 camera_offset)
+{
+	// the disc under it with a cross through it, and the ring round it
+	std::vector<Hud::Guide> *guides = hud->getGuides();
+	guides->clear();
+	if (!m_hold)
+		return;
+	const v3f offset = intToFloat(camera_offset, BS);
+	const bool on = m_drag.grip.has_value();
+	auto circle = [&](const Hold::Ring &r, video::SColor colour) {
+		const v3f u = std::abs(r.axis.Y) > 0.9f ? v3f(1, 0, 0) : v3f(0, 1, 0).crossProduct(r.axis).normalize();
+		const v3f w = r.axis.crossProduct(u);
+		constexpr int SIDES = 48;
+		for (int i = 0; i < SIDES; i++) {
+			const f32 a = core::PI * 2 * i / SIDES, b = core::PI * 2 * (i + 1) / SIDES;
+			guides->push_back({ (r.centre + (u * std::cos(a) + w * std::sin(a)) * r.radius) * BS - offset,
+				(r.centre + (u * std::cos(b) + w * std::sin(b)) * r.radius) * BS - offset, colour });
+		}
+	};
+	const video::SColor idle(255, 120, 200, 255), lit(255, 255, 210, 80);
+	const Hold::Ring disc = m_hold->disc();
+	circle(disc, on && m_drag.grip->spin == Hold::Spin::Yaw ? lit : idle);
+	for (f32 d = -disc.radius; d <= disc.radius + 0.01f; d += disc.radius / 2) { // its grid
+		const f32 half = std::sqrt(std::max(0.f, disc.radius * disc.radius - d * d));
+		const video::SColor faint(255, 70, 110, 140);
+		guides->push_back({ (disc.centre + v3f(d, 0, -half)) * BS - offset, (disc.centre + v3f(d, 0, half)) * BS - offset, faint });
+		guides->push_back({ (disc.centre + v3f(-half, 0, d)) * BS - offset, (disc.centre + v3f(half, 0, d)) * BS - offset, faint });
+	}
+	circle(m_hold->ring(), on && m_drag.grip->spin == Hold::Spin::Roll ? lit : idle);
+
+	// its joints: a hinge its axis through the anchor, a weld a small cross
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(m_hold->object()));
+	if (!obj || !obj->getMachine())
+		return;
+	const core::matrix4 frame = obj->getFrame();
+	auto at = [&](v3f sixteenths) { // the machine's, to where it's drawn
+		v3f p = (sixteenths / shape::STEPS - v3f(0.5f)) * BS;
+		frame.transformVect(p);
+		return p - offset;
+	};
+	// how it's drawn: selecting, see-through but for the part under the
+	// cursor; the part selected tinted
+	const bool selecting = m_hand.mode().click == Hand::Click::Select;
+	const std::optional<Aim> under = selecting ? aimAt(PointedThing()) : std::nullopt;
+	obj->setLook({ m_part, under ? std::optional<u64>(under->part) : std::nullopt, selecting });
+	showSockets(*obj, false);
+	// its joints, selecting
+	if (!selecting)
+		return;
+	const video::SColor hinge(255, 255, 140, 60), weld(255, 230, 230, 230);
+	for (const piece::Machine::Link &l : obj->getMachine()->links()) {
+		const v3f axis = v3f::from(l.axis);
+		// two ways across the axis
+		const v3f u = std::abs(axis.Y) > 0.9f ? v3f(1, 0, 0) : v3f(0, 1, 0).crossProduct(axis).normalize();
+		const v3f w = axis.crossProduct(u);
+		if (piece::JOINTS[size_t(l.joint)].turns) {
+			// an axle through it, and a ring round it to turn by
+			guides->push_back({ at(l.anchor - axis * 12), at(l.anchor + axis * 12), hinge });
+			constexpr int SIDES = 16;
+			constexpr f32 R = 6; // sixteenths
+			for (int i = 0; i < SIDES; i++) {
+				const f32 a = core::PI * 2 * i / SIDES, b = core::PI * 2 * (i + 1) / SIDES;
+				guides->push_back({ at(l.anchor + (u * std::cos(a) + w * std::sin(a)) * R),
+					at(l.anchor + (u * std::cos(b) + w * std::sin(b)) * R), hinge });
+			}
+			continue;
+		}
+		// a plate, flat on the face
+		constexpr f32 H = 4;
+		const v3f c[4] = { l.anchor + (u + w) * H, l.anchor + (u - w) * H, l.anchor - (u + w) * H, l.anchor - (u - w) * H };
+		for (int i = 0; i < 4; i++)
+			guides->push_back({ at(c[i]), at(c[(i + 1) % 4]), weld });
+		guides->push_back({ at(c[0]), at(c[2]), weld });
+	}
+}
+
+piece::Machine::Face Game::faceOf(const Aim &aim) const
+{
+	return { aim.part, shape::hit(aim.node, aim.point, aim.normal), aim.normal };
+}
+
+std::optional<sculpt::Stroke::Mirror> Game::machineMirror() const
+{
+	if (!m_hand.mirrored() || !m_hold)
+		return std::nullopt;
+	// across the machine's middle, in its sixteenths from its corner
+	const int axis = m_hold->across();
+	const f32 plane = (m_hold->middle()[axis] + 0.5f) * shape::STEPS;
+	return sculpt::Stroke::Mirror{ axis, s32(std::lround(plane * 2)) };
+}
+
+void Game::clickMode(const Aim &aim)
+{
+	const Hand::Mode &mode = m_hand.mode();
+	switch (mode.click) {
+	case Hand::Click::Select:
+		if (!m_hold || m_hold->object() != aim.piece) {
+			m_game_ui->showTranslatedStatusText("Pick up the machine to select a part of it");
+			return;
+		}
+		pickPart(aim.part == m_part ? std::nullopt : std::optional<u64>(aim.part));
+		return;
+	case Hand::Click::Draw:
+	case Hand::Click::Count:
+		break;
+	}
+	throw BaseException("Game::clickMode: not a click to do");
+}
+
+void Game::pickPart(std::optional<u64> part)
+{
+	m_part = part;
+	if (!part)
+		m_menu.reset();
+	m_game_ui->showTranslatedStatusText(part ? "Working on one part (Esc: all of it)" : "Working on all of it");
+}
+
+void Game::handleAsk(const Hand::Ask &ask, const PointedThing &pointed)
+{
+	// the object it's for: the one focused, else the one pointed at
+	const u16 object = m_hold ? m_hold->object()
+			: pointed.type == POINTEDTHING_OBJECT && pieceMiddle(pointed.object_id) ? pointed.object_id : 0;
+	// the part it's for: the one picked, else the one pointed at
+	std::optional<u64> part = m_part;
+	if (!part)
+		if (const std::optional<Aim> aim = aimAt(pointed); aim && aim->piece)
+			part = aim->part;
+	switch (ask.verb) {
+	case Hand::Verb::Focus:
+		toggleFocus();
+		return;
+	case Hand::Verb::Mirror:
+		m_hand.toggleMirror();
+		showTool();
+		return;
+	case Hand::Verb::Undo:
+		client->sendUndo();
+		return;
+	case Hand::Verb::Start: {
+		// of the block held: said here, not only refused
+		ItemStack selected, hand;
+		const ItemStack &item = client->getEnv().getLocalPlayer()->getWieldedItem(&selected, &hand);
+		content_t id;
+		if (item.empty() || !client->ndef()->getId(item.name, id) || client->ndef()->get(id).drawtype != NDT_NORMAL) {
+			m_game_ui->showTranslatedStatusText("Hold a block in your hotbar to make it of");
+			return;
+		}
+	}
+		// holding a machine, a block attached to the face pointed at; else a new one
+		if (!m_hold) {
+			client->sendPieceNew();
+			return;
+		}
+		// a block of a part of its own on it (and its mirror's)
+		if (const std::optional<Aim> aim = aimAt(pointed)) {
+			if (std::optional<sculpt::Stroke> s = strokeAt(*aim, sculpt::Act::Add)) {
+				s->tool = sculpt::Tool::Box;
+				s->size = shape::STEPS;
+				client->sendStroke(aim->piece, aim->part, *s, piece::Joint::Fixed);
+			}
+		} else {
+			m_game_ui->showTranslatedStatusText("Point at a face of it to add a part to");
+		}
+		return;
+	case Hand::Verb::Place:
+		if (pointed.type != POINTEDTHING_NODE) {
+			m_game_ui->showTranslatedStatusText("Point at the ground to put it on");
+			return;
+		}
+		client->sendBlueprintPlace(ask.name, pointed.node_abovesurface);
+		return;
+	case Hand::Verb::Level:
+	case Hand::Verb::Reset:
+		if (!m_hold) {
+			m_game_ui->showTranslatedStatusText("Pick up an object first");
+			return;
+		}
+		if (ask.verb == Hand::Verb::Level)
+			m_hold->level();
+		else
+			m_hold->reset();
+		return;
+	case Hand::Verb::Detach:
+	case Hand::Verb::Delete:
+		if (!m_hold || !m_part) {
+			m_game_ui->showTranslatedStatusText("Select a part first");
+			return;
+		}
+		client->sendPart(m_hold->object(), *m_part, ask.verb == Hand::Verb::Delete);
+		pickPart(std::nullopt);
+		return;
+	case Hand::Verb::Relink:
+		if (!m_hold || !m_part) {
+			m_game_ui->showTranslatedStatusText("Select a part first");
+			return;
+		}
+		client->sendLink(m_hold->object(), *m_part, ask.other, ask.unlink ? std::nullopt
+				: std::optional<piece::Joint>(ask.joint), std::nullopt);
+		return;
+	case Hand::Verb::Socket:
+		if (!m_hold || !m_menu) {
+			m_game_ui->showTranslatedStatusText("Right-click a face of what's on the workbench first");
+			return;
+		}
+		client->sendSocket(m_hold->object(), m_menu_face, ask.joint, machineMirror());
+		m_menu.reset();
+		return;
+	case Hand::Verb::Unsocket:
+		if (!m_hold) {
+			m_game_ui->showTranslatedStatusText("Put it on the workbench first");
+			return;
+		}
+		client->sendUnsocket(m_hold->object(), ask.other);
+		return;
+	case Hand::Verb::Hollow:
+		if (!object) {
+			m_game_ui->showTranslatedStatusText("Pick up an object, or point at one");
+			return;
+		}
+		if (!part) {
+			m_game_ui->showTranslatedStatusText("Point at the part to hollow");
+			return;
+		}
+		client->sendHollow(object, *part, m_hand.size());
+		return;
+	case Hand::Verb::Save:
+		if (!object) {
+			m_game_ui->showTranslatedStatusText("Pick up an object, or point at one");
+			return;
+		}
+		client->sendBlueprintSave(object, ask.name);
+		return;
+	case Hand::Verb::Count:
+		break;
+	}
+	throw BaseException("Game::handleAsk: no such verb");
+}
+
+void Game::showGhost(const Aim &aim, const sculpt::Stroke &stroke, v3s16 camera_offset)
+{
+	if (!(m_ghost_of == stroke)) {
+		m_ghost = sculpt::outline(stroke.cells());
+		m_ghost_of = stroke;
+	}
+	// in the aim's frame (BS), then the world's
+	std::vector<std::pair<v3f, v3f>> world;
+	for (const auto &[a, b] : m_ghost) {
+		auto at = [&](const v3s32 &w) {
+			v3f p = (v3f(w.X, w.Y, w.Z) / shape::STEPS - v3f(0.5f)) * BS;
+			aim.frame.transformVect(p);
+			return p;
+		};
+		world.emplace_back(at(a), at(b));
+	}
+	std::vector<aabb3f> *boxes = hud->getSelectionBoxes();
+	boxes->clear();
+	aabb3f cell = shape::box(stroke.at.cell);
+	cell.MinEdge += intToFloat(stroke.at.node, BS);
+	cell.MaxEdge += intToFloat(stroke.at.node, BS);
+	boxes->push_back(cell);
+	hud->setSelectionPos(aim.frame.getTranslation(), camera_offset);
+	hud->setSelectionRotationRadians(aim.frame.getRotationRadians());
+
+	std::vector<std::pair<v3f, v3f>> *lines = hud->getSelectionLines();
+	lines->clear();
+	if (AtlasView *view = client->getEnv().getClientMap().atlasView()) {
+		// on a planet, placed as the node they start in is drawn
+		const v3s16 o = floatToInt(aim.frame.getTranslation(), BS);
+		std::vector<std::pair<v3f, v3f>> rel;
+		for (const auto &[a, b] : world)
+			rel.emplace_back(a / BS - v3f::from(o), b / BS - v3f::from(o));
+		if (auto placed = view->place(o, rel))
+			*lines = std::move(*placed);
+	} else {
+		const v3f offset = intToFloat(camera_offset, BS);
+		for (const auto &[a, b] : world)
+			lines->emplace_back(a - offset, b - offset);
+	}
+}
+
+void Game::showTool()
+{
+	m_game_ui->showStatusText(utf8_to_wide(m_hand.describe()));
+}
+
+std::optional<v3f> Game::pieceMiddle(u16 id) const
+{
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id));
+	if (!obj || !obj->getMachine())
+		return std::nullopt;
+	const std::optional<aabb3f> box = obj->getMachine()->designed();
+	if (!box)
+		return std::nullopt;
+	return box->getCenter();
+}
+
+const piece::Pose &Game::partPose(u16 id, u64 part) const
+{
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id));
+	const piece::Machine::Part *p = obj && obj->getMachine() ? obj->getMachine()->part(part) : nullptr;
+	if (!p)
+		throw BaseException("partPose: no part " + std::to_string(part));
+	return p->pose;
+}
+
+
+void Game::toggleFocus()
+{
+	if (m_hold) {
+		closeFocus();
+		return;
+	}
+	const PointedThing &at = runData.pointed_old;
+	if (at.type == POINTEDTHING_OBJECT && pieceMiddle(at.object_id))
+		focusOn(at.object_id);
+	else
+		m_game_ui->showTranslatedStatusText("Point at an object to pick it up (N makes one; X edits the world)");
+}
+
+void Game::focusOn(u16 id)
+{
+	if (m_hold)
+		closeFocus();
+	const std::optional<v3f> middle = pieceMiddle(id);
+	if (!middle)
+		throw BaseException("Game::focusOn: not an object");
+	// lifted where it is, a little, and left floating there
+	constexpr f32 LIFT = 0.5f; // nodes
+	auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(id));
+	v3f at = *middle * BS;
+	obj->getFrame().transformVect(at);
+	m_hold.emplace(id, *middle, pieceRadius(id, *middle), obj->getFrame(), at / BS + v3f(0, LIFT, 0));
+	m_hold->level();
+	m_pose_sent.reset();
+	m_pose_age = 0;
+	client->sendHold(id, true);
+	m_hand.takeOut();
+	m_game_ui->showTranslatedStatusText("On the workbench: walk round it · its disc and ring turn it · F to put it down");
+}
+
+void Game::closeFocus()
+{
+	if (pieceMiddle(m_hold->object()))
+		client->sendHold(m_hold->object(), false);
+	pickPart(std::nullopt);
+	if (auto *obj = dynamic_cast<GenericCAO *>(client->getEnv().getActiveObject(m_hold->object()))) {
+		obj->setLook({});
+		obj->setPosed(std::nullopt);
+		const Hold::Pose pose = m_hold->pose();
+		client->sendPose(m_hold->object(), pose.position, pose.rotation); // where it was drawn
+	}
+	m_hold.reset();
+	m_menu.reset();
+	hud->getGuides()->clear();
+	m_game_ui->showTranslatedStatusText("Put down");
 }
 
 bool Game::nodePlacement(const ItemDefinition &selected_def,
@@ -3895,7 +4948,10 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 		draw_crosshair = false;
 
 #if USE_SHELL
-	m_shell_session->update({ this->m_game_ui->m_flags.show_hud, draw_crosshair });
+	m_shell_session->update({ this->m_game_ui->m_flags.show_hud, draw_crosshair && !m_cursor && !m_menu,
+		m_hold.has_value(), m_cursor || m_menu.has_value(),
+		m_hold && m_part ? std::optional<std::pair<u16, u64>>({ m_hold->object(), *m_part }) : std::nullopt,
+		m_hold && m_part ? m_menu : std::nullopt });
 	if (m_online_host) {
 		m_online_host->step();
 		if (std::optional<online::Endpoint> endpoint = m_online_host->changed())

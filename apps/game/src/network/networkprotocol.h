@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 64;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 70;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 64;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 70;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -755,7 +755,32 @@ enum ToClientCommand : u16
 			if so: u8 body, s32 region, s32 ti, s32 tj
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x6B,
+	TOCLIENT_SHAPE = 0x6B,
+	/*
+		Terra Firma: a node's cut shape changed (shape::Shape). Its content is
+		as the client has it (a change of content comes as TOCLIENT_ADDNODE
+		first, on the same channel).
+		v3s16 node
+		u8 whole: 1 if it's no longer cut
+		if not: u8[512] the shape (Shape::serialize)
+	*/
+
+	TOCLIENT_BLUEPRINTS = 0x6C,
+	/*
+		Terra Firma: the player's blueprints (workshop::Library), when they
+		join and when they save one
+		u16 count
+		for each: std::string name
+	*/
+
+	TOCLIENT_HELD = 0x6D,
+	/*
+		Terra Firma: the object the player's new one is, held (sprint 49):
+		the client focuses it when it arrives
+		u16 object: its object id
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x6E,
 };
 
 enum ToServerCommand : u16
@@ -980,7 +1005,110 @@ enum ToServerCommand : u16
 		std::string build    the client's build (g_version_hash): must be the host's
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x56,
+	TOSERVER_SCULPT = 0x56,
+	/*
+		Terra Firma: a stroke of the tools in hand (sculpt::Stroke)
+		u16 piece: its object id, in its own grid; 0: the world
+		u64 part: the machine's part (sprint 52; 0 on the world)
+		u8 tool, u8 size (sixteenths)
+		v3s16 node, u8 x, y, z: the sixteenth pointed at
+		v3s16 normal: the face pointed at's
+		u8 act: sculpt::Act (0 cut, 1 add, 2 paint: sprint 53)
+		u8 mirror axis: 0..2, or 255 for none
+		s32 twice the mirror plane's coordinate, in world sixteenths
+		u8 dragged: 1 if the footprint was dragged out (sprint 50); if so:
+		v3s16 node, u8 x, y, z: the sixteenth it was dragged to
+		u8 apart: what it adds grown as a part of its own (sprint 53), joined
+		so: 0 not, else the joint (piece::Joint) + 1 (sprint 54)
+		u8 deep: 1 if it's pulled to a depth (sprint 55); if so: u16 sixteenths
+	*/
+
+	TOSERVER_UNDO = 0x57,
+	/*
+		Terra Firma: undo the player's last stroke (sculpt::History)
+	*/
+
+	TOSERVER_PIECE_NEW = 0x58,
+	/*
+		Terra Firma: a new object (sprint 49): one block of the block held,
+		held up in front of the player (TOCLIENT_HELD answers)
+	*/
+
+	TOSERVER_BLUEPRINT_SAVE = 0x59,
+	/*
+		Terra Firma: a piece kept in the player's library (sprint 48)
+		u16 piece: its object id
+		std::string name
+	*/
+
+	TOSERVER_BLUEPRINT_PLACE = 0x5A,
+	/*
+		Terra Firma: a blueprint of the player's put down, as ghosts
+		std::string name
+		v3s16 at: an open node
+	*/
+
+	TOSERVER_OBJECT_HOLD = 0x5B,
+	/*
+		Terra Firma: an object held (lifted, kept still) or let go (sprint 49)
+		u16 object: its object id
+		u8 held
+	*/
+
+	TOSERVER_OBJECT_POSE = 0x5C,
+	/*
+		Terra Firma: where a held object is, as its holder has it (sprint 50)
+		u16 object: its object id
+		v3f position (BS), v3f rotation (degrees)
+	*/
+
+	TOSERVER_HOLLOW = 0x5D,
+	/*
+		Terra Firma: a part's design made a shell (sprint 50)
+		u16 object: its object id
+		u64 part
+		u8 thickness: sixteenths
+	*/
+
+	/*
+		Terra Firma, sprint 52: a face of a machine's part, in these:
+		u64 part, v3s16 node, u8 x, y, z (the sixteenth), v3s16 normal (the part's)
+	*/
+	TOSERVER_LINK = 0x5E,
+	/*
+		Terra Firma: the joint between two of a machine's parts set (sprint 53)
+		u16 object, u64 a, u64 b, u8 joint (piece::Joint; 255: taken away)
+		u8 at: 1 if a face of a's follows, where a new joint's made
+		if so: face
+	*/
+
+	TOSERVER_JOIN = 0x5F,
+	/*
+		Terra Firma: machine b set against a, face to face, made one
+		u16 a, face on a, u16 b, face on b, u8 joint (piece::Joint)
+	*/
+
+	TOSERVER_PART = 0x60,
+	/*
+		Terra Firma: a part made a machine of its own, or deleted
+		u16 object, u64 part, u8 action: 0 detach, 1 delete
+	*/
+
+	TOSERVER_SOCKET = 0x61,
+	/*
+		Terra Firma: a socket made on a face, or taken away (sprint 56)
+		u16 object, u8 action: 0 made, 1 taken away
+		made: face, u8 joint, u8 mirror axis (255: none), s32 twice its plane (the machine's sixteenths)
+		taken away: u64 socket
+	*/
+
+	TOSERVER_PLUG = 0x62,
+	/*
+		Terra Firma: machine b carried onto a's socket (sprint 56)
+		u16 a, u64 socket, u16 b, face on b
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x63,
 };
 
 enum AuthMechanism

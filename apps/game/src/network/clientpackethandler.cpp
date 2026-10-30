@@ -2000,3 +2000,40 @@ void Client::handleCommand_Window(NetworkPacket *pkt)
 	}
 }
 
+
+// Terra Firma: a node's cut shape (sprint 44); its content is as we have it
+void Client::handleCommand_Shape(NetworkPacket *pkt)
+{
+	v3s16 p;
+	u8 whole;
+	*pkt >> p >> whole;
+	shape::Shape s = shape::Shape::whole();
+	if (!whole) {
+		std::istringstream is(pkt->readRawString(shape::CELLS / 8), std::ios::binary);
+		s = shape::Shape::deSerialize(is);
+		if (s.empty())
+			throw SerializationError("TOCLIENT_SHAPE: an empty shape (the node's removed instead)");
+	}
+	if (!m_env.getMap().setShape(p, s))
+		return; // its block isn't here: it comes with the shape when it is
+	addUpdateMeshTaskForNode(p, false, true);
+}
+
+// Terra Firma: the player's blueprints (sprint 48)
+void Client::handleCommand_Blueprints(NetworkPacket *pkt)
+{
+	u16 count;
+	*pkt >> count;
+	std::vector<std::string> names(count);
+	for (std::string &name : names)
+		*pkt >> name;
+	m_blueprints = std::move(names);
+}
+
+// Terra Firma: the player's new object, held (sprint 49)
+void Client::handleCommand_Held(NetworkPacket *pkt)
+{
+	u16 id;
+	*pkt >> id;
+	m_held = id;
+}

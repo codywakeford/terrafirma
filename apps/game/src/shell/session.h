@@ -15,6 +15,7 @@
 #include <string>
 
 class Client;
+class Hand;
 namespace video { class IVideoDriver; }
 namespace gui { class IGUIEnvironment; }
 
@@ -35,6 +36,7 @@ public:
 		Client *client;
 		video::IVideoDriver *driver;
 		gui::IGUIEnvironment *guienv;
+		Hand &hand; // Terra Firma: the tools in hand (the page picks one)
 	};
 
 	explicit Session(const Opts &opts);

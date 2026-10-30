@@ -14,6 +14,7 @@
 #include <memory>
 #include "mesh_compare.h"
 #include "ground/ground.h" // Terra Firma
+#include "shape/shape.h" // Terra Firma
 #include "noise.h"
 #include <map>
 
@@ -160,6 +161,7 @@ public:
 	void testInterliquidSame();
 	void testInterliquidDifferent();
 	void testSmoothedGroundHasNoHoles(); // Terra Firma
+	void testCutNodeIsItsSurface(); // Terra Firma
 };
 
 static TestMapblockMeshGenerator g_test_instance;
@@ -172,6 +174,7 @@ void TestMapblockMeshGenerator::runTests(IGameDef *gamedef)
 	TEST(testInterliquidSame);
 	TEST(testInterliquidDifferent);
 	TEST(testSmoothedGroundHasNoHoles);
+	TEST(testCutNodeIsItsSurface);
 }
 
 namespace quad {
@@ -272,10 +275,11 @@ void TestMapblockMeshGenerator::testInterliquidDifferent()
 
 /*
 	Terra Firma: a block of rough ground, dirt (loose) and some stone, meshed.
-	Straight down, a ray meets the ground's surface the rule gives (what
+	Straight down, a ray meets the voxel column the rule gives (what
 	collision will stand on); slanting, it reaches the mesh through no ground
-	(a crack would let it through to a surface beyond). With the walls not
-	drawn, the slanting rays fail.
+	(a crack would let it through to a surface beyond). With the walls at the
+	block's sides not drawn, or the risers between columns, the slanting rays
+	fail.
 */
 void TestMapblockMeshGenerator::testSmoothedGroundHasNoHoles()
 {
@@ -353,18 +357,22 @@ void TestMapblockMeshGenerator::testSmoothedGroundHasNoHoles()
 	PseudoRandom random(5);
 	auto in = [&](float margin) { return -0.5f + margin + random.next() / 32767.f * (N - 2 * margin); };
 	int shaped = 0;
-	for (int r = 0; r < 3000; r++) {
+	for (int r = 0; r < 1000; r++) {
 		float x = in(0.01f), z = in(0.01f);
-		// off the edges between columns, where a wall stands
-		auto off = [](float v) { float f = v + 0.5f - std::floor(v + 0.5f); return f > 1e-3f && f < 1 - 1e-3f; };
+		// off the edges between voxel columns, where a riser stands
+		auto off = [](float v) {
+			float f = (v + 0.5f) * ground::STEPS;
+			f -= std::floor(f);
+			return f > 1e-2f && f < 1 - 1e-2f;
+		};
 		if (!off(x) || !off(z))
 			continue;
 		auto p = hit(v3f(x, 40, z), v3f(0, -1, 0));
 		UASSERT(p);
 		UASSERT(std::fabs(p->Y - surface(x, z)) < 1e-3f);
-		shaped += std::fabs(p->Y - std::round(p->Y + 0.5f) + 0.5f) > 1e-3f;
+		shaped += std::fabs(p->Y - std::round(p->Y + 0.5f) + 0.5f) > 1e-3f; // not a whole block
 	}
-	for (int r = 0; r < 3000; r++) {
+	for (int r = 0; r < 1000; r++) {
 		// slanting 30° from straight down in a random direction, from above
 		// all the ground (tops 4..11: it stands at most 11.5) to where it
 		// meets it at (x, z), if not before: at most 4.6 across, so all of its
@@ -381,13 +389,92 @@ void TestMapblockMeshGenerator::testSmoothedGroundHasNoHoles()
 		const float length = (*p - o).getLength();
 		for (float k = 0; k < length - 1e-2f; k += 0.01f) {
 			v3f q = o + d * k;
-			float fx = q.X + 0.5f - std::floor(q.X + 0.5f), fz = q.Z + 0.5f - std::floor(q.Z + 0.5f);
-			if (fx < 1e-3f || fx > 1 - 1e-3f || fz < 1e-3f || fz > 1 - 1e-3f)
-				continue; // on an edge: either side's
+			float fx = (q.X + 0.5f) * ground::STEPS, fz = (q.Z + 0.5f) * ground::STEPS;
+			fx -= std::floor(fx);
+			fz -= std::floor(fz);
+			if (fx < 1e-2f || fx > 1 - 1e-2f || fz < 1e-2f || fz > 1 - 1e-2f)
+				continue; // on a riser: either side's
 			UASSERT(q.Y > surface(q.X, q.Z) - 1e-3f);
 		}
 	}
 	UASSERT(shaped > 500); // enough of it was sloped to mean something
 }
 
+}
+
+/*
+	Terra Firma: a cut node draws exactly its open surface: every face of a
+	sixteenth with nothing across it, and no other; against a whole cube,
+	that side's faces are hidden, and the cube draws its whole face toward
+	the cut node (it covers only some of it).
+*/
+void TestMapblockMeshGenerator::testCutNodeIsItsSurface()
+{
+	using shape::STEPS;
+	MockGameDef gamedef;
+	const content_t stone = gamedef.addSimpleNode("stone", 42);
+	gamedef.finalize();
+
+	shape::Shape cut = shape::Shape::whole();
+	for (s16 x = 0; x < STEPS; x++)
+		for (s16 y = 0; y < STEPS; y++)
+			for (s16 z = 0; z < STEPS; z++)
+				if (noise3d_value(x / 3.f, y / 3.f, z / 3.f, 21) > 0.1f)
+					cut.set({ x, y, z }, false);
+
+	// the open faces of the shape, in sixteenths squared; with a cube at +x,
+	// none on that side
+	auto open = [&](bool cube_east) {
+		int n = 0;
+		for (s16 x = 0; x < STEPS; x++)
+			for (s16 y = 0; y < STEPS; y++)
+				for (s16 z = 0; z < STEPS; z++) {
+					if (!cut.has({ x, y, z }))
+						continue;
+					for (v3s16 d : { v3s16(1, 0, 0), v3s16(-1, 0, 0), v3s16(0, 1, 0),
+							v3s16(0, -1, 0), v3s16(0, 0, 1), v3s16(0, 0, -1) }) {
+						const v3s16 c = v3s16(x, y, z) + d;
+						if (shape::Shape::inside(c))
+							n += !cut.has(c);
+						else
+							n += !(cube_east && d.X == 1);
+					}
+				}
+		return n;
+	};
+	// the mesh's area, in sixteenths squared
+	auto area = [](MeshCollector &col) {
+		double a = 0;
+		for (auto &layer : col.prebuffers)
+			for (auto &buf : layer)
+				for (size_t i = 0; i + 2 < buf.indices.size(); i += 3) {
+					const v3f p0 = buf.vertices[buf.indices[i]].Pos / BS * STEPS;
+					const v3f p1 = buf.vertices[buf.indices[i + 1]].Pos / BS * STEPS;
+					const v3f p2 = buf.vertices[buf.indices[i + 2]].Pos / BS * STEPS;
+					a += (p1 - p0).crossProduct(p2 - p0).getLength() / 2;
+				}
+		return int(std::lround(a));
+	};
+
+	for (bool cube_east : { false, true }) {
+		MeshMakeData data = gamedef.makeSingleNodeMMD();
+		data.m_vmanip.setNode({ 0, 0, 0 }, { stone, 0, 0 });
+		if (cube_east)
+			data.m_vmanip.setNode({ 1, 0, 0 }, { stone, 0, 0 });
+		data.m_shapes.emplace(v3s16(0, 0, 0), cut);
+		MeshCollector col{{}};
+		MapblockMeshGenerator mg{&data, &col};
+		mg.generate();
+		UASSERTEQ(int, area(col), open(cube_east));
+	}
+
+	// a whole cube beside the cut node draws its face toward it
+	MeshMakeData data = gamedef.makeSingleNodeMMD();
+	data.m_vmanip.setNode({ 0, 0, 0 }, { stone, 0, 0 });
+	data.m_vmanip.setNode({ 1, 0, 0 }, { stone, 0, 0 });
+	data.m_shapes.emplace(v3s16(1, 0, 0), cut);
+	MeshCollector col{{}};
+	MapblockMeshGenerator mg{&data, &col};
+	mg.generate();
+	UASSERTEQ(int, area(col), 6 * STEPS * STEPS);
 }

@@ -3,6 +3,8 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "content_cao.h"
+#include "piece/frame.h" // Terra Firma
+#include "piece/machine.h" // Terra Firma
 #include "planet/atlas.h" // Terra Firma
 #include <IBillboardSceneNode.h>
 #include <ICameraSceneNode.h>
@@ -198,28 +200,24 @@ static bool logOnce(const std::ostringstream &from, std::ostream &log_to)
 	return true;
 }
 
+// Terra Firma: visuals whose mesh is nodes' (MapblockMeshGenerator), with
+// the nodes' own materials and animations
+static bool meshedAsNodes(ObjectVisual visual)
+{
+	return visual == OBJECTVISUAL_NODE || visual == OBJECTVISUAL_PIECE;
+}
+
 static void setColorParam(scene::ISceneNode *node, video::SColor color)
 {
 	for (u32 i = 0; i < node->getMaterialCount(); ++i)
 		node->getMaterial(i).ColorParam = color;
 }
 
-static scene::SMesh *generateNodeMesh(Client *client, MapNode n,
+// Meshes what a mesh generator collected, lit as an object is (updateLight)
+static scene::SMesh *meshCollected(Client *client, MeshCollector &collector, AlphaMode alpha_mode,
 	std::vector<MeshAnimationInfo> &animation)
 {
-	auto *ndef = client->ndef();
 	auto *shdsrc = client->getShaderSource();
-
-	MeshCollector collector(v3f(0), v3f());
-	{
-		MeshMakeData mmd(ndef, 1, MeshGrid{1});
-		n.setParam1(0xff);
-		mmd.fillSingleNode(n);
-		MapblockMeshGenerator(&mmd, &collector).generate();
-	}
-
-	const AlphaMode alpha_mode = ndef->get(n).alpha;
-
 	auto mesh = make_irr<scene::SMesh>();
 	animation.clear();
 	for (int layer = 0; layer < MAX_TILE_LAYERS; layer++) {
@@ -250,6 +248,62 @@ static scene::SMesh *generateNodeMesh(Client *client, MapNode n,
 	}
 	mesh->recalculateBoundingBox();
 	return mesh.release();
+}
+
+static scene::SMesh *generateNodeMesh(Client *client, MapNode n,
+	std::vector<MeshAnimationInfo> &animation)
+{
+	auto *ndef = client->ndef();
+	MeshCollector collector(v3f(0), v3f());
+	{
+		MeshMakeData mmd(ndef, 1, MeshGrid{1});
+		n.setParam1(0xff);
+		mmd.fillSingleNode(n);
+		MapblockMeshGenerator(&mmd, &collector).generate();
+	}
+	return meshCollected(client, collector, ndef->get(n).alpha, animation);
+}
+
+// Terra Firma: a piece's blocks (and cut nodes), meshed as the world's are,
+// local node (0, 0, 0) at the object's origin; a ghost's see-through
+static scene::SMesh *generatePieceMesh(Client *client, const piece::Piece &piece, bool ghost,
+	std::optional<video::SColor> tint, std::vector<MeshAnimationInfo> &animation)
+{
+	constexpr s16 MARGIN = 4; // what the mesher reads round what it draws
+	MeshCollector collector(v3f(0), v3f());
+	{
+		MeshMakeData mmd(client->ndef(), piece::SIDE, MeshGrid{1});
+		mmd.m_blockpos = v3s16(0);
+		mmd.m_vmanip.addArea(VoxelArea(v3s16(-MARGIN), v3s16(piece::SIDE - 1 + MARGIN)));
+		for (s16 x = -MARGIN; x < piece::SIDE + MARGIN; x++)
+			for (s16 y = -MARGIN; y < piece::SIDE + MARGIN; y++)
+				for (s16 z = -MARGIN; z < piece::SIDE + MARGIN; z++)
+					mmd.m_vmanip.setNodeNoEmerge({ x, y, z }, MapNode(CONTENT_AIR, 0xff, 0));
+		piece.each([&](v3s16 p, MapNode n, const shape::Shape *s) {
+			n.setParam1(0xff);
+			mmd.m_vmanip.setNodeNoEmerge(p, n);
+			if (s)
+				mmd.m_shapes.emplace(p, *s);
+		});
+		MapblockMeshGenerator(&mmd, &collector).generate();
+	}
+	constexpr u8 GHOST_ALPHA = 90;
+	scene::SMesh *mesh = meshCollected(client, collector, ghost ? ALPHAMODE_BLEND : ALPHAMODE_OPAQUE, animation);
+	if (!ghost && !tint)
+		return mesh;
+	for (u32 i = 0; i < mesh->getMeshBufferCount(); i++) {
+		scene::IMeshBuffer *buf = mesh->getMeshBuffer(i);
+		auto *v = static_cast<video::S3DVertex *>(buf->getVertices());
+		for (u32 j = 0; j < buf->getVertexCount(); j++) {
+			if (tint)
+				v[j].Color.set(v[j].Color.getAlpha(), v[j].Color.getRed() * tint->getRed() / 255,
+						v[j].Color.getGreen() * tint->getGreen() / 255, v[j].Color.getBlue() * tint->getBlue() / 255);
+			if (ghost)
+				v[j].Color.setAlpha(GHOST_ALPHA);
+		}
+		buf->setDirty(scene::EBT_VERTEX);
+	}
+	return mesh;
 }
 
 /*
@@ -541,6 +595,11 @@ void GenericCAO::removeFromScene(bool permanent)
 		if (auto node = getSceneNode())
 			shadow->removeNodeFromShadowList(node);
 
+	for (scene::IMeshSceneNode *n : m_group_nodes) { // Terra Firma
+		n->remove();
+		n->drop();
+	}
+	m_group_nodes.clear();
 	if (m_meshnode) {
 		m_meshnode->remove();
 		m_meshnode->drop();
@@ -593,7 +652,8 @@ void GenericCAO::addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr)
 		enum_to_string(es_ObjectVisual, m_prop.visual)<< std::endl;
 
 	auto updateMaterialType = [this](bool hw_skin) {
-		if (m_prop.visual != OBJECTVISUAL_NODE &&
+		// Terra Firma: a piece is meshed as nodes are, with their materials
+		if (!meshedAsNodes(m_prop.visual) &&
 				m_prop.visual != OBJECTVISUAL_WIELDITEM &&
 				m_prop.visual != OBJECTVISUAL_ITEM)
 		{
@@ -766,6 +826,78 @@ void GenericCAO::addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr)
 
 		m_wield_meshnode->setScale(m_prop.visual_size / 2.0f);
 		break;
+	} case OBJECTVISUAL_PIECE: { // Terra Firma
+		m_machine.reset();
+		if (m_prop.piece.empty())
+			break; // its blocks not given it yet: nothing to draw
+		m_machine = std::make_unique<piece::Machine>(m_client);
+		m_machine->read(m_prop.piece);
+		// each part where it sits: what's built, solid (dimmed, a ghost, if
+		// another's being worked on); what's designed and not, a ghost
+		auto *mesh = new scene::SMesh();
+		m_meshnode_animation.clear();
+		auto appendTo = [&](scene::SMesh *mesh, scene::SMesh *part, const core::matrix4 &at) {
+			core::matrix4 turned = at;
+			turned.setTranslation(v3f(0));
+			for (u32 i = 0; i < part->getMeshBufferCount(); i++) {
+				scene::IMeshBuffer *buf = part->getMeshBuffer(i);
+				auto *v = static_cast<video::S3DVertex *>(buf->getVertices());
+				for (u32 j = 0; j < buf->getVertexCount(); j++) {
+					at.transformVect(v[j].Pos);
+					turned.transformVect(v[j].Normal);
+				}
+				buf->setDirty(scene::EBT_VERTEX);
+				mesh->addMeshBuffer(buf);
+			}
+			part->drop();
+		};
+		// each rigid group its own mesh (the first's is the node's): a
+		// hinge's turns it in the first's (AO_CMD_SET_PARTS)
+		const std::vector<std::vector<u64>> groups = m_machine->rigid();
+		std::vector<scene::SMesh *> group_meshes{ mesh };
+		for (size_t g = 1; g < groups.size(); g++)
+			group_meshes.push_back(new scene::SMesh());
+		for (const piece::Machine::Part &part : m_machine->parts()) {
+			size_t g = 0;
+			while (std::find(groups[g].begin(), groups[g].end(), part.object.id()) == groups[g].end())
+				g++;
+			scene::SMesh *into = group_meshes[g];
+			auto append = [&](scene::SMesh *part, const core::matrix4 &at) { appendTo(into, part, at); };
+			const core::matrix4 at = part.pose.matrix();
+			const u64 id = part.object.id();
+			const bool selected = m_look.selected == id, hovered = m_look.hovered == id;
+			const bool dim = m_look.through ? !(selected || hovered) : m_look.selected && !selected;
+			const std::optional<video::SColor> tint = selected ? std::optional<video::SColor>(video::SColor(255, 255, 220, 140))
+					: hovered || m_look.lit ? std::optional<video::SColor>(video::SColor(255, 200, 235, 255)) : std::nullopt;
+			std::vector<MeshAnimationInfo> animation;
+			const u32 base = mesh->getMeshBufferCount();
+			append(generatePieceMesh(m_client, part.object.built(), dim, tint, animation), at);
+			for (MeshAnimationInfo &a : animation) {
+				a.i += base;
+				m_meshnode_animation.push_back(a);
+			}
+			std::vector<MeshAnimationInfo> unanimated;
+			append(generatePieceMesh(m_client, part.object.unbuilt(), true, std::nullopt, unanimated), at);
+		}
+		mesh->recalculateBoundingBox();
+
+		m_meshnode = m_smgr->addMeshSceneNode(mesh, m_matrixnode);
+		m_meshnode->setSharedMaterials(true);
+		m_meshnode->grab();
+		mesh->drop();
+
+		setSceneNodeMaterials(m_meshnode);
+		for (size_t g = 1; g < group_meshes.size(); g++) {
+			group_meshes[g]->recalculateBoundingBox();
+			scene::IMeshSceneNode *node = m_smgr->addMeshSceneNode(group_meshes[g], m_matrixnode);
+			node->setSharedMaterials(true);
+			node->grab();
+			group_meshes[g]->drop();
+			setSceneNodeMaterials(node);
+			m_group_nodes.push_back(node);
+		}
+		poseGroups();
+		break;
 	} case OBJECTVISUAL_NODE: {
 		auto *mesh = generateNodeMesh(m_client, m_prop.node, m_meshnode_animation);
 		assert(mesh);
@@ -888,6 +1020,29 @@ void GenericCAO::updateLight(u32 day_night_ratio)
 	}
 }
 
+void GenericCAO::poseGroups()
+{
+	// a machine edited since: its groups may not be these till the next
+	// poses come, so only as many as both have are posed
+	for (size_t i = 0; i < m_group_nodes.size() && i < m_group_poses.size(); i++) {
+		const GroupPose &p = m_group_poses[i];
+		const f32 x = p.x, y = p.y, z = p.z, w = p.w;
+		core::matrix4 m;
+		auto set = [&](int r, int c, f32 v) { m[c * 4 + r] = v; };
+		set(0, 0, 1 - 2 * (y * y + z * z));
+		set(0, 1, 2 * (x * y - z * w));
+		set(0, 2, 2 * (x * z + y * w));
+		set(1, 0, 2 * (x * y + z * w));
+		set(1, 1, 1 - 2 * (x * x + z * z));
+		set(1, 2, 2 * (y * z - x * w));
+		set(2, 0, 2 * (x * z - y * w));
+		set(2, 1, 2 * (y * z + x * w));
+		set(2, 2, 1 - 2 * (x * x + y * y));
+		m_group_nodes[i]->setPosition(p.offset);
+		m_group_nodes[i]->setRotation(m.getRotationDegrees());
+	}
+}
+
 void GenericCAO::setNodeLight(const video::SColor &light_color)
 {
 	if (m_prop.visual == OBJECTVISUAL_WIELDITEM || m_prop.visual == OBJECTVISUAL_ITEM) {
@@ -902,6 +1057,8 @@ void GenericCAO::setNodeLight(const video::SColor &light_color)
 		if (!node)
 			return;
 		setColorParam(node, light_color);
+		for (scene::IMeshSceneNode *g : m_group_nodes) // Terra Firma
+			setColorParam(g, light_color);
 	}
 }
 
@@ -988,6 +1145,24 @@ void GenericCAO::updateNodePos()
 			setPitchYawRoll(getPosRotMatrix(), rot);
 		}
 	}
+}
+
+void GenericCAO::setPosed(std::optional<std::pair<v3f, v3f>> posed)
+{
+	m_posed = posed;
+}
+
+void GenericCAO::setLook(const Look &look)
+{
+	if (look == m_look)
+		return;
+	m_look = look;
+	expireVisuals();
+}
+
+core::matrix4 GenericCAO::getFrame() const
+{
+	return piece::frame(pos_translator.val_current, rot_translator.val_current);
 }
 
 void GenericCAO::step(float dtime, ClientEnvironment *env)
@@ -1145,6 +1320,14 @@ void GenericCAO::step(float dtime, ClientEnvironment *env)
 			lastpos = m_position;
 		}
 		pos_translator.translate(dtime);
+		// Terra Firma: carried or held here, it's where this client says,
+		// each frame (the server's word comes late and stepped)
+		if (m_posed) {
+			m_position = m_posed->first;
+			pos_translator.init(m_posed->first);
+			rot_translator.val_current = rot_translator.val_target = m_posed->second;
+			m_rotation = m_posed->second;
+		}
 		updateNodePos();
 
 		float moved = lastpos.getDistanceFrom(pos_translator.val_current);
@@ -1291,7 +1474,7 @@ void GenericCAO::updateTextureAnim()
 			auto mesh = m_meshnode->getMesh();
 			setMeshBufferTextureCoords(mesh->getMeshBuffer(0), t, 4);
 			setMeshBufferTextureCoords(mesh->getMeshBuffer(1), t, 4);
-		} else if (m_prop.visual == OBJECTVISUAL_NODE) {
+		} else if (meshedAsNodes(m_prop.visual)) {
 			// same calculation as MapBlockMesh::animate() with a global timer
 			const float time = m_client->getAnimationTime();
 			for (auto &it : m_meshnode_animation) {
@@ -1518,6 +1701,7 @@ bool GenericCAO::visualExpiryRequired(const ObjectProperties &new_) const
 		old.shaded != new_.shaded ||
 		old.use_texture_alpha != new_.use_texture_alpha ||
 		old.node != new_.node ||
+		old.piece != new_.piece || // Terra Firma
 		old.mesh != new_.mesh ||
 		old.visual != new_.visual ||
 		old.visual_size != new_.visual_size ||
@@ -1809,6 +1993,17 @@ void GenericCAO::processMessage(const std::string &data)
 			it->second.fps = new_fps;
 			m_animated_meshnode->getAnimation().tracks[track_nr].fps = new_fps;
 		}
+	} else if (cmd == AO_CMD_SET_PARTS) { // Terra Firma
+		const u16 count = readU16(is);
+		m_group_poses.resize(count);
+		for (GroupPose &p : m_group_poses) {
+			p.offset = readV3F32(is);
+			p.x = readF32(is);
+			p.y = readF32(is);
+			p.z = readF32(is);
+			p.w = readF32(is);
+		}
+		poseGroups();
 	} else if (cmd == AO_CMD_STOP_ANIMATION) {
 		// New animation API since 5.17.0
 		const auto track_id = readTrackIdentifier(is);

@@ -52,6 +52,25 @@ core.register_on_mods_loaded(function()
 			end
 		end
 	end
+	-- what each solid block weighs in a machine (core.physics, sprint 57): its
+	-- matter's density; it grips as most things do, or barely if it's slippery
+	local unweighed = {}
+	for name, def in pairs(core.registered_nodes) do
+		if def.walkable ~= false and name ~= "air" and name ~= "ignore" then
+			local density = core.matter.density(name)
+			if density and density > 0 then
+				local slippery = def.groups and def.groups.slippery
+				core.physics.material(name, { density = density, friction = slippery and 0.1 or 0.6 })
+			else
+				unweighed[#unweighed + 1] = name
+			end
+		end
+	end
+	if #unweighed > 0 then
+		table.sort(unweighed)
+		core.log("action", "tf_matter: " .. #unweighed .. " solid blocks have no matter, so a machine of them can't move: "
+			.. table.concat(unweighed, ", "))
+	end
 end)
 
 -- ---- running it --------------------------------------------------------

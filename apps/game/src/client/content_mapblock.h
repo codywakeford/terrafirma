@@ -9,6 +9,8 @@
 #include "nodedef.h"
 #include "tile.h"
 #include "planet/atlas.h" // Terra Firma: cut cells
+#include "shape/shape.h" // Terra Firma: cut nodes
+#include <functional>
 
 struct MeshMakeData;
 namespace ground { struct Top; }
@@ -162,6 +164,13 @@ private:
 	// Terra Firma: natural loose ground's shape (ground::Ground)
 	std::optional<ground::Top> groundTop(v3s16 p) const;
 	void drawGround(const ground::Top &top);
+	// Terra Firma: a cut node's sixteenths (MeshMakeData::m_shapes)
+	const shape::Shape *cutShape(v3s16 p) const;
+	void drawShape(const shape::Shape &s);
+	// Terra Firma: a quad of sixteenths facing `face` (tile_dirs), wound to
+	// face it; lit smoothly, or with `flat`
+	void voxelQuad(const TileSpec &tile, int face, std::array<v3f, 4> q,
+			const std::function<v2f(const v3f &)> &uv, video::SColor flat);
 	static std::vector<v3f> cutFace(const planet::Atlas::Cut &cut, size_t plane);
 
 	void drawLiquidNode();

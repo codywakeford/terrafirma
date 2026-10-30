@@ -62,6 +62,12 @@ public:
 	bool getSelectionBox(aabb3f *toset) const;
 	bool collideWithObjects() const;
 
+	// Terra Firma (sprint 57): moved by the workshop's physics, not by its
+	// own velocity and collisions; its rigid groups' poses sent to clients
+	void setDriven(bool driven) { m_driven = driven; }
+	bool isDriven() const { return m_driven; }
+	void sendParts(const std::string &data);
+
 protected:
 	void dispatchScriptDeactivate(bool removal);
 	virtual void onMarkedForDeactivation() {
@@ -77,6 +83,7 @@ private:
 	// Terra Firma: on a planet, moved off its face from `was`: put on the face
 	// it's moved onto, its velocity, acceleration and yaw turned with the grid.
 	void carry(const v3f &was);
+	bool m_driven = false; // Terra Firma
 
 	std::string getPropertyPacket();
 	void sendPosition(bool do_interpolate, bool is_movement_end);

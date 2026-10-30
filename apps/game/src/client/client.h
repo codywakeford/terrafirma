@@ -5,6 +5,8 @@
 #pragma once
 
 #include "clientenvironment.h"
+#include "piece/machine.h"
+#include "sculpt/sculpt.h"
 #include "gamedef.h"
 #include "gameparams.h" // ELoginRegister
 #include "inventorymanager.h"
@@ -199,6 +201,9 @@ public:
 	void handleCommand_Horizon(NetworkPacket *pkt);
 	void handleCommand_Atlas(NetworkPacket *pkt);
 	void handleCommand_Window(NetworkPacket *pkt);
+	void handleCommand_Shape(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Blueprints(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Held(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -237,6 +242,43 @@ public:
 	void sendInventoryFields(const std::string &formname,
 		const StringMap &fields);
 	void sendInventoryAction(InventoryAction *a);
+	// Terra Firma: a stroke of the tools in hand (TOSERVER_SCULPT)
+	// on the world (piece 0) or a piece (its object id), in its own grid
+	// apart: what it adds made a part of its own, joined so
+	void sendStroke(u16 piece, u64 part, const sculpt::Stroke &s, std::optional<piece::Joint> apart);
+	// Terra Firma: a new object, held up in front (TOSERVER_PIECE_NEW)
+	void sendPieceNew();
+	// Terra Firma: an object held or let go (sprint 49)
+	void sendHold(u16 object, bool held);
+	// where a held object is (BS) and how it's turned (degrees, piece::frame)
+	void sendPose(u16 object, v3f position, v3f rotation);
+	// Terra Firma: an object's design made a shell, `thickness` sixteenths
+	void sendHollow(u16 object, u64 part, int thickness);
+	// Terra Firma: machines (sprints 52–53): a joint between two parts set
+	// (made at `at`, a face of a's, if there's none), two machines joined
+	// face to face, a part taken off or deleted
+	// joint none: the joint taken away
+	void sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
+			const std::optional<piece::Machine::Face> &at);
+	void sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint);
+	void sendPart(u16 object, u64 part, bool remove);
+	// Terra Firma: sockets (sprint 56): one made on a face (and its
+	// mirror's), one taken away, a machine carried onto one
+	void sendSocket(u16 object, const piece::Machine::Face &face, piece::Joint joint,
+			std::optional<sculpt::Stroke::Mirror> mirror);
+	void sendUnsocket(u16 object, u64 socket);
+	void sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b);
+	// Terra Firma: the new object the server made for the player, to focus
+	// when it's here; taken, it's gone
+	std::optional<u16> takeHeld() { return std::exchange(m_held, std::nullopt); }
+	// Terra Firma: undo the last stroke (TOSERVER_UNDO)
+	void sendUndo();
+	// Terra Firma: the library (sprint 48): an object (its object id) kept
+	// as a blueprint, one put down where `at` is
+	void sendBlueprintSave(u16 piece, const std::string &name);
+	void sendBlueprintPlace(const std::string &name, v3s16 at);
+	// Terra Firma: the player's blueprints, as the server last said
+	const std::vector<std::string> &getBlueprints() const { return m_blueprints; }
 	void sendChatMessage(const std::wstring &message);
 	void clearOutChatQueue();
 	void sendChangePassword(const std::string &oldpassword,
@@ -487,6 +529,8 @@ public:
 private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
+	std::vector<std::string> m_blueprints; // Terra Firma
+	std::optional<u16> m_held; // Terra Firma
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 
 	struct PendingMediaDownload {

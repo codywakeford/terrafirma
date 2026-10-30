@@ -16,6 +16,8 @@
 #include "irrlichttypes_bloated.h"
 #include "mapblock.h" // for forEachNodeInArea
 #include "mapnode.h"
+#include "shape/shape.h"
+#include "ground/ground.h"
 #include "constants.h"
 #include "voxel.h"
 #include "modifiedstate.h"
@@ -41,7 +43,9 @@ enum MapEditEventType {
 	// Node metadata changed
 	MEET_BLOCK_NODE_METADATA_CHANGED,
 	// Anything else (modified_blocks are set unsent)
-	MEET_OTHER
+	MEET_OTHER,
+	// Terra Firma: a node's cut shape changed (Map::setShape)
+	MEET_SHAPE,
 };
 
 struct MapEditEvent
@@ -80,6 +84,7 @@ struct MapEditEvent
 		case MEET_REMOVENODE:
 		case MEET_SWAPNODE:
 		case MEET_BLOCK_NODE_METADATA_CHANGED:
+		case MEET_SHAPE:
 			return VoxelArea(p);
 		case MEET_OTHER:
 		{
@@ -231,6 +236,33 @@ public:
 	 */
 	bool setNodeMetadata(v3s16 p, NodeMetadata *meta);
 	void removeNodeMetadata(v3s16 p);
+
+	/*
+		Terra Firma: node shapes (sprint 44)
+	*/
+
+	// The node at p's cut shape, if it's cut (nothing if not, or unloaded).
+	const shape::Shape *getShape(v3s16 p);
+	// Cuts the node at p to `s`: a whole shape is none. Not empty: that's
+	// the node removed (removeNodeAndUpdate). False if its block isn't here.
+	bool setShape(v3s16 p, const shape::Shape &s);
+	/*
+		The boxes the node at p is stood on and pointed at, if it isn't
+		its definition's: a cut node's sixteenths, smoothed ground's
+		columns (node coordinates). False if it's its definition's.
+	*/
+	bool getShapedBoxes(v3s16 p, std::vector<aabb3f> &out);
+	// The shape smoothed ground at p takes, if it's smoothed (not cut).
+	std::optional<ground::Top> groundTop(v3s16 p);
+	/*
+		Smoothed ground at p becomes cut nodes of the shape it had: its own
+		cell, and what rises into the cell above (if that's open). Before
+		it's cut the first time. Nothing if it isn't smoothed.
+	*/
+	void settleGround(v3s16 p);
+	// What the node n at p is pointed at by: its shaped boxes, else its
+	// definition's selection boxes.
+	void getPointedBoxes(v3s16 p, MapNode n, std::vector<aabb3f> &out);
 
 	/*
 		Node Timers

@@ -4,13 +4,17 @@
 #pragma once
 
 #include <json/json.h>
+#include "irrlichttypes.h"
+#include "irr_v2d.h"
 #include <optional>
+#include <utility>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
 
 class Client;
 class LocalPlayer;
+class Hand;
 
 namespace shell {
 
@@ -22,6 +26,12 @@ struct HudView
 {
 	bool visible;
 	bool crosshair;
+	bool focused; // Terra Firma: an object's on the workbench
+	bool cursor;  // Terra Firma: the cursor's free (the page is clicked)
+	// Terra Firma: the part selected of the machine held (its object id, its id)
+	std::optional<std::pair<u16, u64>> part;
+	// Terra Firma: its menu open, where (pixels: the other button clicked on it)
+	std::optional<v2s32> menu;
 };
 
 /*
@@ -37,6 +47,7 @@ public:
 		Shell &shell;
 		Client *client;
 		Items &items;
+		const Hand &hand; // Terra Firma: the tools in hand
 	};
 
 	explicit State(const Opts &opts) : m_opts(opts) {}
@@ -46,6 +57,8 @@ public:
 	void forget();
 
 private:
+	// Terra Firma: a machine's part, for the page's card
+	Json::Value partCard(u16 object, u64 part) const;
 	Json::Value player(LocalPlayer &player) const;
 	// Where the player is on the planet's map, and which way they face; none
 	// past the atlas's top

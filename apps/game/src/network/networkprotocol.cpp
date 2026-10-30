@@ -106,11 +106,32 @@
 		TOCLIENT_WINDOW: the planet's tiles in the map (planet::Atlas::window)
 	PROTOCOL VERSION 64 (Terra Firma)
 		TOCLIENT_ATLAS: every body's code; TOCLIENT_WINDOW: a tile's body
-		Only 64 is accepted on either side.
+	PROTOCOL VERSION 65 (Terra Firma)
+		Map format 30: cut nodes' shapes; TOSERVER_SCULPT, TOSERVER_UNDO, TOCLIENT_SHAPE
+	PROTOCOL VERSION 66 (Terra Firma)
+		Pieces: object property `piece`, visual "piece"; TOSERVER_SCULPT
+		names a piece (object id) or the world (0); TOSERVER_PIECE_NEW
+	PROTOCOL VERSION 67 (Terra Firma)
+		A piece's text is TFP2 (an id, ghost or real); TOSERVER_BLUEPRINT_SAVE,
+		TOSERVER_BLUEPRINT_PLACE, TOSERVER_PIECE_REAL, TOCLIENT_BLUEPRINTS
+	PROTOCOL VERSION 68 (Terra Firma)
+		Objects: the `piece` property is an object's text (TFO1: design and
+		built); TOSERVER_PIECE_NEW has no position; TOSERVER_PIECE_REAL gone,
+		TOSERVER_OBJECT_HOLD, TOSERVER_OBJECT_TURN, TOCLIENT_HELD
+	PROTOCOL VERSION 69 (Terra Firma)
+		TOSERVER_OBJECT_TURN gone, TOSERVER_OBJECT_POSE: the holder poses it;
+		TOSERVER_SCULPT's footprint dragged; TOSERVER_HOLLOW. Machines (TFM1):
+		TOSERVER_SCULPT and TOSERVER_HOLLOW name a part, TOSERVER_SCULPT acts
+		(cut, add, paint) and grows parts; TOSERVER_LINK, TOSERVER_JOIN,
+		TOSERVER_PART; sockets (TFM3): TOSERVER_SOCKET, TOSERVER_PLUG
+	PROTOCOL VERSION 70 (Terra Firma)
+		Machines move by physics (sprint 57): AO_CMD_SET_PARTS, where each of a
+		machine's rigid groups is in its first's (a wheel's turn)
+		Only 70 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 64;
+const u16 LATEST_PROTOCOL_VERSION = 70;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

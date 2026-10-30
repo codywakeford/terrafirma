@@ -33,6 +33,7 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_fluid.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_online.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_orbit.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_physics.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_sandbox.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_matter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
@@ -65,6 +66,11 @@ set(unittest_client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/mesh_compare.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_far_palette.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_ground.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_shape.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_sculpt.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_piece.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_library.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_machine.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_scale.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_planet_window.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_bodies.cpp

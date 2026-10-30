@@ -35,6 +35,7 @@
 #include "lua_api/l_terra.h"
 #include "lua_api/l_planet.h"
 #include "lua_api/l_matter.h"
+#include "lua_api/l_physics.h"
 #include "lua_api/l_orbit.h"
 #include "lua_api/l_ipc.h"
 
@@ -173,6 +174,7 @@ void ServerScripting::InitializeModApi(lua_State *L, int top)
 	ModApiTerra::Initialize(L, top);
 	ModApiPlanet::Initialize(L, top);
 	ModApiMatter::Initialize(L, top);
+	ModApiPhysics::Initialize(L, top);
 	ModApiOrbit::Initialize(L, top);
 }
 

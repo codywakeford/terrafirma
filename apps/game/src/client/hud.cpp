@@ -892,6 +892,12 @@ void Hud::drawSelectionMesh()
 {
 	if (m_mode == HIGHLIGHT_NONE || (m_mode == HIGHLIGHT_HALO && !m_selection_mesh))
 		return;
+	if (!m_guides.empty()) { // Terra Firma
+		driver->setMaterial(m_selection_material);
+		driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+		for (const Guide &g : m_guides)
+			driver->draw3DLine(g.a, g.b, g.colour);
+	}
 	driver->setMaterial(m_selection_material);
 	const core::matrix4 oldtransform = driver->getTransform(video::ETS_WORLD);
 

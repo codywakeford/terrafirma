@@ -35,6 +35,13 @@ public:
 		LAB, // Terra Firma
 		WIKI, // Terra Firma
 		PLANETARIUM, // Terra Firma
+		TOOLS, // Terra Firma: the tools in hand out or away
+		TOOL_NEXT, // Terra Firma
+		FOCUS, // Terra Firma: the focus view
+		MIRROR, // Terra Firma
+		UNDO, // Terra Firma
+		PIECE_NEW, // Terra Firma: a new object
+		CURSOR, // Terra Firma: the cursor freed, and taken back
 		CHAT,
 		CMD,
 		CMD_LOCAL,

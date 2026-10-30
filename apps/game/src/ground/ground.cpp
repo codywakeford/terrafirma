@@ -3,6 +3,8 @@
 
 #include "ground.h"
 
+#include "constants.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -71,6 +73,33 @@ int Top::beside(int s, int k) const
 	const float f = (k + 0.5f) / STEPS;
 	const float line = sides[s][0] + f * (sides[s][1] - sides[s][0]);
 	return std::max(0, int(std::floor(line)) - EDGE);
+}
+
+void Top::boxes(std::vector<aabb3f> &out) const
+{
+	auto at = [](int v) { return (v / float(STEPS) - 0.5f) * BS; };
+	for (int z = 0; z < STEPS; z++)
+		for (int x = 0; x < STEPS;) {
+			const int h = cells[x][z];
+			int end = x + 1;
+			while (end < STEPS && cells[end][z] == h)
+				end++;
+			if (h > 0)
+				out.emplace_back(at(x), at(0), at(z), at(end), at(h), at(z + 1));
+			x = end;
+		}
+}
+
+shape::Shape Top::shape(int layer) const
+{
+	shape::Shape s;
+	for (s16 x = 0; x < STEPS; x++)
+		for (s16 z = 0; z < STEPS; z++) {
+			const int h = std::clamp(int(cells[x][z]) - layer * STEPS, 0, STEPS);
+			for (s16 y = 0; y < h; y++)
+				s.set({ x, y, z }, true);
+		}
+	return s;
 }
 
 } // namespace ground

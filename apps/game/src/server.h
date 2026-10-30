@@ -6,6 +6,8 @@
 
 #include "irr_v3d.h"
 #include "map.h"
+class LuaEntitySAO;
+namespace workshop { class Workshop; class Materials; }
 #include "hud_element.h" // HudElementStat
 #include "gamedef.h"
 #include "content/subgames.h"
@@ -255,6 +257,28 @@ public:
 	void handleCommand_UpdateClientInfo(NetworkPacket *pkt);
 	void handleCommand_Ui(NetworkPacket *pkt);
 	void handleCommand_Ticket(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Sculpt(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Undo(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_PieceNew(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_BlueprintSave(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_BlueprintPlace(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_ObjectHold(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_ObjectPose(NetworkPacket *pkt);
+	void handleCommand_Hollow(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Link(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Join(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Part(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Socket(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Plug(NetworkPacket *pkt); // Terra Firma // Terra Firma
+	// Terra Firma (sprint 57): what blocks weigh (filled as mods load), and
+	// the workshop (none till the world's made)
+	workshop::Materials &getMaterials() { return *m_materials; }
+	workshop::Workshop *getWorkshop() { return m_workshop.get(); }
+	// Terra Firma: a workshop verb for the player on `peer_id`, if they may
+	// use the tools; what it refuses is logged and told them
+	template <class F>
+	void inWorkshop(session_t peer_id, const char *what, F &&f);
+	void SendBlueprints(session_t peer_id, const std::string &player); // Terra Firma
 	// Terra Firma: the gate's answer on a joiner's ticket
 	void admit(session_t peer_id, bool ok, const std::string &reason);
 
@@ -639,6 +663,8 @@ private:
 	void sendAddNode(v3s16 p, MapNode n,
 			std::unordered_set<u16> *far_players = nullptr,
 			float far_d_nodes = 100, bool remove_metadata = true);
+	// Terra Firma: a node's cut shape, as the map has it now
+	void sendShape(v3s16 p, std::unordered_set<u16> *far_players, float far_d_nodes);
 	void sendNodeChangePkt(NetworkPacket &pkt, v3s16 block_pos,
 			v3f p, float far_d_nodes, std::unordered_set<u16> *far_players);
 
@@ -776,6 +802,10 @@ private:
 
 	// Node definition manager
 	NodeDefManager *m_nodedef;
+	// Terra Firma: what players make (sprint 48)
+	std::unique_ptr<workshop::Workshop> m_workshop;
+	// Terra Firma: what blocks weigh, declared as mods load (core.physics.material)
+	std::unique_ptr<workshop::Materials> m_materials;
 
 	// Craft definition manager
 	IWritableCraftDefManager *m_craftdef;

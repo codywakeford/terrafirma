@@ -128,3 +128,4 @@ core.register_craft({
 	recipe = { { "tf_world:stone", "tf_world:stone" }, { "tf_world:stone", "tf_world:stone" } },
 })
 dofile(core.get_modpath("tf_world") .. "/lab.lua")
+dofile(core.get_modpath("tf_world") .. "/pieces.lua")

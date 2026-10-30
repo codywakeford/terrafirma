@@ -1376,6 +1376,125 @@ void Client::sendInventoryFields(const std::string &formname,
 	Send(&pkt);
 }
 
+void Client::sendPieceNew()
+{
+	NetworkPacket pkt(TOSERVER_PIECE_NEW, 0);
+	Send(&pkt);
+}
+
+void Client::sendHold(u16 object, bool held)
+{
+	NetworkPacket pkt(TOSERVER_OBJECT_HOLD, 3);
+	pkt << object << u8(held);
+	Send(&pkt);
+}
+
+void Client::sendHollow(u16 object, u64 part, int thickness)
+{
+	NetworkPacket pkt(TOSERVER_HOLLOW, 11);
+	pkt << object << part << u8(thickness);
+	Send(&pkt);
+}
+
+static void writeFace(NetworkPacket &pkt, const piece::Machine::Face &f)
+{
+	pkt << f.part << f.at.node << u8(f.at.cell.X) << u8(f.at.cell.Y) << u8(f.at.cell.Z) << f.normal;
+}
+
+void Client::sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
+		const std::optional<piece::Machine::Face> &at)
+{
+	NetworkPacket pkt(TOSERVER_LINK, 2 + 16 + 2 + 23);
+	pkt << object << a << b << u8(joint ? u8(*joint) : 255) << u8(at.has_value());
+	if (at)
+		writeFace(pkt, *at);
+	Send(&pkt);
+}
+
+void Client::sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint)
+{
+	NetworkPacket pkt(TOSERVER_JOIN, 2 + 23 + 2 + 23 + 1);
+	pkt << a;
+	writeFace(pkt, on_a);
+	pkt << b;
+	writeFace(pkt, on_b);
+	pkt << u8(joint);
+	Send(&pkt);
+}
+
+void Client::sendSocket(u16 object, const piece::Machine::Face &face, piece::Joint joint,
+		std::optional<sculpt::Stroke::Mirror> mirror)
+{
+	NetworkPacket pkt(TOSERVER_SOCKET, 3 + 23 + 6);
+	pkt << object << u8(0);
+	writeFace(pkt, face);
+	pkt << u8(joint) << u8(mirror ? mirror->axis : 255) << s32(mirror ? mirror->twice : 0);
+	Send(&pkt);
+}
+
+void Client::sendUnsocket(u16 object, u64 socket)
+{
+	NetworkPacket pkt(TOSERVER_SOCKET, 11);
+	pkt << object << u8(1) << socket;
+	Send(&pkt);
+}
+
+void Client::sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b)
+{
+	NetworkPacket pkt(TOSERVER_PLUG, 12 + 23);
+	pkt << a << socket << b;
+	writeFace(pkt, on_b);
+	Send(&pkt);
+}
+
+void Client::sendPart(u16 object, u64 part, bool remove)
+{
+	NetworkPacket pkt(TOSERVER_PART, 11);
+	pkt << object << part << u8(remove);
+	Send(&pkt);
+}
+
+void Client::sendPose(u16 object, v3f position, v3f rotation)
+{
+	NetworkPacket pkt(TOSERVER_OBJECT_POSE, 2 + 12 + 12);
+	pkt << object << position << rotation;
+	Send(&pkt);
+}
+
+void Client::sendStroke(u16 piece, u64 part, const sculpt::Stroke &s, std::optional<piece::Joint> apart)
+{
+	NetworkPacket pkt(TOSERVER_SCULPT, 2 + 8 + 2 + 6 + 3 + 6 + 1 + 1 + 4 + 1);
+	pkt << piece << part << u8(s.tool) << u8(s.size) << s.at.node << u8(s.at.cell.X) << u8(s.at.cell.Y)
+			<< u8(s.at.cell.Z) << s.normal << u8(s.act)
+			<< u8(s.mirror ? s.mirror->axis : 255) << s32(s.mirror ? s.mirror->twice : 0) << u8(s.to.has_value());
+	if (s.to)
+		pkt << s.to->node << u8(s.to->cell.X) << u8(s.to->cell.Y) << u8(s.to->cell.Z);
+	pkt << u8(apart ? u8(*apart) + 1 : 0) << u8(s.deep.has_value());
+	if (s.deep)
+		pkt << u16(*s.deep);
+	Send(&pkt);
+}
+
+void Client::sendUndo()
+{
+	NetworkPacket pkt(TOSERVER_UNDO, 0);
+	Send(&pkt);
+}
+
+void Client::sendBlueprintSave(u16 piece, const std::string &name)
+{
+	NetworkPacket pkt(TOSERVER_BLUEPRINT_SAVE, 2 + 2 + name.size());
+	pkt << piece << name;
+	Send(&pkt);
+}
+
+void Client::sendBlueprintPlace(const std::string &name, v3s16 at)
+{
+	NetworkPacket pkt(TOSERVER_BLUEPRINT_PLACE, 2 + name.size() + 6);
+	pkt << name << at;
+	Send(&pkt);
+}
+
 void Client::sendInventoryAction(InventoryAction *a)
 {
 	std::ostringstream os(std::ios_base::binary);

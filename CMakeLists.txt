@@ -298,6 +298,7 @@ if(BUILD_UNITTESTS OR BUILD_BENCHMARKS)
 endif()
 
 add_subdirectory(library/tiniergltf)
+add_subdirectory(library/jolt)
 
 # Builtin
 add_subdirectory(apps/game/src/builtin)

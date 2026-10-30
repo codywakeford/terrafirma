@@ -28,6 +28,7 @@ scripts/assets/   texture import: Good Vibes at a pinned revision, plus derived 
 apps/game/src/matter/ OURS — elements and substances, and the state they're in at any temperature and pressure
 assets/matter/    OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
 apps/game/src/far/  OURS — the far view: terrain beyond the loaded blocks to the horizon
+apps/game/src/physics/ OURS — rigid bodies on Jolt: assemblies, hinges, ground, tiers (pure; the workshop compiles machines into it)
 apps/game/src/online/ OURS — playing with friends: STUN, endpoints, hole punching, UPnP, ticket gate, join
 apps/game/src/mapgen/mapgen_terra.* OURS — the `terra` map generator
 apps/game/src/builtin/ upstream engine Lua bootstrap, staged as .output/builtin; not optional game mods
@@ -36,7 +37,7 @@ apps/game/game/  OURS — the game, in Lua: blocks, items, recipes, biomes, tree
 registry/mods/clientmods/ upstream client mods, staged separately as .output/clientmods
 registry/shaders/ and registry/textures/  shipped rendering resources
 assets/           shipped static files: fonts, matter data, music, misc, translations
-library/          vendored dependencies and the first-party UI (pending further organization)
+library/          vendored dependencies and the first-party UI (pending further organization); library/jolt is Jolt Physics v5.4.0 (MIT)
 .output/          ignored build, runtime staging, caches, accounts and local user data
 cmake/Modules/CEF.cmake   fetches the pinned CEF build
 scripts/dev.ts    the dev loop behind `bun dev`
@@ -69,6 +70,7 @@ bun run stage                            # refresh resources copied to the runti
 cd apps/game/ui && bun run typecheck      # UI types
 ./.output/bin/luanti --server --gameid terrafirma --world <tmp dir> --port <n>   # headless boot: catches Lua errors
 ./.output/bin/luanti --test-module TestTerragen   # terragen unit tests (--run-unittests for the whole engine)
+./.output/bin/luanti --test-module TestPhysics    # physics: resting, rolling, hinges, pushing, determinism
 bun check:terragen      # world generation end to end: probed world == standalone terragen, + unit tests
 bun check:lab           # every Lab scenario built headless; each `expect` checked
 bun check:wiki          # every wiki demo (reactions + Lab) run in the engine sandbox; reactions must make their products
@@ -105,7 +107,11 @@ runs it and shares screenshots. Say plainly what was and wasn't run.
   `mapgen.cpp/.h` register the `terra` generator (enum + name + factory);
   `game.cpp` creates and updates the far view (`far_view`); `server.cpp`
   sends `TOCLIENT_HORIZON` on join; `clientmap.h` lists the blocks it
-  draws (`forEachDrawn`). Online (sprint 24): `gameparams.h` carries
+  draws (`forEachDrawn`). Physics (sprint 57): `luaentity_sao` has `setDriven`
+  (the workshop's physics moves it) and `sendParts` (`AO_CMD_SET_PARTS`,
+  `activeobject.h`); `server.cpp` steps the workshop before the environment
+  and tells it map edits; `content_cao` draws a machine's rigid groups as
+  one scene node each. Online (sprint 24): `gameparams.h` carries
   `online::Launch`; `clientlauncher` turns the menu's choice into hosting or
   joining; `game.cpp` makes `online::Host` around the server socket, joins
   from a STUN-mapped socket, pauses a hosted world only when alone;
@@ -371,7 +377,14 @@ do?* (automation is necessary), *what does it feed?* (one game, not toys).
 
 **Simulate where the effect lives.** Heat, fluids and load are sparse
 simulations that run only where something is happening (inside a furnace,
-along a pipe network), never a field over the whole world. A deep atmosphere
+along a pipe network), never a field over the whole world.
+
+**Simulate at the cheapest honest tier** (`planning/simulation-scales.md`).
+Everything simulated runs Live (stepped in full) near players, Settled
+(compiled into rates measured from the Live model) or Scheduled (asleep
+until its next event) further out, or Frozen at rest. Handovers conserve
+matter, energy and time; outcomes don't depend on whether anyone watched.
+Motion can't compile: far-off bodies are at rest or ride a known path. A deep atmosphere
 and weather simulation is a long-term idea, at the coarse grid's scale, not
 now.
 
@@ -610,6 +623,13 @@ hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
 gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 (protocol 58). No relay yet: pairs that can't be punched through are told so.
 
+**Built (sprint 57, `planning/sprint-57-rolling.md`):** physics. Machines
+are rigid bodies on Jolt Physics (`src/physics`, double precision,
+deterministic): each rigid group of parts a body weighed by its blocks'
+materials (`core.physics.material`, from `core.matter.density`), hinges as
+hinges, round hinged parts rolling as cylinders, players pushing, Live and
+Frozen tiers. The workshop compiles and drives them (`workshop/motion`).
+
 **Built (sprint 21, `planning/sprint-21-flight.md`):** flight. One
 planet card (`terragen/planet.h`: a tenth of Earth's size, ten times its
 spin, Earth's pull and air) read by climate, weather and flight; the world's
@@ -826,6 +846,7 @@ first system** — it exercises sun → climate → rule → Lua system → stat
 - The engine is LGPL: our engine changes stay public. The game's own code and
   art can be whatever we choose.
 - **Never build on Mineclonia/VoxeLibre** (GPL) for the product.
+- Vendored code keeps its licence file beside it (Jolt Physics: MIT, `library/jolt/LICENSE`).
 - **Assets** (images, music, sounds) need a redistributable licence (CC0, CC-BY,
   OFL…) and an entry in `assets/CREDITS.md` before they're committed. Nothing
   resembling Minecraft characters or branding.

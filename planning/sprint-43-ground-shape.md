@@ -99,8 +99,8 @@ them as the mesh does).
   have smoothed.
 
 Proved: TestMapblockMeshGenerator `testSmoothedGroundHasNoHoles` (new): a
-block of rough dirt and stone, meshed; 3,000 rays straight down meet the
-surface the rule gives, exactly; 3,000 slanting 30° reach the mesh
+block of rough dirt and stone, meshed; 1,000 rays straight down meet the
+surface the rule gives, exactly; 1,000 slanting 30° reach the mesh
 through no ground. With the walls not drawn it fails. TestGround
 `testTheClientKnowsLoose` (new): definitions sent and read back keep
 `loose`; it fails with the client's old line. TestGround (6),
@@ -111,6 +111,63 @@ and `testWithinBudget` over on the choosing time, which isn't the mesh.
 Not yet: walking on it (step 3): until then you stand on the cubes, so
 above a lowered slope and in a raised one by up to a block. Pointing and
 selection are the cube's.
+
+## Voxels, and walked on (2026-10-29)
+
+Cody, seeing step 2: always voxels, not slopes: sixteenth blocks along the
+slope's line.
+
+- `Top::cells`: 16 × 16 columns a sixteenth across, each the field at its
+  middle to the nearest sixteenth. `Top::height` is the column under a
+  point (what's drawn and stood on); `Top::field` the plane.
+- Drawn: each row's tops in runs of one height; a riser where two columns
+  side by side differ; at the block's sides a wall from where the
+  neighbour stands no lower than (`Top::beside`: the line between its
+  corners less `EDGE`, 2: its columns stand within a sixteenth and a half
+  of it) up to each column. A riser's texture runs from its own top edge,
+  as a cube side's from its top: each step shows the side's top (grass).
+- Walked on (step 3): collision takes a smoothed block's `Top::boxes` (a
+  box from its base to each run of columns) for its cube. Everything that
+  moves by `collisionMoveSimple` stands on it, the local player and the
+  server's entities alike; a sixteenth is far under a step (0.6).
+
+Proved: TestGround `testWalksUpASteppedHill` (new): a player-sized mover
+through the player's collision walks up a hill rising a whole block every
+three, to the top, never inside the ground, feet on the columns under it;
+stood on as cubes it stops at the first step. TestMapblockMeshGenerator
+`testSmoothedGroundHasNoHoles` on the voxels (1,000 rays each way: the
+voxel tops have more triangles to test), failing with the block's side
+walls or with the risers between columns not drawn. TestGround (7),
+TestMapblockMeshGenerator, TestCollision, TestAtlasView, TestFar,
+TestFarPalette pass; check:atlas-world passes.
+
+Not yet: across an atlas seam, collision reads a cell through the seam as
+its cube (`add_area_node_boxes`' seam path), though it's drawn smoothed.
+Pointing and the selection box are the cube's.
+
+## Holes (2026-10-29)
+
+Cody: smooth, walks up and down; rare holes, sky through them at a block's
+corner, the soil's side showing.
+
+Two ways the ground leaned against what's drawn as a full block (its face
+against it hidden):
+
+- A column not loaded yet read as nothing there: the ground beside it
+  leaned down to it. And a block's arrival remeshed only its six face
+  neighbours unless smooth lighting was on without performance tradeoffs,
+  though the shape reads across edges and corners: the mesh that leaned
+  could stay. Now a column not all known is a wall (nothing beside it
+  lowered), and an arrival remeshes all 26.
+- An atlas's cut cell keeps its cube, but the ground beside it took it for
+  dirt and leaned with it. Now `Ground::top` takes which cells keep their
+  cube (the mesh's cuts; collision asks the atlas): solid to the rule.
+
+Proved: TestGround `testUnknownAndCubesAreWalls` (new: beside an unknown
+column, and beside a cut cell, the corners stay up where they'd lean);
+each half fails without its fix. TestGround (8), TestMapblockMeshGenerator,
+TestCollision, TestAtlasView pass. Not proved: the holes Cody saw were
+these (not reproduced headless); on screen (Cody).
 
 ## Open
 

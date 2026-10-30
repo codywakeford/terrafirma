@@ -97,6 +97,19 @@ const ToServerCommandHandler toServerCommandTable[TOSERVER_NUM_MSG_TYPES] =
 	{ "TOSERVER_UPDATE_CLIENT_INFO",       TOSERVER_STATE_INGAME, &Server::handleCommand_UpdateClientInfo }, // 0x53
 	{ "TOSERVER_UI",                       TOSERVER_STATE_INGAME, &Server::handleCommand_Ui }, // 0x54 Terra Firma
 	{ "TOSERVER_TICKET",                   TOSERVER_STATE_NOT_CONNECTED, &Server::handleCommand_Ticket }, // 0x55 Terra Firma
+	{ "TOSERVER_SCULPT",                   TOSERVER_STATE_INGAME, &Server::handleCommand_Sculpt }, // 0x56 Terra Firma
+	{ "TOSERVER_UNDO",                     TOSERVER_STATE_INGAME, &Server::handleCommand_Undo }, // 0x57 Terra Firma
+	{ "TOSERVER_PIECE_NEW",                TOSERVER_STATE_INGAME, &Server::handleCommand_PieceNew }, // 0x58 Terra Firma
+	{ "TOSERVER_BLUEPRINT_SAVE",           TOSERVER_STATE_INGAME, &Server::handleCommand_BlueprintSave }, // 0x59 Terra Firma
+	{ "TOSERVER_BLUEPRINT_PLACE",          TOSERVER_STATE_INGAME, &Server::handleCommand_BlueprintPlace }, // 0x5A Terra Firma
+	{ "TOSERVER_OBJECT_HOLD",              TOSERVER_STATE_INGAME, &Server::handleCommand_ObjectHold }, // 0x5B Terra Firma
+	{ "TOSERVER_OBJECT_POSE",              TOSERVER_STATE_INGAME, &Server::handleCommand_ObjectPose }, // 0x5C Terra Firma
+	{ "TOSERVER_HOLLOW",                   TOSERVER_STATE_INGAME, &Server::handleCommand_Hollow }, // 0x5D Terra Firma
+	{ "TOSERVER_LINK",                     TOSERVER_STATE_INGAME, &Server::handleCommand_Link }, // 0x5E Terra Firma
+	{ "TOSERVER_JOIN",                     TOSERVER_STATE_INGAME, &Server::handleCommand_Join }, // 0x5F Terra Firma
+	{ "TOSERVER_PART",                     TOSERVER_STATE_INGAME, &Server::handleCommand_Part }, // 0x60 Terra Firma
+	{ "TOSERVER_SOCKET",                   TOSERVER_STATE_INGAME, &Server::handleCommand_Socket }, // 0x61 Terra Firma
+	{ "TOSERVER_PLUG",                     TOSERVER_STATE_INGAME, &Server::handleCommand_Plug }, // 0x62 Terra Firma
 };
 
 const static ClientCommandFactory null_command_factory = { nullptr, 0, false };
@@ -221,4 +234,7 @@ const ClientCommandFactory clientCommandFactoryTable[TOCLIENT_NUM_MSG_TYPES] =
 	null_command_factory, // 0x68 (Terra Firma's TOCLIENT_PLANET, gone)
 	{ "TOCLIENT_ATLAS",                    2, true }, // 0x69 Terra Firma: on the window's channel, so it comes first
 	{ "TOCLIENT_WINDOW",                   2, true }, // 0x6A Terra Firma: with the blocks, so it comes before the new tile's
+	{ "TOCLIENT_SHAPE",                    0, true }, // 0x6B Terra Firma: after TOCLIENT_ADDNODE's
+	{ "TOCLIENT_BLUEPRINTS",               0, true }, // 0x6C Terra Firma
+	{ "TOCLIENT_HELD",                     0, true }, // 0x6D Terra Firma
 };

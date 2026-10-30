@@ -3,6 +3,7 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "object_properties.h"
+#include "piece/header.h"
 #include "irrlicht_changes/printing.h"
 #include "irrlichttypes_bloated.h"
 #include "exceptions.h"
@@ -24,6 +25,7 @@ const struct EnumString es_ObjectVisual[] =
 	{OBJECTVISUAL_ITEM, "item"},
 	{OBJECTVISUAL_WIELDITEM, "wielditem"},
 	{OBJECTVISUAL_NODE, "node"},
+	{OBJECTVISUAL_PIECE, "piece"},
 	{0, nullptr},
 };
 
@@ -115,7 +117,7 @@ static inline auto tie(const ObjectProperties &o)
 	o.node, o.hp_max, o.breath_max, o.glow, o.pointable, o.physical,
 	o.collideWithObjects, o.rotate_selectionbox, o.is_visible, o.makes_footstep_sound,
 	o.automatic_face_movement_dir, o.backface_culling, o.static_save, o.use_texture_alpha,
-	o.shaded, o.show_on_minimap, o.nametag_scale_z, o.step_up_mode
+	o.shaded, o.show_on_minimap, o.nametag_scale_z, o.step_up_mode, o.piece
 	);
 }
 
@@ -152,6 +154,18 @@ bool ObjectProperties::validate()
 		warningstream << func << "wield_item has excessive length, clearing it." << std::endl;
 		wield_item.clear();
 		ret = false;
+	}
+	// Terra Firma: an object (piece::Object) is stood on as far as what's
+	// built of it goes, selected as far as it's designed; nothing built,
+	// it's passed through (a piece that isn't one throws: whoever set it is
+	// wrong)
+	if (visual == OBJECTVISUAL_PIECE && !piece.empty()) {
+		const piece::Header h = piece::header(piece);
+		collisionbox = h.built ? *h.built : aabb3f(v3f(0), v3f(0));
+		selectionbox = h.designed ? *h.designed : collisionbox;
+		if (h.built && h.designed)
+			selectionbox.addInternalBox(*h.built);
+		physical = collideWithObjects = h.built.has_value();
 	}
 
 	return ret;
@@ -226,6 +240,7 @@ void ObjectProperties::serialize(std::ostream &os) const
 
 	writeU8(os, nametag_scale_z);
 	writeU8(os, static_cast<u8>(step_up_mode));
+	os << serializeString32(piece); // Terra Firma, protocol 66
 
 	// Add stuff only at the bottom.
 	// Never remove anything, because we don't want new versions of this!
@@ -334,6 +349,11 @@ void ObjectProperties::deSerialize(std::istream &is)
 	// >= 5.16.0-dev
 
 	step_up_mode = static_cast<StepUpMode>(readU8(is));
+
+	if (!canRead(is))
+		return;
+	// Terra Firma, protocol 66
+	piece = deSerializeString32(is);
 
 	//if (!canRead(is))
 	//	return;

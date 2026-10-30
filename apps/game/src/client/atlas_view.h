@@ -52,6 +52,9 @@ public:
 	// the eye or its block has no cell.
 	using Line = std::pair<v3f, v3f>;
 	std::optional<std::vector<Line>> outline(v3s16 node, const std::vector<aabb3f> &boxes);
+	// Lines in node coordinates (node units, from `node`'s centre) placed in
+	// the scene as `node`'s block is drawn. Nothing if it isn't charted.
+	std::optional<std::vector<Line>> place(v3s16 node, const std::vector<std::pair<v3f, v3f>> &lines);
 	// The eye this frame: its point on the planet, and where that is in the
 	// scene (BS units, as the camera is drawn). None while it has no grid.
 	const std::optional<planet::Atlas::Frame> &eye() const { return m_eye; }

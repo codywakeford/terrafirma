@@ -12,6 +12,7 @@
 #include "staticobject.h"
 #include "nodemetadata.h" // NodeMetadataList
 #include "nodetimer.h"
+#include "shape/shape.h"
 #include "modifiedstate.h"
 #include "util/numeric.h" // getContainerPos
 
@@ -558,6 +559,8 @@ private:
 
 public:
 	NodeMetadataList m_node_metadata;
+	// Terra Firma: its cut nodes (sprint 44)
+	shape::Shapes m_shapes;
 	StaticObjectList m_static_objects;
 
 private:

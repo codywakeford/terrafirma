@@ -4,6 +4,7 @@
 
 #include "map.h"
 #include "planet/atlas.h" // Terra Firma
+#include "ground/ground.h" // Terra Firma
 #include <algorithm>
 #include "mapsector.h"
 #include "mapblock.h"
@@ -244,6 +245,9 @@ static void set_node_in_block(const NodeDefManager *nodedef, MapBlock *block,
 				<<"\" at "<<p<<" (block "<<blockpos<<")"<<std::endl;
 		return;
 	}
+	// Terra Firma: a shape is its material's; something else is whole
+	if (block->getNodeNoCheck(relpos).getContent() != n.getContent())
+		block->m_shapes.erase(relpos);
 	block->setNodeNoCheck(relpos, n);
 }
 
@@ -663,6 +667,78 @@ bool Map::setNodeMetadata(v3s16 p, NodeMetadata *meta)
 		m_metadata_trash.emplace_back(std::move(old));
 	}
 	return true;
+}
+
+const shape::Shape *Map::getShape(v3s16 p)
+{
+	const v3s16 bp = getNodeBlockPos(p);
+	MapBlock *block = getBlockNoCreateNoEx(bp);
+	return block ? block->m_shapes.get(p - bp * MAP_BLOCKSIZE) : nullptr;
+}
+
+bool Map::setShape(v3s16 p, const shape::Shape &s)
+{
+	const v3s16 bp = getNodeBlockPos(p);
+	MapBlock *block = getBlockNoCreateNoEx(bp);
+	if (!block)
+		return false;
+	if (s.empty())
+		throw BaseException("Map::setShape: an empty shape is the node removed");
+	block->m_shapes.set(p - bp * MAP_BLOCKSIZE, s);
+	block->raiseModified(MOD_STATE_WRITE_NEEDED, MOD_REASON_SET_NODE);
+	MapEditEvent event;
+	event.type = MEET_SHAPE;
+	event.p = p;
+	event.modified_blocks.push_back(bp);
+	dispatchEvent(event);
+	return true;
+}
+
+std::optional<ground::Top> Map::groundTop(v3s16 p)
+{
+	// cut, or under a cut node (what rose from it, kept): as it's cut
+	if (getShape(p) || getShape(p + v3s16(0, 1, 0)))
+		return std::nullopt;
+	const auto get = [&](v3s16 q) { return ground::seen(getNode(q), getShape(q)); };
+	const auto cube = [&](v3s16 q) { return m_atlas && m_atlas->cut({ q.X, q.Y, q.Z }).has_value(); };
+	return ground::Ground(*m_nodedef).top(get, cube, p);
+}
+
+void Map::settleGround(v3s16 p)
+{
+	const std::optional<ground::Top> top = groundTop(p);
+	if (!top)
+		return;
+	const v3s16 up(0, 1, 0);
+	const MapNode n = getNode(p);
+	const shape::Shape low = top->shape(0), high = top->shape(1);
+	if (!high.empty() && m_nodedef->get(getNode(p + up)).buildable_to) {
+		addNodeWithEvent(p + up, n);
+		setShape(p + up, high);
+	}
+	if (low.empty())
+		removeNodeWithEvent(p);
+	else
+		setShape(p, low);
+}
+
+bool Map::getShapedBoxes(v3s16 p, std::vector<aabb3f> &out)
+{
+	if (const shape::Shape *s = getShape(p)) {
+		s->boxes(out);
+		return true;
+	}
+	if (const std::optional<ground::Top> top = groundTop(p)) {
+		top->boxes(out);
+		return true;
+	}
+	return false;
+}
+
+void Map::getPointedBoxes(v3s16 p, MapNode n, std::vector<aabb3f> &out)
+{
+	if (!getShapedBoxes(p, out))
+		n.getSelectionBoxes(m_nodedef, &out, n.getNeighbors(p, this));
 }
 
 void Map::removeNodeMetadata(v3s16 p)

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue"
+import Corner from "../account/Corner.vue"
 import { useBridge } from "../bridge/use.ts"
 import Crosshair from "./Crosshair.vue"
 import FlightStrip from "./flight/FlightStrip.vue"
 import SpaceStrip from "./flight/SpaceStrip.vue"
 import Hotbar from "./Hotbar.vue"
 import LabStrip from "../lab/LabStrip.vue"
-import WeatherStrip from "./WeatherStrip.vue"
 import ProbeCard from "./ProbeCard.vue"
 import StatBar from "./StatBar.vue"
+import ActionRail from "./ActionRail.vue"
+import ToolRail from "./ToolRail.vue"
 import TravelScreen from "./TravelScreen.vue"
 import { useStore } from "./store.ts"
 import MapWidget from "./widgets/MapWidget.vue"
 import { loadWidgetSettings } from "./widgets/config.ts"
+import WorldControlsWidget from "./widgets/WorldControlsWidget.vue"
 
 const store = useStore()
 const bridge = useBridge()
@@ -20,6 +23,11 @@ onMounted(() => { void loadWidgetSettings(bridge) })
 const hud = computed(() => store.state.hud)
 const player = computed(() => store.state.player)
 const flight = computed(() => store.ui.flight)
+// pause keeps the world's HUD up, the mouse free over it; another screen covers it
+const paused = computed(() => store.screen === "pause")
+const covered = computed(() => store.screen !== null && !paused.value)
+const tools = computed(() => store.state.tools)
+const library = computed(() => store.state.library)
 const hotbar = computed(() => {
     const bar = store.state.hotbar
     const main = store.state.inventory?.main
@@ -32,19 +40,24 @@ const hotbar = computed(() => {
     <!-- the Lab browser shows the world, not the player's HUD -->
     <div v-if="hud?.visible && store.screen !== 'lab'" class="hud">
         <Crosshair v-if="hud.crosshair" />
-        <FlightStrip v-if="flight?.regime === 'near' && !store.screen" :flight="flight" />
-        <SpaceStrip v-if="flight?.regime === 'space' && !store.screen" :flight="flight" />
+        <FlightStrip v-if="flight?.regime === 'near' && !covered" :flight="flight" />
+        <SpaceStrip v-if="flight?.regime === 'space' && !covered" :flight="flight" />
         <LabStrip />
-        <!-- a panel over the world (the wiki, the inventory) hides the strip; it covered the panel's Close -->
-        <WeatherStrip v-if="!store.screen" />
-        <ProbeCard v-if="!store.screen" />
+        <ProbeCard v-if="!covered" />
+        <ToolRail v-if="tools?.out && !covered" :tools="tools" :free="tools.cursor || paused" />
+        <ActionRail v-if="tools?.out && library && !covered" :tools="tools" :library="library" :free="tools.cursor || paused" />
+        <div v-if="!covered" class="corner-icons">
+            <Corner />
+            <WorldControlsWidget />
+        </div>
         <div class="bottom">
             <div v-if="player" class="stats">
                 <StatBar v-if="hud.health" kind="heart" :value="player.hp" :max="player.hpMax" />
                 <StatBar v-if="hud.breath && player.breath < player.breathMax" kind="bubble"
                     :value="player.breath" :max="player.breathMax" reverse />
             </div>
-            <Hotbar v-if="hud.hotbar && hotbar" :stacks="hotbar.stacks" :selected="hotbar.selected" />
+            <Hotbar v-if="hud.hotbar && hotbar" :stacks="hotbar.stacks" :selected="hotbar.selected"
+                :free="!!tools?.out && tools.cursor || paused" />
         </div>
     </div>
     <MapWidget />
@@ -59,6 +72,8 @@ const hotbar = computed(() => {
     inset: 0;
     pointer-events: none;
 }
+
+.corner-icons > * { pointer-events: auto; }
 
 .bottom {
     position: absolute;

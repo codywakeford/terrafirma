@@ -293,7 +293,7 @@ void push_item_definition_full(lua_State *L, const ItemDefinition &i)
 }
 
 /******************************************************************************/
-const std::array<const char *, 36> object_property_keys = {
+const std::array<const char *, 37> object_property_keys = {
 	"hp_max",
 	"breath_max",
 	"physical",
@@ -330,7 +330,8 @@ const std::array<const char *, 36> object_property_keys = {
 	// "node" is intentionally not here as it's gated behind `fallback` below!
 	"nametag_fontsize",
 	"nametag_scale_z",
-	"step_up_mode"
+	"step_up_mode",
+	"piece", // Terra Firma
 };
 
 /******************************************************************************/
@@ -528,6 +529,8 @@ void read_object_properties(lua_State *L, int index,
 	getboolfield(L, -1, "show_on_minimap", prop->show_on_minimap);
 
 	// Don't set if nil
+	getstringfield(L, -1, "piece", prop->piece); // Terra Firma
+
 	std::string step_up_mode;
 	if (getstringfield(L, -1, "step_up_mode", step_up_mode)) {
 		if (!string_to_enum(es_StepUpMode, prop->step_up_mode, step_up_mode)) {
@@ -645,6 +648,8 @@ void push_object_properties(lua_State *L, const ObjectProperties *prop)
 	lua_setfield(L, -2, "show_on_minimap");
 	lua_pushstring(L, enum_to_string(es_StepUpMode, prop->step_up_mode));
 	lua_setfield(L, -2, "step_up_mode");
+	lua_pushlstring(L, prop->piece.data(), prop->piece.size()); // Terra Firma
+	lua_setfield(L, -2, "piece");
 
 	// Remember to update object_property_keys above
 	// when adding a new property

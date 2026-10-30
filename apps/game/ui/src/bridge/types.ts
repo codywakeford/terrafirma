@@ -46,12 +46,48 @@ export type CreativeItem = ItemInfo & { item: string; stackMax: number; category
 
 export type Stack = { item: string; count: number; wear: number }
 
+/** A tool in hand, as sculpt::KINDS names it, in its order. */
+export const TOOL_IDS = ["box", "cylinder", "cone", "sphere", "cut", "bore"] as const
+export type ToolId = (typeof TOOL_IDS)[number]
+/** What the right-hand rail asks of the game (src/client/hand.h: Hand::ACTIONS); `save` and `place` take a blueprint's name. */
+export const ACTION_IDS = ["focus", "mirror", "undo", "start", "save", "place", "hollow", "level", "reset", "detach", "delete"] as const
+export type ActionId = (typeof ACTION_IDS)[number]
+/** What the brush does with a shape (src/client/hand.h: Hand::BRUSHES). */
+export const BRUSH_IDS = ["add", "cut", "paint", "pull", "part"] as const
+export type BrushId = (typeof BRUSH_IDS)[number]
+export type JointId = "fixed" | "hinge"
+/** What a click does (src/client/hand.h: Hand::Mode): draw with the brush, select a part, join two. */
+export type ToolMode = { click: "draw" | "select" }
+/** The part selected, as its card shows it (src/shell/state.cpp: partCard). Ids are strings: they're 64 bits. */
+export type PartCard = {
+    id: string; material: string; joints: { other: string; joint: JointId; material: string }[]
+    /** Joints waiting for a part: something carried onto one is joined there. */
+    sockets: { id: string; joint: JointId }[]
+}
+export type Ask = { action: Exclude<ActionId, "save" | "place"> } | { action: "save" | "place"; name: string }
+    | { action: "relink"; other: string; joint: JointId | "none" }
+    | { action: "socket"; joint: JointId } | { action: "unsocket"; socket: string }
+
 /** The game as the HUD sees it (src/shell/state.cpp). Each section arrives whole when it changes. */
 export type StateSections = {
     hud: { visible: boolean; crosshair: boolean; hotbar: boolean; health: boolean; breath: boolean }
     player: { hp: number; hpMax: number; breath: number; breathMax: number }
     mapPose: { u: number; v: number; heading: number; height: number }
     hotbar: { size: number; selected: number }
+    /** The tools in hand (src/sculpt): which and how big (sixteenths), while they're out. */
+    tools: { out: false } | {
+        /** `focused`: an object's on the workbench. `cursor`: the cursor's free (Tab, or a menu open): the page is clicked. */
+        out: true; tool: ToolId; size: number; mirrored: boolean; focused: boolean; cursor: boolean
+        brush: BrushId
+        /** A new part's joint to what it's drawn on. */
+        partJoint: JointId
+        mode: ToolMode
+        part: PartCard | null
+        /** The part's menu, opened by a right-click on it: where (the window's pixels). */
+        menu: { x: number; y: number } | null
+    }
+    /** The player's blueprints by name (src/workshop/library.h), sorted. */
+    library: string[]
     inventory: Record<string, { width: number; stacks: (Stack | null)[] }>
 }
 
@@ -499,6 +535,12 @@ export type Intents = {
     "social.join": { request: { id: string; name: string }; response: null }
     /** Opens a screen the page decides on (src/shell/screens.cpp: SCREENS); one that needs a UI value stays shut without it. */
     "screen.open": { request: { name: ScreenName }; response: null }
+    /** Terra Firma: a tool picked on the rail (src/client/hand.h). */
+    "tools.pick": { request: { tool: ToolId }; response: null }
+    "tools.ask": { request: Ask; response: null }
+    "tools.mode": { request: ToolMode; response: null }
+    "tools.brush": { request: { brush: BrushId; joint?: JointId }; response: null }
+    "hotbar.select": { request: { slot: number }; response: null }
     "screen.close": { request: {}; response: null }
     /** Shows a body under the page (the last one stays on screen until it's ready); markers and focus at once if given. */
     "planetarium.show": { request: { body: PlanetariumBody; focus?: PlanetariumPlace & { altitude?: number }; markers?: PlanetariumMarker[]; viewport?: PlanetariumViewport }; response: null }

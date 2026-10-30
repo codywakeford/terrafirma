@@ -17,6 +17,9 @@
 #include "clientdynamicinfo.h"
 #include "clouds.h"
 #include "far/view.h"
+#include "client/hold.h"
+#include "client/hand.h"
+#include "sculpt/sculpt.h"
 #include "gui/touchcontrols.h"
 #include "irr_ptr.h"
 #include "irrlichttypes_bloated.h"
@@ -356,6 +359,139 @@ private:
 	// Terra Firma: the planet viewer, while it's open (it takes the input)
 	bool m_planetarium_alone = false;   // opened by its key (no screen over it): its key and Esc close it
 	bool m_planetarium_closing = false; // asked from the input callback: closed next frame
+	// Terra Firma: the tools in hand (sprint 45): out (dig and place make
+	// strokes, the wheel sizes them), which, and how big (sixteenths)
+	Hand m_hand;
+	// the focus view, while it's open (sprint 46)
+	std::optional<Hold> m_hold;
+	// Terra Firma: when the held object's pose was last sent, and what
+	f32 m_pose_age = 0;
+	std::optional<Hold::Pose> m_pose_sent;
+	// Terra Firma: a new object of ours, to focus when it arrives
+	std::optional<u16> m_awaited;
+	// What the tools are pointed at (sprint 47): the world (piece 0, frame
+	// the world's) or a piece in its own grid; the node, point (BS) and
+	// face in that frame.
+	struct Aim
+	{
+		u16 piece; // the machine's object id; 0: the world
+		u64 part;  // which of its parts
+		core::matrix4 frame; // the frame's coordinates (BS) to the world's
+		v3s16 node;
+		v3f point;
+		v3s16 normal;
+	};
+	std::optional<Aim> aimAt(const PointedThing &pointed) const;
+	// the stroke a click would make there, or a drag to `to`
+	std::optional<sculpt::Stroke> strokeAt(const Aim &aim, sculpt::Act act,
+			std::optional<shape::Sixteenth> to = std::nullopt) const;
+	// a shape drawn (sprints 50, 55): pressed on a face, its footprint
+	// dragged out on it (none: still a click); let go, it's pulled out of
+	// the face (or into it) as the cursor goes, and a click puts it there.
+	// A face pulled: its flat stretch, pulled as it's held.
+	struct Draw
+	{
+		Aim start;
+		std::optional<shape::Sixteenth> to;
+		bool pulling = false;
+		s32 deep = 1; // sixteenths, out of the face (in, < 0)
+		std::optional<shape::Sixteenth> pull_from; // a face pulled: its stretch's first corner
+	};
+	// the stroke it's come to, pulled as far as it's been
+	std::optional<sculpt::Stroke> drawn(const Draw &draw) const;
+	// how far along the start's normal the cursor's ray comes nearest
+	// (sixteenths, signed)
+	s32 pullDepth(const Draw &draw) const;
+	// the flat stretch of face a press on `aim` is on: its corners (none:
+	// it's not a face of anything)
+	std::optional<std::pair<shape::Sixteenth, shape::Sixteenth>> flatFace(const Aim &aim) const;
+	std::optional<Draw> m_draw;
+	// where this frame's ray meets the drawn shape's face, as a sixteenth;
+	// none where it's the one it started on, or doesn't meet the face
+	std::optional<shape::Sixteenth> dragTo(const Draw &draw) const;
+	void handleTools(const PointedThing &pointed);
+	// one of the page's rail's asks (Hand::Ask), or a key's
+	void handleAsk(const Hand::Ask &ask, const PointedThing &pointed);
+	void showGhost(const Aim &aim, const sculpt::Stroke &stroke, v3s16 camera_offset);
+	core::line3d<f32> m_pointed_from; // this frame's shootline
+	// a button held off a held object: dragged, it turns it (on the
+	// handle's disc or ring, about theirs; elsewhere about the up, moved
+	// across, or the right)
+	struct Drag
+	{
+		bool held = false;
+		v2s32 start;
+		std::optional<Hold::Grip> grip;
+		bool across = false; // off the handle: the first move was across
+		bool turned = false; // it's turned something: not a click
+		bool place = false;  // the other button's (a click of it: the part's menu)
+	} m_drag;
+	// a part's menu, opened by the other button clicked on it: where
+	// (pixels), and the face it was opened on (sockets go there)
+	std::optional<v2s32> m_menu;
+	piece::Machine::Face m_menu_face{};
+	// the cursor free (Tab): the view stays, clicks go where it points
+	bool m_cursor = false;
+	// the workbench's frame: its handle turned, its pose said
+	void benchStep(f32 dtime);
+	// a machine's sockets, drawn
+	void showSockets(GenericCAO &obj, bool lit) const;
+	// the held object's turning handle, drawn
+	void showHandle(v3s16 camera_offset);
+	// an object grabbed (the tools away) and carried as the button's held,
+	// as far along the look as it was grabbed (sprint 54); pointed at
+	// another's face, where it'd go on it: let go, it's joined there
+	struct Carry
+	{
+		u16 object;
+		f32 distance; // from the eye to where it was grabbed (BS)
+		v3f offset;   // its origin from where it was grabbed (BS), in the view's right, up and forward
+		v3f rotation; // as it was grabbed
+		f32 yaw;      // the player's, as it was grabbed: it turns as they do
+		f32 age;      // since its pose was last sent
+		struct Snap
+		{
+			u16 object;              // what it'd go on
+			piece::Machine::Face on; // their face (none of it, onto a socket)
+			piece::Machine::Face mine;
+			std::optional<u64> socket; // their socket it'd go on
+		};
+		std::optional<Snap> snap;
+	};
+	std::optional<Carry> m_carry;
+	// the view's own ways (BS-free unit vectors)
+	struct View
+	{
+		v3f right, up, forward;
+	};
+	static View view(v3f look);
+	// the object pointed at in the world, lit
+	u16 m_lit = 0;
+	void handleCarry(const PointedThing &pointed, f32 dtime);
+	void showTool();
+	// an object's middle in its own grid (node coordinates); nothing if
+	// it's not an object (or gone)
+	std::optional<v3f> pieceMiddle(u16 id) const;
+	// how far its design reaches from `middle` (nodes)
+	f32 pieceRadius(u16 id, v3f middle) const;
+	// where a part of a machine sits in it
+	const piece::Pose &partPose(u16 id, u64 part) const;
+	// holding a machine, the part picked to work on alone; none: all of it
+	std::optional<u64> m_part;
+	void pickPart(std::optional<u64> part);
+	piece::Machine::Face faceOf(const Aim &aim) const;
+	// what a socket's mirrored across: the workbench machine's middle, if mirrored
+	std::optional<sculpt::Stroke::Mirror> machineMirror() const;
+	// a click in a mode that isn't drawing, on what's aimed at
+	void clickMode(const Aim &aim);
+	// opens the focus view on what's pointed at, or closes it
+	// the focus on an object: held while it's open, let go when it closes
+	void focusOn(u16 id);
+	void closeFocus();
+	void toggleFocus();
+	// the ghost's outline (world sixteenths), and the stroke it's of
+	std::optional<sculpt::Stroke> m_ghost_of;
+	std::vector<std::pair<v3s32, v3s32>> m_ghost;
 	Hud *hud = nullptr;
 	Minimap *mapper = nullptr;
 	GameFormSpec m_game_formspec;

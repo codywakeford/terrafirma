@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "state.h"
+#include "piece/machine.h"
+#include "client/content_cao.h"
+#include "itemdef.h"
+#include "nodedef.h"
+#include "client/hand.h"
 #include "items.h"
 #include "shell.h"
 #include "client/client.h"
@@ -25,6 +30,36 @@ void State::update(const HudView &view)
 		return;
 
 	send("hud", hud(*player, view));
+	const Hand &hand = m_opts.hand;
+	Json::Value tools;
+	tools["out"] = hand.out();
+	if (hand.out()) {
+		tools["tool"] = sculpt::KINDS[size_t(hand.tool())].id;
+		tools["size"] = hand.size();
+		tools["mirrored"] = hand.mirrored();
+		tools["focused"] = view.focused;
+		tools["cursor"] = view.cursor;
+		tools["brush"] = Hand::BRUSHES[size_t(hand.brush())].id;
+		tools["partJoint"] = piece::JOINTS[size_t(hand.partJoint())].id;
+		// what a click does (Hand::Mode)
+		const Hand::Mode &mode = hand.mode();
+		Json::Value m;
+		m["click"] = Hand::CLICKS[size_t(mode.click)];
+		tools["mode"] = m;
+		tools["part"] = view.part ? partCard(view.part->first, view.part->second) : Json::Value();
+		// its menu, at the cursor (the page's pixels are the window's)
+		Json::Value menu;
+		if (view.menu) {
+			menu["x"] = view.menu->X;
+			menu["y"] = view.menu->Y;
+		}
+		tools["menu"] = menu;
+	}
+	send("tools", tools);
+	Json::Value library(Json::arrayValue);
+	for (const std::string &name : m_opts.client->getBlueprints())
+		library.append(name);
+	send("library", library);
 	send("player", this->player(*player));
 	if (m_opts.client->getAtlas() && m_opts.client->getCamera())
 		if (std::optional<Json::Value> pose = mapPose(*player))
@@ -33,6 +68,51 @@ void State::update(const HudView &view)
 	Json::Value inv = inventory(*player);
 	sendNewItems(); // before the inventory that references them
 	send("inventory", inv);
+}
+
+Json::Value State::partCard(u16 object, u64 part) const
+{
+	// the part as its card shows it: what it's of, what it's joined to
+	auto *obj = dynamic_cast<GenericCAO *>(m_opts.client->getEnv().getActiveObject(object));
+	const piece::Machine *machine = obj ? obj->getMachine() : nullptr;
+	const piece::Machine::Part *p = machine ? machine->part(part) : nullptr;
+	if (!p)
+		return Json::Value();
+	const NodeDefManager *ndef = m_opts.client->ndef();
+	IItemDefManager *idef = m_opts.client->idef();
+	auto material = [&](const piece::Machine::Part &of) {
+		std::string name;
+		of.object.design().each([&](v3s16, MapNode n, const shape::Shape *) {
+			if (name.empty())
+				name = idef->get(ndef->get(n).name).description;
+		});
+		return name;
+	};
+	Json::Value card;
+	card["id"] = std::to_string(part); // 64 bits: a string, as the page can't hold it as a number
+	card["material"] = material(*p);
+	card["joints"] = Json::arrayValue;
+	for (const piece::Machine::Link &l : machine->links()) {
+		if (l.a != part && l.b != part)
+			continue;
+		const u64 other = l.a == part ? l.b : l.a;
+		const piece::Machine::Part *q = machine->part(other);
+		Json::Value j;
+		j["other"] = std::to_string(other);
+		j["joint"] = piece::JOINTS[size_t(l.joint)].id;
+		j["material"] = q ? material(*q) : "";
+		card["joints"].append(j);
+	}
+	card["sockets"] = Json::arrayValue;
+	for (const piece::Machine::Socket &k : machine->sockets()) {
+		if (k.part != part)
+			continue;
+		Json::Value j;
+		j["id"] = std::to_string(k.id);
+		j["joint"] = piece::JOINTS[size_t(k.joint)].id;
+		card["sockets"].append(j);
+	}
+	return card;
 }
 
 void State::forget()

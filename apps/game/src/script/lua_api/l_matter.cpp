@@ -410,6 +410,25 @@ int ModApiMatter::l_save(lua_State *L)
 	return 0;
 }
 
+int ModApiMatter::l_density(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	return guarded(L, "density", [&] {
+		ServerMatter &m = made(L);
+		const std::string node = luaL_checkstring(L, 1);
+		const int param2 = (int)luaL_optinteger(L, 2, 0);
+		const content_t c = getServer(L)->ndef()->getId(node);
+		if (c == CONTENT_IGNORE)
+			throw LuaError("core.matter.density: no node called " + node);
+		if (c >= m.kind_of.size() || m.kind_of[c] < 0) {
+			lua_pushnil(L);
+			return 1;
+		}
+		lua_pushnumber(L, m.world->density(m.kind_of[c] + std::clamp(param2, 0, m.points_of[c] - 1)));
+		return 1;
+	});
+}
+
 void ModApiMatter::Initialize(lua_State *L, int top)
 {
 	lua_newtable(L);
@@ -426,6 +445,7 @@ void ModApiMatter::Initialize(lua_State *L, int top)
 		{ "ambient", l_ambient },
 		{ "temperature", l_temperature },
 		{ "capacity", l_capacity },
+		{ "density", l_density },
 		{ "awake", l_awake },
 		{ "happened", l_happened },
 		{ "count", l_count },

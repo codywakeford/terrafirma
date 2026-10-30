@@ -5,6 +5,7 @@
 #pragma once
 
 #include "mapnode.h"
+#include "shape/shape.h"
 #include <ctime>
 #include <mutex>
 #include <unordered_map>
@@ -47,6 +48,9 @@ struct QueuedMeshUpdate
 	// shows across each of its cut faces: the node there, or, where a face
 	// lies over several kinds, air lit as the air across is (so it's drawn)
 	std::vector<std::pair<v3s16, std::vector<MapNode>>> cuts;
+	// Terra Firma: the cut nodes of the blocks read (absolute), copied here
+	// on the main thread, which changes them
+	std::vector<std::pair<v3s16, shape::Shape>> shapes;
 	u16 epoch = U16_MAX;
 	bool urgent = false;
 
