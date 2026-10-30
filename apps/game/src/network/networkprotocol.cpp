@@ -127,11 +127,28 @@
 	PROTOCOL VERSION 70 (Terra Firma)
 		Machines move by physics (sprint 57): AO_CMD_SET_PARTS, where each of a
 		machine's rigid groups is in its first's (a wheel's turn)
-		Only 70 is accepted on either side.
+	PROTOCOL VERSION 71 (Terra Firma)
+		The player's body (sprint 58): TOCLIENT_MATERIALS; TOSERVER_OBJECT_HOLD's
+		u8 is how it's held: 0 let go, 1 held still (the bench), 2 carried
+	PROTOCOL VERSION 72 (Terra Firma)
+		Pushing (sprint 61): TOSERVER_OBJECT_PUSH, what a player's body gave
+		an object it walked into (theirs is held where the server has it)
+	PROTOCOL VERSION 73 (Terra Firma)
+		Joints (sprint 63): a joint's u8 is 0 fixed, 1 rotary (free: what
+		was "hinge"), 2 hinge (between stops)
+	PROTOCOL VERSION 74 (Terra Firma)
+		Fitting (sprint 64): TOSERVER_JOIN and TOSERVER_PLUG end in a u8
+		spin, quarter turns about the joining axis; TOSERVER_PLUG_AGAIN
+	PROTOCOL VERSION 75 (Terra Firma)
+		Parts (sprint 65): a round stroke's footprint is dragged from its
+		middle out (sculpt::Stroke::cells)
+	PROTOCOL VERSION 76 (Terra Firma)
+		Grabbing (sprint 68): TOSERVER_OBJECT_GRAB
+		Only 76 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 70;
+const u16 LATEST_PROTOCOL_VERSION = 76;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

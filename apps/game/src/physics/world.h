@@ -34,6 +34,13 @@
 	placed (a player whose client moves them: it pushes on its way there).
 	Carried, an assembly is pulled toward where it's to be as hard as its
 	carrier can: light things follow, heavy ones lag or drag.
+	Grabbed (sprint 68), a point of it is pulled toward a hand as hard as
+	its grabber can: a light thing comes up, a heavy one turns about the
+	point or tips, what's too heavy barely gives. Many can grab one.
+
+	Gravity and air are a field (sprint 59), asked at each body and
+	character every step: a planet's pull points at its centre and weakens
+	with height, its air drags on everything that moves.
 
 	Ground is asked of the caller a map block (16³ nodes) at a time, and
 	only round Live assemblies and characters.
@@ -79,12 +86,27 @@ struct Hinge
 	v3f anchor;    // the assembly's frame
 	v3f axis;      // unit
 	float friction; // N·m that turning it costs (rolling resistance)
+	float limit = 0; // radians either way it turns; 0: no stops
+};
+
+// A wheel (sprint 66): a round body on an axle across the root, rolled as
+// a vehicle's wheel is (a suspension, a tyre's grip, its axle's friction)
+// rather than as a free body on a hinge, which chatters on the ground.
+// Its body follows it, there to be touched, never meeting the ground.
+struct Wheel
+{
+	size_t body;
+	v3f centre;     // the assembly's frame
+	v3f axis;       // unit, level in the root's frame
+	float radius, half_width;
+	float friction; // N·m that turning it costs (rolling resistance)
 };
 
 struct Assembly
 {
 	std::vector<Body> bodies; // the first is its root: its pose is the assembly's
 	std::vector<Hinge> hinges;
+	std::vector<Wheel> wheels; // all on one axis, each a body none of the hinges join
 };
 
 struct Quat
@@ -127,12 +149,23 @@ struct CharacterSpec
 	float max_slope;      // degrees it can stand on
 };
 
+// What a place does to what's in it (sprint 59: gravity is a field).
+struct Here
+{
+	v3f gravity; // nodes/s²
+	float air;   // kg/m³: drag on what moves through it
+};
+// At a position, moving so (the turning frame's pull depends on it).
+using Field = std::function<Here(const v3d &at, const v3f &velocity)>;
+// The same everywhere, with no air (tests, and worlds that want it).
+Field uniform(v3f gravity);
+
 class World
 {
 public:
 	struct Opts
 	{
-		v3f gravity; // nodes/s²
+		Field field;
 		// The ground in block `block`: boxes in nodes from its least node's
 		// centre. False: it isn't loaded (what's on it stays frozen).
 		std::function<bool(v3s16 block, std::vector<aabb3f> &boxes)> ground;
@@ -157,7 +190,10 @@ public:
 	// that gets it there); let go, it falls from there as it was moving.
 	void hold(Id id, bool held);
 	void moveTo(Id id, const Pose &to);
-	void impulse(Id id, v3f impulse); // N·s at its root's centre of mass
+	// N·s at its root's centre of mass; or, given who gives it (where they
+	// stand), at the nearest point of the body nearest them (a corner pushed
+	// turns it).
+	void impulse(Id id, v3f impulse, std::optional<v3d> from = std::nullopt);
 
 	// The players this step, each a character put where they are (pushing
 	// what's in the way as hard as they can); Live/Frozen follows them.
@@ -170,11 +206,26 @@ public:
 	bool carried(Id id) const;
 	bool held(Id id) const;
 
+	// Grabbed by `who` (anyone's key) at `point` (nodes, in its frame: the
+	// pose's) as hard as `strength` (N); while grabbed, that point of the
+	// body nearest it is pulled toward the hand each step.
+	void grab(Id id, unsigned who, v3f point, float strength);
+	void grabTo(Id id, unsigned who, const v3d &hand);
+	void release(Id id, unsigned who);
+	bool grabbed(Id id) const;
+	// Moved a share (0..1) of the way to `to`, all its bodies as one, moving
+	// as they were: a copy brought toward another's word for it. Further
+	// than `snap` (nodes), it's put there.
+	void correct(Id id, const Pose &to, float share, float snap);
+
 	using CharId = unsigned;
 	CharId addCharacter(const CharacterSpec &spec, const v3d &foot);
 	void removeCharacter(CharId id);
 	// The velocity it walks at from the next step (nodes/s, gravity its own).
 	void want(CharId id, v3f velocity);
+	// Whether ground that isn't loaded is air to it (something flying faster
+	// than the map arrives), or waited for (walking: the default).
+	void unknownIsAir(CharId id, bool air);
 	// Put somewhere, moving so (a teleport, or a hand-over from other movement).
 	void place(CharId id, const v3d &foot, v3f velocity);
 	struct CharacterState
@@ -186,6 +237,10 @@ public:
 		v3f ground_normal;
 	};
 	CharacterState character(CharId id) const;
+	// What it's walked into held assemblies since last asked (N·s each,
+	// as hard as it pushes): they don't give, so this is the push for
+	// whoever moves them (sprint 61).
+	std::vector<std::pair<Id, v3f>> pushes(CharId id);
 	// Where it's drawn now: between its last two steps by the time since.
 	v3d drawn(CharId id) const;
 	// A block of ground changed: built again, what's on it woken.

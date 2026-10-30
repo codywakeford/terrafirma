@@ -91,4 +91,17 @@ u8 turnTaking(v3s16 from, v3s16 to, u8 near)
 	return u8(best);
 }
 
+u8 quarterAbout(v3s16 n)
+{
+	// each axis e to n (n · e) + n × e
+	const v3s16 units[3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	v3s16 axes[3];
+	for (int i = 0; i < 3; i++) {
+		const v3s16 e = units[i];
+		const s16 along = n.X * e.X + n.Y * e.Y + n.Z * e.Z;
+		axes[i] = v3s16(n.X * along, n.Y * along, n.Z * along) + cross(n, e);
+	}
+	return turnOf(axes);
+}
+
 } // namespace piece

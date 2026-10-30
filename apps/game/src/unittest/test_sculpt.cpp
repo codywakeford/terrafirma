@@ -351,19 +351,21 @@ void TestSculpt::testDrawnByFootprint()
 	auto has = [](const std::vector<v3s32> &cells, v3s32 c) {
 		return std::find(cells.begin(), cells.end(), c) != cells.end();
 	};
+	// a round one's drawn from its middle (sprint 65): a circle round where
+	// it began, as far out as the drag went furthest (19 along x)
 	const std::vector<v3s32> cylinder = stroke(Tool::Cylinder, true).cells();
-	UASSERT(has(cylinder, { 12, 16, 7 }) && has(cylinder, { 12, 21, 7 })); // its middle, all the way up
-	UASSERT(!has(cylinder, { 2, 16, 3 }) && !has(cylinder, { 21, 21, 10 })); // not its corners
-	UASSERT(has(cylinder, { 2, 18, 7 }) && has(cylinder, { 21, 18, 7 }));  // across x, end to end
-	UASSERT(cylinder.size() < 20 * 8 * 6 * 0.85 && cylinder.size() > 20 * 8 * 6 * 0.7);
+	UASSERT(has(cylinder, { 2, 16, 3 }) && has(cylinder, { 2, 21, 3 })); // its middle, all the way up
+	UASSERT(has(cylinder, { 21, 18, 3 }) && has(cylinder, { -17, 18, 3 }) && has(cylinder, { 2, 18, 22 })); // round
+	UASSERT(!has(cylinder, { 21, 18, 22 }) && !has(cylinder, { -17, 18, -16 })); // not its box's corners
+	UASSERT(cylinder.size() < 39 * 39 * 6 * 0.85 && cylinder.size() > 39 * 39 * 6 * 0.7);
 
 	const std::vector<v3s32> cone = stroke(Tool::Cone, true).cells();
 	auto layer = [&](s32 y) { return std::count_if(cone.begin(), cone.end(), [&](const v3s32 &c) { return c.Y == y; }); };
 	UASSERT(layer(16) > layer(18) && layer(18) > layer(20) && layer(20) > 0 && layer(20) >= layer(21));
-	UASSERT(!has(cone, { 3, 18, 7 }) && has(cone, { 3, 16, 7 })); // out by its edge only near the face
+	UASSERT(!has(cone, { 19, 18, 3 }) && has(cone, { 19, 16, 3 })); // out by its edge only near the face
 
 	const std::vector<v3s32> sphere = stroke(Tool::Sphere, true).cells();
-	UASSERT(has(sphere, { 12, 18, 7 }) && !has(sphere, { 12, 16, 3 }) && sphere.size() < cylinder.size());
+	UASSERT(has(sphere, { 2, 18, 3 }) && !has(sphere, { 20, 16, 3 }) && sphere.size() < cylinder.size());
 
 	// dug, it goes into the face: y 15 down
 	for (const v3s32 &c : stroke(Tool::Box, false).cells())

@@ -177,6 +177,13 @@ void Planetarium::dayIn(double worldDays, int32_t worldYear)
 			p->day(p->system().dayFor(worldDays, worldYear), worldDays - std::floor(worldDays));
 }
 
+void Planetarium::path(std::optional<planetarium::Planetarium::Path> path)
+{
+	for (View *p : { m_current.get(), m_next.get() })
+		if (p)
+			p->path(path);
+}
+
 void Planetarium::hide()
 {
 	if (m_backdrop) {

@@ -18,6 +18,7 @@
 #include "settings.h"
 #include "util/numeric.h"
 #include "util/serialize.h"
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -39,10 +40,9 @@ constexpr int ROUND_BINS = 32;
 // they collide, so what they walk into is pushed before they're stopped.
 constexpr float PLAYER_RADIUS = 0.35f, PLAYER_HEIGHT = 1.8f;
 
-float g()
-{
-	return g_settings->getFloat("movement_gravity");
-}
+// The surface's pull (a wheel's rolling resistance is set by its weight
+// where it's built: near enough anywhere it rolls).
+constexpr float SURFACE_G = 9.81f;
 
 // An entity's turn as a rotation matrix: R[r][c] is m[c * 4 + r].
 core::matrix4 turnOf(v3f rotation)
@@ -152,10 +152,30 @@ const Material *Materials::get(content_t c) const
 	return c < m_by_content.size() && m_by_content[c] ? &*m_by_content[c] : nullptr;
 }
 
-Motion::Motion(ServerEnvironment &env, IGameDef *gamedef, const Materials &materials) :
+std::vector<std::pair<content_t, Material>> Materials::all() const
+{
+	std::vector<std::pair<content_t, Material>> out;
+	for (size_t c = 0; c < m_by_content.size(); c++)
+		if (m_by_content[c])
+			out.push_back({ (content_t)c, *m_by_content[c] });
+	return out;
+}
+
+physics::Field fieldOf(const orbit::Field &field)
+{
+	return [&field](const v3d &at, const v3f &velocity) {
+		if (const std::optional<orbit::Field::Here> h = field.at(at, velocity))
+			return physics::Here{ h->gravity, h->air };
+		// outside every grid (a seam between tiles, for a moment): straight
+		// down at the surface's pull, no air
+		return physics::Here{ v3f(0, -SURFACE_G, 0), 0 };
+	};
+}
+
+Motion::Motion(ServerEnvironment &env, IGameDef *gamedef, const Materials &materials, const orbit::Field &field) :
 	m_env(env), m_gamedef(gamedef), m_materials(materials)
 {
-	m_world = std::make_unique<physics::World>(physics::World::Opts{ v3f(0, -g(), 0),
+	m_world = std::make_unique<physics::World>(physics::World::Opts{ fieldOf(field),
 			[this](v3s16 block, std::vector<aabb3f> &boxes) { return ground(block, boxes); } });
 }
 
@@ -225,22 +245,43 @@ physics::Assembly compile(const piece::Machine &m, const Materials &materials, I
 		const v3f anchor = l.anchor / 16.f - v3f(0.5f);
 		const v3f axis = v3f::from(l.axis);
 		// the part that turns is the one that isn't the machine's root
-		physics::Body &turning = a.bodies[*bb != 0 ? *bb : *ba];
+		const size_t turns = *bb != 0 ? *bb : *ba;
+		physics::Body &turning = a.bodies[turns];
 		if (!turning.round)
 			turning.round = roundAbout(turning.boxes, anchor, axis);
 		const float radius = turning.round ? turning.round->radius : 0.5f;
-		a.hinges.push_back({ *ba, *bb, anchor, axis, ROLLING * mass / hinges * g() * radius });
+		const float friction = ROLLING * mass / hinges * SURFACE_G * radius;
+		const float limit = piece::JOINTS[size_t(l.joint)].limit * core::DEGTORAD;
+		// a round part turning freely on a level axle off the root is a
+		// wheel (sprint 66), if it's on the first wheel's axis
+		const bool wheel = turning.round && limit == 0 && (*ba == 0 || *bb == 0) && axis.Y == 0
+				&& (a.wheels.empty() || std::fabs(a.wheels[0].axis.dotProduct(axis)) > 0.99f);
+		if (wheel)
+			a.wheels.push_back({ turns, turning.round->centre, axis, turning.round->radius, turning.round->half_width, friction });
+		else
+			a.hinges.push_back({ *ba, *bb, anchor, axis, friction, limit });
+	}
+	// a wheel something else hangs off by a hinge turns as a hinge, not a
+	// wheel (its body follows its wheel: nothing can hang off that)
+	for (auto w = a.wheels.begin(); w != a.wheels.end();) {
+		const bool hung = std::any_of(a.hinges.begin(), a.hinges.end(),
+				[&](const physics::Hinge &h) { return h.a == w->body || h.b == w->body; });
+		if (!hung) {
+			++w;
+			continue;
+		}
+		const physics::Body &b = a.bodies[w->body];
+		a.hinges.push_back({ 0, w->body, b.round->centre, w->axis, w->friction, 0 });
+		w = a.wheels.erase(w);
 	}
 	return a;
 }
 
-bool Motion::ground(v3s16 block, std::vector<aabb3f> &boxes)
+bool groundBoxes(Map &map, const NodeDefManager *ndef, v3s16 block, std::vector<aabb3f> &boxes)
 {
-	Map &map = m_env.getMap();
 	MapBlock *b = map.getBlockNoCreateNoEx(block);
 	if (!b)
 		return false;
-	const NodeDefManager *ndef = m_gamedef->ndef();
 	std::vector<aabb3f> nb;
 	const v3s16 base = block * MAP_BLOCKSIZE;
 	// a plain whole block: inside the ground, it's left out
@@ -277,6 +318,11 @@ bool Motion::ground(v3s16 block, std::vector<aabb3f> &boxes)
 				}
 			}
 	return true;
+}
+
+bool Motion::ground(v3s16 block, std::vector<aabb3f> &boxes)
+{
+	return groundBoxes(m_env.getMap(), m_gamedef->ndef(), block, boxes);
 }
 
 Motion::Tracked *Motion::tracked(u16 object)
@@ -319,6 +365,11 @@ void Motion::step(float dtime)
 				m_tracked[id] = { m_world->add(a, at, e->getVelocity() / BS), hash, "" };
 				if (m_held.count(id))
 					m_world->hold(m_tracked[id].id, true);
+				if (auto c = m_carried.find(id); c != m_carried.end())
+					m_world->carry(m_tracked[id].id, c->second);
+				if (auto g = m_grabbed.find(id); g != m_grabbed.end())
+					for (const auto &[who, grab] : g->second)
+						grip(id, who, grab, true);
 				e->setDriven(true);
 			}
 			m_broken.erase(id);
@@ -345,11 +396,31 @@ void Motion::step(float dtime)
 		it = m_env.getActiveObject(it->first) ? std::next(it) : m_broken.erase(it);
 	for (auto it = m_held.begin(); it != m_held.end();)
 		it = m_env.getActiveObject(*it) ? std::next(it) : m_held.erase(it);
+	for (auto it = m_carried.begin(); it != m_carried.end();)
+		it = m_env.getActiveObject(it->first) ? std::next(it) : m_carried.erase(it);
+	// what's gone isn't grabbed, and who's gone grabs nothing
+	for (auto it = m_grabbed.begin(); it != m_grabbed.end();) {
+		for (auto g = it->second.begin(); g != it->second.end();) {
+			if (m_env.getActiveObject(g->first)) {
+				++g;
+				continue;
+			}
+			if (Tracked *t = tracked(it->first))
+				m_world->release(t->id, g->first);
+			g = it->second.erase(g);
+		}
+		it = m_env.getActiveObject(it->first) && !it->second.empty() ? std::next(it) : m_grabbed.erase(it);
+	}
 
-	std::vector<physics::Capsule> players;
+	// by name: the same order every step, whoever joined when
+	std::vector<std::pair<std::string, physics::Capsule>> named;
 	for (RemotePlayer *p : m_env.getPlayers())
 		if (PlayerSAO *sao = p->getPlayerSAO())
-			players.push_back({ v3d::from(sao->getBasePosition() / BS), PLAYER_RADIUS, PLAYER_HEIGHT });
+			named.push_back({ p->getName(), { v3d::from(sao->getBasePosition() / BS), PLAYER_RADIUS, PLAYER_HEIGHT } });
+	std::sort(named.begin(), named.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+	std::vector<physics::Capsule> players;
+	for (const auto &[n, c] : named)
+		players.push_back(c);
 	m_world->players(players);
 
 	m_world->step(dtime);
@@ -386,6 +457,8 @@ void Motion::mapEdited(const MapEditEvent &e)
 void Motion::hold(LuaEntitySAO &obj, bool held)
 {
 	if (held)
+		carry(obj, std::nullopt);
+	if (held)
 		m_held.insert(obj.getId());
 	else
 		m_held.erase(obj.getId());
@@ -398,12 +471,67 @@ bool Motion::held(const LuaEntitySAO &obj) const
 	return m_held.count(obj.getId()) != 0;
 }
 
+void Motion::carry(LuaEntitySAO &obj, std::optional<float> strength)
+{
+	if (strength)
+		m_carried[obj.getId()] = *strength;
+	else
+		m_carried.erase(obj.getId());
+	if (Tracked *t = tracked(obj.getId()))
+		m_world->carry(t->id, strength);
+}
+
+bool Motion::carried(const LuaEntitySAO &obj) const
+{
+	return m_carried.count(obj.getId()) != 0;
+}
+
 void Motion::pose(LuaEntitySAO &obj, v3f position, v3f rotation)
 {
-	if (!held(obj))
-		throw std::logic_error("Motion::pose: object " + std::to_string(obj.getId()) + " isn't held");
-	if (Tracked *t = tracked(obj.getId()))
-		m_world->moveTo(t->id, { v3d::from(position / BS), quatOf(rotation) });
+	const physics::Pose to{ v3d::from(position / BS), quatOf(rotation) };
+	if (held(obj)) {
+		if (Tracked *t = tracked(obj.getId()))
+			m_world->moveTo(t->id, to);
+	} else if (carried(obj)) {
+		if (Tracked *t = tracked(obj.getId()))
+			m_world->pullTo(t->id, to);
+	} else {
+		throw std::logic_error("Motion::pose: object " + std::to_string(obj.getId()) + " isn't held or carried");
+	}
+}
+
+void Motion::grab(LuaEntitySAO &obj, u16 who, std::optional<Grab> grab)
+{
+	const u16 id = obj.getId();
+	if (!grab) {
+		if (auto it = m_grabbed.find(id); it != m_grabbed.end())
+			it->second.erase(who);
+		if (Tracked *t = tracked(id))
+			m_world->release(t->id, who);
+		return;
+	}
+	const bool fresh = !grabbing(obj, who);
+	// a grip's point is where it was first taken: later, only the hand moves
+	if (!fresh)
+		grab->point = m_grabbed[id][who].point;
+	m_grabbed[id][who] = *grab;
+	grip(id, who, *grab, fresh);
+}
+
+bool Motion::grabbing(const LuaEntitySAO &obj, u16 who) const
+{
+	auto it = m_grabbed.find(obj.getId());
+	return it != m_grabbed.end() && it->second.count(who);
+}
+
+void Motion::grip(u16 object, u16 who, const Grab &g, bool fresh)
+{
+	Tracked *t = tracked(object);
+	if (!t)
+		return; // gripped when it's built
+	if (fresh)
+		m_world->grab(t->id, who, g.point / BS, g.strength);
+	m_world->grabTo(t->id, who, v3d::from(g.hand / BS));
 }
 
 std::optional<v3f> Motion::velocity(u16 object) const
@@ -418,12 +546,12 @@ std::optional<float> Motion::mass(u16 object) const
 	return it == m_tracked.end() ? std::nullopt : std::optional<float>(m_world->mass(it->second.id));
 }
 
-void Motion::impulse(u16 object, v3f impulse)
+void Motion::impulse(u16 object, v3f impulse, std::optional<v3f> from)
 {
 	Tracked *t = tracked(object);
 	if (!t)
 		throw std::invalid_argument("not a machine physics moves");
-	m_world->impulse(t->id, impulse / BS);
+	m_world->impulse(t->id, impulse / BS, from ? std::optional<v3d>(v3d::from(*from / BS)) : std::nullopt);
 }
 
 } // namespace workshop

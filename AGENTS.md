@@ -28,7 +28,8 @@ scripts/assets/   texture import: Good Vibes at a pinned revision, plus derived 
 apps/game/src/matter/ OURS — elements and substances, and the state they're in at any temperature and pressure
 assets/matter/    OURS — the building blocks as data: elements.json (all 118), substances.json (the modelled ones)
 apps/game/src/far/  OURS — the far view: terrain beyond the loaded blocks to the horizon
-apps/game/src/physics/ OURS — rigid bodies on Jolt: assemblies, hinges, ground, tiers (pure; the workshop compiles machines into it)
+apps/game/src/physics/ OURS — rigid bodies on Jolt: assemblies, hinges, ground, tiers, gravity and air as a field (pure; the workshop compiles machines into it)
+apps/game/src/orbit/ OURS — flight under a planet's gravity and air; the field in the atlas's grids (orbit::Field)
 apps/game/src/online/ OURS — playing with friends: STUN, endpoints, hole punching, UPnP, ticket gate, join
 apps/game/src/mapgen/mapgen_terra.* OURS — the `terra` map generator
 apps/game/src/builtin/ upstream engine Lua bootstrap, staged as .output/builtin; not optional game mods
@@ -111,7 +112,16 @@ runs it and shares screenshots. Say plainly what was and wasn't run.
   (the workshop's physics moves it) and `sendParts` (`AO_CMD_SET_PARTS`,
   `activeobject.h`); `server.cpp` steps the workshop before the environment
   and tells it map edits; `content_cao` draws a machine's rigid groups as
-  one scene node each. Online (sprint 24): `gameparams.h` carries
+  one scene node each. The body (sprint 58): `localplayer` hands walking to
+  `client/body` (`applyControl`, `move`); `client.cpp` tells it map
+  changes; `content_cao` draws visual `"body"` (`client/figure`) and poses a
+  carried object in the camera's frame (`applyPosed`). Orbit (sprint 59):
+  `server.cpp` owns the field (`m_field`) and gives it to the workshop;
+  `player_sao` skips the movement anticheat for `fly`; `localplayer`
+  turns the view when the body crosses a seam (`turnWithGround`); `keys`/
+  `inputhandler`/`defaultsettings` add `BRAKE` (`keymap_brake`); `gameui`
+  shows the orbit on F3. The sky (sprint 60): `game.cpp` makes
+  `planetarium::Sky` before the far view and updates it with the date. Online (sprint 24): `gameparams.h` carries
   `online::Launch`; `clientlauncher` turns the menu's choice into hosting or
   joining; `game.cpp` makes `online::Host` around the server socket, joins
   from a STUN-mapped socket, pauses a hosted world only when alone;
@@ -622,6 +632,80 @@ Luanti's for online play, singleplayer needs no account. Built so far: sign-in
 hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
 gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 (protocol 58). No relay yet: pairs that can't be punched through are told so.
+
+**Built (sprint 68, `planning/sprint-68-grab.md`):** grab. Left-click
+held on an object pulls the point pressed toward the hand as hard as a
+person (weight decides: lifted, tipped, or barely moved; many can grab
+one), predicted in the client's physics and corrected toward the
+server's (`World::grab`, `World::correct`, `TOSERVER_OBJECT_GRAB`,
+protocol 76). Alt-click carries whole. Alt is the build layer: Alt+1–6
+shapes, Alt+= steps the mirror plane, which is now kept once chosen.
+
+**Built (sprint 67, `planning/sprint-67-solid.md`):** solid. Wheels have
+backstops in the root's shape (a tipped car rests on them, a wheel built
+into the ground lifts out); machine bodies are swept; standing on an object
+isn't a push; pushes land at the centre of mass's height; a placed player
+moves through a server step's physics steps a share at a time.
+
+**Built (sprint 66, `planning/sprint-66-rolling.md`):** rolling. Round
+parts on level free axles off a machine's root are vehicle wheels (Jolt's
+vehicle constraint: cast tyres, suspension, axle friction), their bodies
+following; sliced slopes are their hulls to what moves; pushes land where
+they're given and don't lift (creative pushes anything); the part label
+gives the machine's weight; wheels glide on screen with the body.
+
+**Built (sprint 65, `planning/sprint-65-parts.md`):** parts. Round
+shapes are drawn from their middle; drawing on a socket grows a part
+joined there (a wheel in one stroke); carried parts meet at their shape's
+middle. The rail is Add, Cut, Paint, Select (Shift pulls). A workpiece's
+parts are clicked in the world: select, Shift-click for the joint between
+two, right-click for the part's menu (sockets, edit, detach, delete);
+the page's part card is gone. Protocol 75.
+
+**Built (sprint 64, `planning/sprint-64-fit.md`):** fitting. What's
+carried is drawn where it'd fit (a socket or a face); Q/E spin it about
+the joint, F flips its side, R the next axis (join and plug carry the spin,
+protocol 74). Shift-click a socket for another of the last thing plugged
+in (creative). Parts light up as they're looked at. Inventory is I, drop
+Backspace.
+
+**Built (sprint 63, `planning/sprint-63-joints.md`):** joints: fixed,
+rotary (free, an axle) and hinge (between stops); a part carried onto a
+turning socket meets it with its thinnest side (a wheel stands up); R turns
+what's carried; a face's joint menu is drawn in the world on the face
+(right-click on the workpiece). Protocol 73.
+
+**Built (sprint 62, `planning/sprint-62-create.md`):** build mode's two
+ways in: X shapes the world, C creates objects (the first shape drawn is
+the workpiece; F on another object switches to it). N is gone. Cut nodes
+let the light above them through when meshed.
+
+**Built (sprint 61, `planning/sprint-61-workbench.md`):** the workbench,
+played. Pushing works again: the body sends what it presses on objects
+(`TOSERVER_OBJECT_PUSH`, protocol 72) and the server pushes them. Making
+an object no longer crashes. Parts can be drawn on the ground while a
+workpiece is on the bench. The drawing cursor and the footprint step are
+fixed.
+
+**Built (sprint 60, `planning/sprint-60-sky.md`):** the sky is space.
+On a planet the stock sky, clouds and drawn weather are off; the
+Planetarium's system is drawn behind the far view from where the player
+is (`planetarium::Sky`), and the full-screen Planetarium draws the
+player's orbit (`orbit::Flight::path`). The air comes back later.
+
+**Built (sprint 59, `planning/sprint-59-orbit.md`):** gravity as a field.
+`orbit::Field` gives the planet's pull, spin and air at any place in the
+map's grid axes, and carries a velocity from place to place (and across
+seams) as the same motion, so things fall around the planet. Machines
+and the player weigh and drag by it; creative fliers thrust (Ctrl, B
+brakes) to orbit; new worlds' sky reaches a radius up.
+
+**Built (sprint 58, `planning/sprint-58-body.md`):** the body. The player
+is a Jolt character with inertia (`physics/walk`), run on the client's own
+physics world (`client/body`) and placed on the server's; riding what
+moves, pushing as hard as a person; carrying is a spring against weight;
+a jointed figure posed by movement. Luanti's movement only flies, swims
+and climbs.
 
 **Built (sprint 57, `planning/sprint-57-rolling.md`):** physics. Machines
 are rigid bodies on Jolt Physics (`src/physics`, double precision,

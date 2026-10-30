@@ -28,6 +28,8 @@ public:
 	void testGrownOffAFace();
 	void testJoinedFaceToFace();
 	void testFaceToward();
+	void testSpunAboutTheJoint();
+	void testMetAtItsMiddle();
 	void testSockets();
 	void testRoomMade();
 	void testHingeThroughTheMiddle();
@@ -45,6 +47,8 @@ void TestMachine::runTests(IGameDef *gamedef)
 	TEST(testGrownOffAFace);
 	TEST(testJoinedFaceToFace);
 	TEST(testFaceToward);
+	TEST(testSpunAboutTheJoint);
+	TEST(testMetAtItsMiddle);
 	TEST(testSockets);
 	TEST(testRoomMade);
 	TEST(testHingeThroughTheMiddle);
@@ -123,14 +127,14 @@ void TestMachine::testWrittenAndReadBack()
 	Machine m(&g.gamedef);
 	m.add(g.block());
 	Machine::Part &second = m.add(g.block(v3s32(16, 0, 0), 5));
-	m.links().push_back({ m.parts()[0].object.id(), second.object.id(), Joint::Hinge, v3f(16, 8, 8), v3s16(1, 0, 0) });
+	m.links().push_back({ m.parts()[0].object.id(), second.object.id(), Joint::Rotary, v3f(16, 8, 8), v3s16(1, 0, 0) });
 
 	Machine back(&g.gamedef);
 	back.read(m.write());
 	UASSERT(back.id() == m.id() && back.write() == m.write());
 	UASSERTEQ(size_t, back.parts().size(), size_t(2));
 	UASSERT(back.parts()[1].pose.turn == 5 && back.parts()[1].pose.offset == v3s32(16, 0, 0));
-	UASSERT(back.links().size() == 1 && back.links()[0].joint == Joint::Hinge);
+	UASSERT(back.links().size() == 1 && back.links()[0].joint == Joint::Rotary);
 
 	const Header h = header(m.write());
 	UASSERT(h.id == m.id());
@@ -169,7 +173,7 @@ void TestMachine::testGrownOffAFace()
 		shape::Sixteenth{ v3s16(0, 1, 1), v3s16(15, 10, 10) } };
 	UASSERT(wheel.valid());
 	const std::vector<v3s32> cells = wheel.cells();
-	const Machine::Part &grown = m.grow(east, cells, g.planks, Joint::Hinge);
+	const Machine::Part &grown = m.grow(east, cells, g.planks, Joint::Rotary);
 	// every cell where the stroke put it
 	size_t n = 0;
 	grown.object.design().each([&](v3s16 p, MapNode, const shape::Shape *s) {
@@ -183,7 +187,7 @@ void TestMachine::testGrownOffAFace()
 					}
 	});
 	UASSERTEQ(size_t, n, cells.size());
-	UASSERT(m.links().back().joint == Joint::Hinge && m.links().back().axis == v3s16(1, 0, 0)
+	UASSERT(m.links().back().joint == Joint::Rotary && m.links().back().axis == v3s16(1, 0, 0)
 			&& m.links().back().a == root && m.links().back().b == grown.object.id());
 	// out of the face, not into the block
 	for (const v3s32 &c : cells)
@@ -219,7 +223,7 @@ void TestMachine::testJoinedFaceToFace()
 			local.Z > 0 ? 15 : local.Z < 0 ? 0 : 7);
 	const Machine::Face down{ pb, { v3s16(0, 0, 0), cell }, local };
 	UASSERT(b.normal(down) == v3s16(0, -1, 0));
-	a.join(up, std::move(b), down, Joint::Fixed);
+	a.join(up, std::move(b), down, Joint::Fixed, 0);
 	UASSERT(a.parts().size() == 2);
 	// the faces clicked meet, middle to middle, facing each other: b's
 	// block is on top of a's, its foot on a's top
@@ -231,6 +235,31 @@ void TestMachine::testJoinedFaceToFace()
 		low = std::min(low, on->pose.apply(v3f(c & 1 ? 16 : 0, c & 2 ? 16 : 0, c & 4 ? 16 : 0)).Y);
 	UASSERT(std::abs(low - 16) < 1e-3f);
 	UASSERT(a.links().size() == 1 && a.links()[0].a == pa && a.links()[0].b == pb);
+}
+
+// Sprint 64: joined spun a quarter about the joint, the faces still meet,
+// and the part's turned about the joint's normal (y) from the unspun one;
+// four quarters are none.
+void TestMachine::testSpunAboutTheJoint()
+{
+	Game g;
+	auto joined = [&](u8 spin) {
+		Machine a(&g.gamedef), b(&g.gamedef);
+		const u64 pa = a.add(g.block()).object.id();
+		const u64 pb = b.add(g.block()).object.id();
+		const Machine::Face up{ pa, { v3s16(0, 0, 0), v3s16(7, 15, 7) }, v3s16(0, 1, 0) };
+		const Machine::Face down{ pb, { v3s16(0, 0, 0), v3s16(7, 0, 7) }, v3s16(0, -1, 0) };
+		a.join(up, std::move(b), down, Joint::Fixed, spin);
+		UASSERT(a.point(down).getDistanceFrom(a.point(up)) < 1e-3f);
+		UASSERT(a.normal(down) == v3s16(0, -1, 0));
+		return a.part(pb)->pose.turn;
+	};
+	const u8 none = joined(0), quarter = joined(1);
+	UASSERT(quarter != none);
+	UASSERT(turn(quarter).axes[1] == turn(none).axes[1]); // y stays y
+	UASSERT(joined(4) == none);
+	UASSERT(compose(compose(quarterAbout(v3s16(0, 1, 0)), quarterAbout(v3s16(0, 1, 0))),
+			compose(quarterAbout(v3s16(0, 1, 0)), quarterAbout(v3s16(0, 1, 0)))) == 0);
 }
 
 // The face it's joined by, carried onto another: of the node reaching
@@ -259,21 +288,21 @@ void TestMachine::testSockets()
 	Machine a(&g.gamedef);
 	const u64 root = a.add(g.block()).object.id();
 	const Machine::Face east{ root, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) };
-	const u64 hinge = a.socket(east, Joint::Hinge).id;
+	const u64 hinge = a.socket(east, Joint::Rotary).id;
 	UASSERT(a.sockets().size() == 1 && a.sockets()[0].axis == v3s16(1, 0, 0));
 	Machine back(&g.gamedef);
 	back.read(a.write());
-	UASSERT(back.sockets().size() == 1 && back.sockets()[0].id == hinge && back.sockets()[0].joint == Joint::Hinge);
+	UASSERT(back.sockets().size() == 1 && back.sockets()[0].id == hinge && back.sockets()[0].joint == Joint::Rotary);
 
 	Machine wheel(&g.gamedef);
 	const u64 w = wheel.add(g.block()).object.id();
 	const Machine::Face west{ w, { v3s16(0, 0, 0), v3s16(0, 7, 7) }, v3s16(-1, 0, 0) };
-	a.plug(hinge, std::move(wheel), west);
+	a.plug(hinge, std::move(wheel), west, 0);
 	UASSERT(a.sockets().empty() && a.parts().size() == 2);
-	UASSERT(a.links().back().joint == Joint::Hinge && a.links().back().axis == v3s16(1, 0, 0)
+	UASSERT(a.links().back().joint == Joint::Rotary && a.links().back().axis == v3s16(1, 0, 0)
 			&& a.links().back().a == root && a.links().back().b == w);
 	UASSERT(a.part(w)->pose.offset == v3s32(16, 0, 0)); // the next node out, face to face
-	EXCEPTION_CHECK(BaseException, a.plug(hinge, Machine(&g.gamedef), west));
+	EXCEPTION_CHECK(BaseException, a.plug(hinge, Machine(&g.gamedef), west, 0));
 
 	a.socket({ w, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, Joint::Fixed);
 	a.take(w);
@@ -305,10 +334,28 @@ namespace {
 
 // A wheel drawn on a block's east face by dragging from (15, 7, 7) to the
 // next node's (1, 10, 10): 20 sixteenths across, 4 deep.
-const sculpt::Stroke WHEEL{ sculpt::Tool::Cylinder, 4, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0),
-	sculpt::Act::Add, std::nullopt, shape::Sixteenth{ v3s16(0, 1, 1), v3s16(15, 10, 10) } };
+// drawn from its middle (sprint 65), 10 sixteenths out
+const sculpt::Stroke WHEEL{ sculpt::Tool::Cylinder, 4, { v3s16(0, 0, 0), v3s16(15, 8, 8) }, v3s16(1, 0, 0),
+	sculpt::Act::Add, std::nullopt, shape::Sixteenth{ v3s16(0, 1, 1), v3s16(15, 2, 2) } };
 
 } // namespace
+
+// Sprint 65: a wheel's met by its face at its middle, though its nodes'
+// box isn't centred on it (it reaches 2 sixteenths into the nodes below
+// and 3 into those above).
+void TestMachine::testMetAtItsMiddle()
+{
+	Game g;
+	Machine m(&g.gamedef);
+	const u64 root = m.add(g.block()).object.id();
+	const u64 wheel = m.grow({ root, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Rotary).object.id();
+	Machine alone(&g.gamedef);
+	alone.add(m.take(wheel));
+	const std::optional<Machine::Face> f = alone.faceToward(v3s16(1, 0, 0));
+	UASSERT(f.has_value());
+	const v3f p = alone.point(*f);
+	UTEST(std::fabs(p.Y - 8.5f) < 0.6f && std::fabs(p.Z - 8.5f) < 0.6f, "met at %f %f", p.Y, p.Z);
+}
 
 // A hinged part turns about what's drawn's middle, not where the drag began.
 void TestMachine::testHingeThroughTheMiddle()
@@ -317,7 +364,7 @@ void TestMachine::testHingeThroughTheMiddle()
 	Machine m(&g.gamedef);
 	const u64 root = m.add(g.block()).object.id();
 	const std::vector<v3s32> cells = WHEEL.cells();
-	m.grow({ root, WHEEL.at, WHEEL.normal }, cells, g.planks, Joint::Hinge);
+	m.grow({ root, WHEEL.at, WHEEL.normal }, cells, g.planks, Joint::Rotary);
 	v3f lo(1e9f), hi(-1e9f);
 	for (const v3s32 &c : cells)
 		for (int a = 0; a < 3; a++) {
@@ -341,7 +388,7 @@ void TestMachine::testRigidGroups()
 	const sculpt::Stroke box{ sculpt::Tool::Box, 16, { v3s16(0, 0, 0), v3s16(3, 15, 12) }, v3s16(0, 1, 0),
 		sculpt::Act::Add, std::nullopt };
 	const u64 up = m.grow({ root, box.at, box.normal }, box.cells(), g.planks, Joint::Fixed).object.id();
-	const u64 wheel = m.grow({ root, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Hinge).object.id();
+	const u64 wheel = m.grow({ root, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Rotary).object.id();
 	const u64 loose = m.add(g.block(v3s32(-64, 0, 0))).object.id(); // no joint: it's welded to the first
 	const std::vector<std::vector<u64>> groups = m.rigid();
 	UASSERTEQ(size_t, groups.size(), 2);
@@ -357,13 +404,15 @@ void TestMachine::testCompiledForPhysics()
 	Game g;
 	Machine m(&g.gamedef);
 	const u64 root = m.add(g.block()).object.id();
-	m.grow({ root, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Hinge);
+	m.grow({ root, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Rotary);
 	workshop::Materials materials;
 	EXCEPTION_CHECK(std::runtime_error, workshop::compile(m, materials, &g.gamedef)); // planks weigh nothing yet
 	materials.set(g.planks, { 600, 0.6f });
 	const physics::Assembly compiled = workshop::compile(m, materials, &g.gamedef);
 	UASSERTEQ(size_t, compiled.bodies.size(), 2);
-	UASSERTEQ(size_t, compiled.hinges.size(), 1);
+	// round on a level axle off the root: a wheel, not a hinge (sprint 66)
+	UASSERTEQ(size_t, compiled.hinges.size(), 0);
+	UASSERTEQ(size_t, compiled.wheels.size(), 1);
 	// the block: a node, from its centre, 600 kg
 	float kg = 0;
 	for (const physics::Box &b : compiled.bodies[0].boxes)
@@ -378,16 +427,22 @@ void TestMachine::testCompiledForPhysics()
 	UASSERT(std::fabs(r->half_width - 2 / 16.f) < 1e-4f);
 	UASSERT(r->axis == v3f(1, 0, 0));
 	UASSERT(std::fabs(r->centre.X - (18 / 16.f - 0.5f)) < 1e-4f);
-	const physics::Hinge &h = compiled.hinges[0];
-	UASSERT(h.a == 0 && h.b == 1 && h.axis == v3f(1, 0, 0));
-	UASSERT(std::fabs(h.anchor.Y - r->centre.Y) < 1e-4f && std::fabs(h.anchor.Z - r->centre.Z) < 1e-4f);
-	UASSERT(h.friction > 0);
-	// a square plate on a hinge isn't round: it'd roll lumpy, as it is
+	const physics::Wheel &w = compiled.wheels[0];
+	UASSERT(w.body == 1 && w.axis == v3f(1, 0, 0) && w.centre == r->centre && w.radius == r->radius);
+	UASSERT(w.friction > 0);
+	// a square plate on a hinge isn't round: it'd roll lumpy, as it is, on
+	// a hinge
 	Machine sq(&g.gamedef);
 	const u64 sr = sq.add(g.block()).object.id();
 	const sculpt::Stroke plate{ sculpt::Tool::Box, 4, WHEEL.at, WHEEL.normal, sculpt::Act::Add, std::nullopt, WHEEL.to };
-	sq.grow({ sr, plate.at, plate.normal }, plate.cells(), g.planks, Joint::Hinge);
-	UASSERT(!workshop::compile(sq, materials, &g.gamedef).bodies[1].round);
+	sq.grow({ sr, plate.at, plate.normal }, plate.cells(), g.planks, Joint::Rotary);
+	const physics::Assembly square = workshop::compile(sq, materials, &g.gamedef);
+	UASSERT(!square.bodies[1].round);
+	UASSERTEQ(size_t, square.hinges.size(), 1);
+	UASSERT(square.wheels.empty());
+	const physics::Hinge &h = square.hinges[0];
+	UASSERT(h.a == 0 && h.b == 1 && h.axis == v3f(1, 0, 0));
+	UASSERT(h.friction > 0);
 }
 
 // An entity's turn (degrees, as piece::frame draws it) as physics' quaternion and back.

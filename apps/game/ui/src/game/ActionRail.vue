@@ -5,7 +5,6 @@ import { useBridge } from "../bridge/use.ts"
 import Button from "../kit/Button.vue"
 import Field from "../kit/Field.vue"
 import IconButton from "../kit/IconButton.vue"
-import PartCard from "./PartCard.vue"
 import PixelIcon from "./PixelIcon.vue"
 import { ACTION_ICONS, INK } from "./toolIcons.ts"
 
@@ -37,7 +36,7 @@ const place = (blueprint: string) => {
     ask({ action: "place", name: blueprint })
     open.value = null
 }
-const HINTS: Record<ToolMode["click"], string> = { draw: "", select: "Click a part to select it" }
+const HINTS: Record<ToolMode["click"], string> = { draw: "", select: "Click a part to select it · Esc: done" }
 </script>
 
 <template>
@@ -75,17 +74,12 @@ const HINTS: Record<ToolMode["click"], string> = { draw: "", select: "Click a pa
         </IconButton>
     </nav>
 
-    <!-- the part's menu, where it was right-clicked -->
-    <div v-if="tools.part && tools.menu" class="menu free" :style="{ left: `${tools.menu.x + 12}px`, top: `${tools.menu.y}px` }">
-        <PartCard :part="tools.part" :menu="true" />
-    </div>
     <!-- what's open beside the rail, above it: never over the middle of the screen -->
     <div class="beside" :class="{ free: free }">
         <div v-if="tools.mode.click !== 'draw'" class="mode">
             <span>{{ HINTS[tools.mode.click] }}</span>
             <button @click="mode({ click: 'draw' })">Done</button>
         </div>
-        <PartCard v-if="tools.part && !tools.menu" :part="tools.part" :menu="false" />
         <div v-if="open === 'library'" class="pop">
             <h3>Blueprints</h3>
             <p v-if="!library.length" class="hint">None yet: pick up an object and save it.</p>
@@ -115,7 +109,6 @@ const HINTS: Record<ToolMode["click"], string> = { draw: "", select: "Click a pa
     position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 3px;
     background: var(--accent); border: 1px solid var(--edge); font: 10px/16px var(--font-display);
 }
-.menu { position: fixed; pointer-events: auto; z-index: 4; }
 .beside {
     position: absolute; right: 20px; bottom: calc(110px + 33vh + 16px);
     display: flex; flex-direction: column; align-items: flex-end; gap: 10px; max-width: 300px;

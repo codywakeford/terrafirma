@@ -177,6 +177,11 @@ public:
 
 	// The cell a node stores, or none (seam, or off the atlas).
 	std::optional<Cell> cell(Node node) const;
+	// The node a place is charted from: its own, if it stores a cell; past
+	// the atlas's top (something flown above the sky, sprint 59), the top
+	// cell of its column, whose chart carries on up. None for the seam
+	// between tiles and for trimmed cells: no place.
+	std::optional<Node> charted(Node node) const;
 	// The node a cell is stored at. Throws for a cell that isn't stored
 	// (trimmed, or above the atlas).
 	Node node(const Cell &cell) const;
@@ -310,8 +315,8 @@ public:
 
 	// Something that moved from storage position `was` to (x, y, z), both in
 	// the grid it was in: if it has left that grid, where it is in the grid
-	// it's in now. None while it's still in its grid, or past the top of the
-	// atlas.
+	// it's in now. None while it's still in its grid. Past the top of the
+	// atlas it's charted from the column under it (charted), as the field is.
 	std::optional<Carried> carry(double wasX, double wasY, double wasZ, double x, double y, double z) const;
 
 	// Where storage position (x, y, z) is on the planet, in `from`'s grid

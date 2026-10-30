@@ -105,7 +105,18 @@ public:
 	// metres (x east, y up from the datum, z north), the planet's gravity and air.
 	State near(const State &s, const Craft &c, const Vec &thrust, double dt) const;
 
+	// What moves it at a place: gravity, the turning frame's pulls, the
+	// air's drag and `thrust` (N), in m/s².
+	Vec accel(const Vec &pos, const Vec &vel, const Craft &c, const Vec &thrust) const;
+
 	Elements elements(const State &s) const;
+	// The path it coasts on (the conic against the stars, gravity alone),
+	// as points round it in the turning frame as it's turned now (m from
+	// the centre): `points` round a bound orbit from where it is, closest
+	// together near it; an
+	// escape out to `reach` m from the centre. Where it meets the ground
+	// it goes on through (whoever draws it hides that).
+	std::vector<Vec> path(const State &s, int points, double reach) const;
 	Directions directions(const State &s) const;
 	// East, up and north over where a state is. Throws over a pole, where east isn't one direction.
 	Frame frame(const State &s) const;
@@ -120,7 +131,6 @@ public:
 	State at(const Where &w) const;
 
 private:
-	Vec accel(const Vec &pos, const Vec &vel, const Craft &c, const Vec &thrust) const;
 	Vec inertial(const State &s) const; // the velocity against the stars
 
 	terragen::Planet m_planet;

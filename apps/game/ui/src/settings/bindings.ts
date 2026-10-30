@@ -5,7 +5,8 @@ export const BINDING_GROUPS = [
         ["keymap_forward", "Move forward"], ["keymap_backward", "Move backward"],
         ["keymap_left", "Move left"], ["keymap_right", "Move right"],
         ["keymap_jump", "Jump"], ["keymap_sneak", "Sneak"],
-        ["keymap_aux1", "Sprint"], ["keymap_freemove", "Toggle flight"],
+        ["keymap_aux1", "Sprint / thrust"], ["keymap_freemove", "Toggle flight"],
+        ["keymap_brake", "Brake (thrusting)"],
     ] },
     { title: "Actions", bindings: [
         ["keymap_dig", "Dig / attack"], ["keymap_place", "Place / use"],
@@ -13,6 +14,13 @@ export const BINDING_GROUPS = [
         ["keymap_zoom", "Zoom"], ["keymap_chat", "Chat"],
         ["keymap_hotbar_next", "Next hotbar slot"], ["keymap_hotbar_previous", "Previous hotbar slot"],
         ["keymap_autoforward", "Automatic forward"],
+    ] },
+    { title: "Building", bindings: [
+        ["keymap_create", "Create objects"], ["keymap_tools", "Shape the world"],
+        ["keymap_focus", "Work on an object"], ["keymap_turn_left", "Turn what's carried left"],
+        ["keymap_turn_right", "Turn what's carried right"], ["keymap_tool_next", "Next tool / tilt what's carried"],
+        ["keymap_undo", "Undo"], ["keymap_mirror", "Mirror"],
+        ["keymap_alt", "Build layer (Alt: 1–6 shapes, = mirror, click carries)"],
     ] },
     { title: "Screens", bindings: [
         ["keymap_lab", "Lab"], ["keymap_wiki", "Wiki"], ["keymap_planetarium", "Planetarium"],

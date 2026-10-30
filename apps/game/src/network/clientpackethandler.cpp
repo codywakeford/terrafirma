@@ -2030,6 +2030,21 @@ void Client::handleCommand_Blueprints(NetworkPacket *pkt)
 	m_blueprints = std::move(names);
 }
 
+// Terra Firma: what blocks weigh (sprint 58)
+void Client::handleCommand_Materials(NetworkPacket *pkt)
+{
+	u16 count;
+	*pkt >> count;
+	workshop::Materials m;
+	for (u16 i = 0; i < count; i++) {
+		u16 c;
+		f32 density, friction;
+		*pkt >> c >> density >> friction;
+		m.set(c, { density, friction }); // throws on what isn't one: the server's broken
+	}
+	m_materials = std::move(m);
+}
+
 // Terra Firma: the player's new object, held (sprint 49)
 void Client::handleCommand_Held(NetworkPacket *pkt)
 {

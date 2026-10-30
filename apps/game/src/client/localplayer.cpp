@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "localplayer.h"
+#include "body.h" // Terra Firma
 #include "planet/atlas.h" // Terra Firma
 #include <cmath>
 #include "mtevent.h"
@@ -329,6 +330,17 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 	// (BS * 0.6f) is the default stepheight while standing on ground
 	const float sneak_stepheight = 0.6f * BS;
 
+	// Terra Firma (sprint 58): walking is the body's (physics); Luanti's
+	// movement flies, swims and climbs
+	if (m_client->getBody().moves(*this)) {
+		if (m_added_velocity != v3f(0.0f)) // a knock (the server's add_velocity)
+			m_client->getBody().nudge(m_added_velocity / BS);
+		m_added_velocity = v3f(0.0f);
+		m_client->getBody().move(*this, dtime, collision_info);
+		m_standing_node = floatToInt(getPosition() - v3f(0, 0.1f * BS, 0), BS);
+		return;
+	}
+
 	v3f accel_f(0, -gravity, 0);
 	const v3f initial_position = position;
 	const v3f initial_speed = m_speed;
@@ -543,6 +555,10 @@ void LocalPlayer::applyControl(float dtime, Environment *env)
 
 	setPitch(control.pitch);
 	setYaw(control.yaw);
+
+	// Terra Firma: walking, the body (physics::walk) turns the controls into speed
+	if (m_client->getBody().moves(*this))
+		return;
 
 	// Nullify speed and don't run positioning code if the player is attached
 	if (getParent()) {

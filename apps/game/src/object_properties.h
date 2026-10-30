@@ -24,6 +24,7 @@ enum ObjectVisual : u8 {
 	OBJECTVISUAL_WIELDITEM,
 	OBJECTVISUAL_NODE,
 	OBJECTVISUAL_PIECE, // Terra Firma: a piece (src/piece), its blocks in `piece`
+	OBJECTVISUAL_BODY, // Terra Firma: a jointed figure posed by how it moves (client/figure.h)
 };
 
 extern const EnumString es_ObjectVisual[];

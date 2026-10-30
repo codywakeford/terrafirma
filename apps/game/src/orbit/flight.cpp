@@ -113,6 +113,42 @@ Elements Flight::elements(const State &s) const
 	return out;
 }
 
+std::vector<Vec> Flight::path(const State &s, int points, double reach) const
+{
+	const double mu = m_planet.mu();
+	const Vec v = inertial(s);
+	const double r = s.pos.length();
+	const Vec h = s.pos.cross(v);
+	const double hl = h.length();
+	if (hl < 1e-9 || points < 2)
+		return { s.pos }; // straight up or down: no conic to draw
+	const Vec e = v.cross(h) * (1 / mu) - s.pos * (1 / r);
+	const double ecc = e.length(), p = hl * hl / mu;
+	// the orbit's plane: a way along it from the focus, and square to that
+	// ahead (with the motion); from periapsis, or from here for a circle
+	const Vec x = ecc > 1e-9 ? e * (1 / ecc) : s.pos * (1 / r);
+	const Vec z = h * (1 / hl);
+	const Vec y = z.cross(x);
+	const double now = std::atan2(s.pos.dot(y), s.pos.dot(x));
+	// how far round it goes: once round bound, else till it's `reach` out
+	double sweep = 2 * PI;
+	if (ecc >= 1) {
+		const double out = std::acos(std::clamp((p / reach - 1) / ecc, -1.0, 1.0)); // the anomaly at `reach`
+		sweep = std::max(out - now, 0.0);
+	}
+	std::vector<Vec> out;
+	out.reserve(points);
+	for (int n = 0; n < points; n++) {
+		// closest together at the ends (where it is, and back round to it),
+		// where it's looked at closely
+		const double t = 0.5 - 0.5 * std::cos(PI * n / (points - 1));
+		const double nu = now + sweep * t;
+		const double rho = p / (1 + ecc * std::cos(nu));
+		out.push_back((x * std::cos(nu) + y * std::sin(nu)) * rho);
+	}
+	return out;
+}
+
 Frame Flight::frame(const State &s) const
 {
 	Vec up = s.pos * (1 / s.pos.length());

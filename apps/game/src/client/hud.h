@@ -72,6 +72,7 @@ public:
 	// Terra Firma, an atlas: the pointed cell's outline as it's drawn (scene
 	// coordinates: AtlasView::outline), in place of the boxes. Empty: the boxes.
 	std::vector<std::pair<v3f, v3f>> *getSelectionLines() { return &m_selection_lines; }
+	void setSelectionThrough(bool through) { m_selection_through = through; }
 	// Terra Firma: lines over the world (the camera offset taken off), each
 	// its colour: a held object's turning handle
 	struct Guide
@@ -80,6 +81,15 @@ public:
 		video::SColor colour;
 	};
 	std::vector<Guide> *getGuides() { return &m_guides; }
+	// Terra Firma: words at a place in the world (BS, the world's), drawn
+	// over it (sprint 63: the joint menu's)
+	struct Label
+	{
+		v3f at;
+		std::wstring text;
+		video::SColor colour;
+	};
+	std::vector<Label> *getLabels() { return &m_labels; }
 
 	void setSelectionPos(const v3f &pos, const v3s16 &camera_offset);
 
@@ -144,7 +154,10 @@ private:
 
 	std::vector<aabb3f> m_selection_boxes;
 	std::vector<std::pair<v3f, v3f>> m_selection_lines; // Terra Firma
+	bool m_selection_through = false; // Terra Firma: the lines seen through what's in front, dim
 	std::vector<Guide> m_guides; // Terra Firma
+	std::vector<Label> m_labels; // Terra Firma
+	void drawLabels(const v3s16 &camera_offset); // Terra Firma
 	std::vector<aabb3f> m_halo_boxes;
 	v3f m_selection_pos;
 	v3f m_selection_pos_with_offset;

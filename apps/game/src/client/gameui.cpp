@@ -4,6 +4,7 @@
 // Copyright (C) 2018 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
 
 #include "gameui.h"
+#include "client/body.h" // Terra Firma
 #include <irrlicht_changes/static_text.h>
 #include <gettext.h>
 #include "gui/mainmenumanager.h"
@@ -145,6 +146,17 @@ void GameUI::update(const RunStats &stats, Client *client, MapDrawControl *draw_
 				}
 				os << ", param2: " << (u64) n.getParam2();
 			}
+		}
+
+		// Terra Firma: the orbit the player's on (sprint 59; a stand-in for the flight HUD)
+		if (const std::optional<orbit::Elements> e = client->getBody().orbit()) {
+			os << "\n" << (client->getBody().thrusting() ? "thrusting | " : "")
+				<< "speed: " << e->speed << " m/s | altitude: " << e->altitude << " m | ";
+			if (e->bound)
+				os << "apoapsis: " << e->apoapsis << " m | periapsis: " << e->periapsis
+					<< " m | period: " << e->period << " s";
+			else
+				os << "escaping | periapsis: " << e->periapsis << " m";
 		}
 
 		m_guitext2->setRelativePosition(core::rect<s32>(5, 5 + minimal_debug_height,

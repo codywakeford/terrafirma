@@ -97,10 +97,21 @@ std::vector<v3s32> Stroke::cells() const
 
 	const bool dragged = to.has_value();
 	const v3s32 t = dragged ? world(*to) : g;
+	// a round one's dragged from its middle out (sprint 65): a circle, as
+	// far out as it's dragged the furthest way, centred where it started
+	s32 radius = 0;
+	for (int b = 0; b < 3; b++)
+		if (b != a)
+			radius = std::max(radius, std::abs(t[b] - g[b]));
 	v3s32 lo, hi; // the volume's box, [lo, hi)
 	for (int b = 0; b < 3; b++) {
 		if (b == a)
 			continue;
+		if (dragged && k.round != Kind::Round::None) {
+			lo[b] = g[b] - radius;
+			hi[b] = g[b] + radius + 1;
+			continue;
+		}
 		if (dragged) {
 			// the footprint dragged out, corner to corner (to the node grid's
 			// lines at a whole-block size)

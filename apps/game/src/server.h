@@ -8,6 +8,7 @@
 #include "map.h"
 class LuaEntitySAO;
 namespace workshop { class Workshop; class Materials; }
+namespace orbit { class Field; }
 #include "hud_element.h" // HudElementStat
 #include "gamedef.h"
 #include "content/subgames.h"
@@ -264,6 +265,9 @@ public:
 	void handleCommand_BlueprintPlace(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_ObjectHold(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_ObjectPose(NetworkPacket *pkt);
+	void handleCommand_ObjectPush(NetworkPacket *pkt);
+	void handleCommand_ObjectGrab(NetworkPacket *pkt);
+	void handleCommand_PlugAgain(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Hollow(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Link(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Join(NetworkPacket *pkt); // Terra Firma
@@ -279,6 +283,7 @@ public:
 	template <class F>
 	void inWorkshop(session_t peer_id, const char *what, F &&f);
 	void SendBlueprints(session_t peer_id, const std::string &player); // Terra Firma
+	void SendMaterials(session_t peer_id); // Terra Firma
 	// Terra Firma: the gate's answer on a joiner's ticket
 	void admit(session_t peer_id, bool ok, const std::string &reason);
 
@@ -803,6 +808,8 @@ private:
 	// Node definition manager
 	NodeDefManager *m_nodedef;
 	// Terra Firma: what players make (sprint 48)
+	// Terra Firma: what pulls on things (sprint 59); before the workshop, which pulls by it
+	std::unique_ptr<orbit::Field> m_field;
 	std::unique_ptr<workshop::Workshop> m_workshop;
 	// Terra Firma: what blocks weigh, declared as mods load (core.physics.material)
 	std::unique_ptr<workshop::Materials> m_materials;

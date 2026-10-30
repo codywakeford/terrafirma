@@ -21,15 +21,25 @@ public:
 	void testCartRollsDownhill();
 	void testWheelsRollFurtherThanASledgeSlides();
 	void testHingeKeepsItsAxle();
+	void testHingeStops();
 	void testStableAndTopHeavy();
 	void testHeldGoesWhereItsTold();
 	void testPlayerPushes();
 	void testSameEveryTime();
 	void testPushedWhenFrozen();
 	void testWalkHasInertia();
+	void testAirGivesATopSpeed();
 	void testJumpIsAHeight();
 	void testStepsAndRides();
 	void testCarriedFollowsOrDrags();
+	void testRollsDownASlicedSlope();
+	void testCornerPushTurns();
+	void testTippedWheelsHoldUp();
+	void testPutDownInTheGround();
+	void testWalkingIntoACartDoesntThrowIt();
+	void testGrabbedLiftsTipsOrHolds();
+	void testCorrectedTowardAnother();
+	void testCartOnACart();
 };
 
 static TestPhysics g_test_instance;
@@ -41,15 +51,25 @@ void TestPhysics::runTests(IGameDef *gamedef)
 	TEST(testCartRollsDownhill);
 	TEST(testWheelsRollFurtherThanASledgeSlides);
 	TEST(testHingeKeepsItsAxle);
+	TEST(testHingeStops);
 	TEST(testStableAndTopHeavy);
 	TEST(testHeldGoesWhereItsTold);
 	TEST(testPlayerPushes);
 	TEST(testSameEveryTime);
 	TEST(testPushedWhenFrozen);
 	TEST(testWalkHasInertia);
+	TEST(testAirGivesATopSpeed);
 	TEST(testJumpIsAHeight);
 	TEST(testStepsAndRides);
 	TEST(testCarriedFollowsOrDrags);
+	TEST(testRollsDownASlicedSlope);
+	TEST(testCornerPushTurns);
+	TEST(testTippedWheelsHoldUp);
+	TEST(testPutDownInTheGround);
+	TEST(testWalkingIntoACartDoesntThrowIt);
+	TEST(testGrabbedLiftsTipsOrHolds);
+	TEST(testCorrectedTowardAnother);
+	TEST(testCartOnACart);
 }
 
 namespace {
@@ -73,7 +93,7 @@ bool flatGround(v3s16 block, std::vector<aabb3f> &boxes)
 
 World::Opts flat(v3f gravity = v3f(0, -G, 0))
 {
-	return World::Opts{ gravity, flatGround };
+	return World::Opts{ physics::uniform(gravity), flatGround };
 }
 
 Body block(v3f centre, v3f size, float density, float friction = 0.6f)
@@ -93,10 +113,11 @@ v3f turned(const Quat &q, v3f v)
 	return u * (2 * u.dotProduct(v)) + v * (q.w * q.w - u.dotProduct(u)) + u.crossProduct(v) * (2 * q.w);
 }
 
-// A cart: a wooden plate 2 long (x) and 1 wide, four wheels on hinges about
-// z. Each axle's friction is rolling resistance: 0.02 of its share of the
-// cart's weight (~470 kg) at the wheel's radius.
-Assembly cart()
+// A cart: a wooden plate 2 long (x) and 1 wide, four wheels on axles along
+// z (or, `hinged`, round parts on hinges). Each axle's friction is rolling
+// resistance: 0.02 of its share of the cart's weight (~470 kg) at the
+// wheel's radius.
+Assembly cart(bool hinged = false)
 {
 	Assembly a;
 	a.bodies.push_back(block(v3f(0), v3f(2, 0.25f, 1), WOOD));
@@ -105,7 +126,11 @@ Assembly cart()
 			const v3f c(x, -0.1f, z);
 			Body w = block(c, v3f(0.6f, 0.6f, 0.2f), WOOD);
 			w.round = Round{ c, v3f(0, 0, 1), 0.4f, 0.1f };
-			a.hinges.push_back(Hinge{ 0, a.bodies.size(), c, v3f(0, 0, 1), 0.02f * 470 / 4 * G * 0.4f });
+			const float friction = 0.02f * 470 / 4 * G * 0.4f;
+			if (hinged)
+				a.hinges.push_back(Hinge{ 0, a.bodies.size(), c, v3f(0, 0, 1), friction });
+			else
+				a.wheels.push_back(Wheel{ a.bodies.size(), c, v3f(0, 0, 1), 0.4f, 0.1f, friction });
 			a.bodies.push_back(w);
 		}
 	return a;
@@ -195,6 +220,15 @@ void TestPhysics::testCartRollsDownhill()
 	// rolled, not slid: turned (clockwise from +z) as far as it went, at its radius
 	for (float a : turn)
 		UASSERT(std::fabs(-a * 0.4f - went) < went * 0.1);
+	// each wheel's middle is on its axle, give or take its suspension's
+	// travel, turned only about the axle
+	const Assembly c = cart();
+	const std::vector<Relative> rel = w.relatives(id);
+	for (size_t i = 0; i < rel.size(); i++) {
+		const v3f centre = c.bodies[i + 1].round->centre;
+		UASSERT((rel[i].offset + turned(rel[i].rotation, centre) - centre).getLength() < 0.1f);
+		UASSERT(std::fabs(rel[i].rotation.x) < 0.01f && std::fabs(rel[i].rotation.y) < 0.01f);
+	}
 }
 
 void TestPhysics::testWheelsRollFurtherThanASledgeSlides()
@@ -215,9 +249,9 @@ void TestPhysics::testHingeKeepsItsAxle()
 {
 	const float a = 10 * core::DEGTORAD;
 	World w(flat(v3f(G * std::sin(a), -G * std::cos(a), 0)));
-	World::Id id = w.add(cart(), Pose{ v3d(0, 0.5, 0), {} });
+	World::Id id = w.add(cart(true), Pose{ v3d(0, 0.5, 0), {} });
 	run(w, 3);
-	const Assembly c = cart();
+	const Assembly c = cart(true);
 	const std::vector<Relative> rel = w.relatives(id);
 	UASSERTEQ(size_t, rel.size(), 4);
 	for (size_t i = 0; i < rel.size(); i++) {
@@ -227,6 +261,24 @@ void TestPhysics::testHingeKeepsItsAxle()
 		// and it's turned only about the axle
 		UASSERT(std::fabs(rel[i].rotation.x) < 0.01f && std::fabs(rel[i].rotation.y) < 0.01f);
 	}
+}
+
+// Sprint 63: a hinge turns between its stops. The cart's round parts on hinges
+// that stop at 20° either way, down the same slope: they turn to a stop
+// (and slide) where the free ones roll on.
+void TestPhysics::testHingeStops()
+{
+	const float a = 10 * core::DEGTORAD, limit = 20 * core::DEGTORAD;
+	World w(flat(v3f(G * std::sin(a), -G * std::cos(a), 0)));
+	Assembly stopped = cart(true);
+	for (Hinge &h : stopped.hinges)
+		h.limit = limit;
+	World::Id id = w.add(stopped, Pose{ v3d(0, 0.5, 0), {} });
+	run(w, 3);
+	float most = 0;
+	for (const Relative &r : w.relatives(id))
+		most = std::max(most, 2 * std::acos(std::min(1.f, std::fabs(r.rotation.w))));
+	UTEST(most > limit * 0.5f && most < limit + 2 * core::DEGTORAD, "turned %f°", most * core::RADTODEG);
 }
 
 void TestPhysics::testStableAndTopHeavy()
@@ -253,6 +305,8 @@ void TestPhysics::testHeldGoesWhereItsTold()
 	a.bodies.push_back(block(v3f(0), v3f(1), STONE));
 	World::Id id = w.add(a, Pose{ v3d(0, 3, 0), {} });
 	w.hold(id, true);
+	w.carry(id, std::nullopt); // the workshop's grip: held, and not carried
+	UASSERT(w.held(id));
 	w.moveTo(id, Pose{ v3d(2, 4, 1), about(v3f(0, 1, 0), 0.5f) });
 	run(w, 0.5);
 	UASSERT(w.pose(id).position.getDistanceFrom(v3d(2, 4, 1)) < 0.001);
@@ -297,6 +351,52 @@ void TestPhysics::testPlayerPushes()
 		}
 		UASSERT(std::fabs(w.pose(id).position.X) < 0.05);
 		UASSERT(w.character(me).foot.X < -1.25); // against its side
+	}
+	{
+		// held (a client's mirror of the server's): it doesn't give, and
+		// what's pressed on it is kept, as hard as a person pushes, along +x
+		World w(flat());
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(1), STONE));
+		World::Id id = w.add(a, Pose{ v3d(0, 0, 0), {} });
+		w.hold(id, true);
+		World::CharId me = w.addCharacter(person, v3d(-2, -0.5, 0));
+		v3f pushed(0);
+		double pressing = 0;
+		for (double t = 0; t < 2; t += STEP) {
+			const World::CharacterState c = w.character(me);
+			w.want(me, v3f(3, c.velocity.Y - G * (float)STEP, 0));
+			w.step(STEP);
+			for (const auto &[on, impulse] : w.pushes(me)) {
+				UASSERT(on == id);
+				pushed += impulse;
+				pressing += STEP;
+			}
+		}
+		UASSERT(std::fabs(w.pose(id).position.X) < 0.001);
+		UASSERT(pressing > 1);
+		UTEST(pushed.X > 0.8f * 600 * pressing && pushed.X < 1.01f * 600 * pressing, "pushed %f over %f s", pushed.X, pressing);
+		UASSERT(std::fabs(pushed.Z) < 0.1f * pushed.X);
+		UASSERT(w.pushes(me).empty()); // taken
+	}
+	{
+		// stood on (sprint 67): its weight's the server's to give, not a push
+		World w(flat());
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(2, 1, 2), STONE));
+		World::Id id = w.add(a, Pose{ v3d(0, 0, 0), {} });
+		w.hold(id, true);
+		World::CharId me = w.addCharacter(person, v3d(0, 0.6, 0));
+		v3f pushed(0);
+		for (double t = 0; t < 1; t += STEP) {
+			const World::CharacterState c = w.character(me);
+			w.want(me, v3f(0, c.velocity.Y - G * (float)STEP, 0));
+			w.step(STEP);
+			for (const auto &[on, impulse] : w.pushes(me))
+				pushed += impulse;
+		}
+		UASSERT(w.character(me).foot.Y > 0.4); // on it
+		UTEST(pushed.getLength() < 1, "pushed %f down", pushed.Y);
 	}
 }
 
@@ -375,7 +475,7 @@ void TestPhysics::testJumpIsAHeight()
 {
 	for (float gravity : { 9.81f, 1.62f }) { // here and on a moon: the same height
 		Gait g;
-		g.gravity = gravity;
+		g.gravity = v3f(0, -gravity, 0);
 		v3f v = walk(g, Intent{ 0, 0, 0, true }, Footing{ v3f(0), true }, (float)STEP);
 		double y = 0, top = 0;
 		for (int i = 0; i < 2000 && (i == 0 || y > 0); i++) {
@@ -456,4 +556,245 @@ void TestPhysics::testCarriedFollowsOrDrags()
 		run(w, 3);
 		UASSERT(std::fabs(w.pose(id).position.Y - (-0.25)) < 0.05); // let go, it falls
 	}
+	{
+		// the ground above y 0 never loaded (a client's sky, a planet's
+		// seam) and the block held first, as a client's mirror is: carried,
+		// it still follows the hands
+		World w(World::Opts{ physics::uniform(v3f(0, -G, 0)), [](v3s16 block, std::vector<aabb3f> &boxes) {
+			return block.Y < 0 && flatGround(block, boxes);
+		} });
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(0.5f), WOOD));
+		World::Id id = w.add(a, Pose{ v3d(0, 0, 0), {} });
+		w.hold(id, true);
+		run(w, 0.5);
+		w.hold(id, false);
+		w.carry(id, 2000.f);
+		for (double t = 0; t < 2; t += STEP) {
+			w.pullTo(id, Pose{ v3d(t, 1.5, 0), {} });
+			w.step(STEP);
+		}
+		UASSERT(w.pose(id).position.getDistanceFrom(v3d(2, 1.5, 0)) < 0.15);
+	}
+}
+
+// Sprint 59: gravity and air are a field. A block dropped through air
+// settles at √(2mg / ρ·Cd·A); in none it keeps speeding up.
+void TestPhysics::testAirGivesATopSpeed()
+{
+	const float AIR = 1.225f;
+	auto fall = [](float air) {
+		World w(World::Opts{ [air](const v3d &, const v3f &) { return physics::Here{ v3f(0, -G, 0), air }; }, flatGround });
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(1), 100)); // 100 kg, a square metre to the air
+		const World::Id id = w.add(a, { v3d(0, 3000, 0), {} });
+		for (int i = 0; i < 20 * 60; i++)
+			w.step(STEP);
+		return -w.velocity(id).Y;
+	};
+	const float top = std::sqrt(2 * 100 * G / AIR); // ~40 m/s (Cd 1)
+	UASSERT(std::fabs(fall(AIR) - top) < 0.03f * top);
+	UASSERT(std::fabs(fall(0) - G * 20) < 1);
+}
+
+namespace {
+
+// A hill falling a quarter node per node along +x (14°), as shaped
+// ground comes: each node the surface crosses a staircase of sixteenth
+// slices along x, the rest whole blocks. The surface is y = -x / 4.
+bool slicedSlope(v3s16 block, std::vector<aabb3f> &boxes)
+{
+	auto surface = [](float gx) { return -gx / 4; };
+	for (s16 x = 0; x < BLOCK; x++)
+		for (s16 z = 0; z < BLOCK; z++)
+			for (s16 y = 0; y < BLOCK; y++) {
+				const int gx = block.X * BLOCK + x, gy = block.Y * BLOCK + y;
+				const v3f at((float)x, (float)y, (float)z);
+				if (gy + 0.5f <= surface(gx + 0.5f)) {
+					boxes.push_back(aabb3f(at - v3f(0.5f), at + v3f(0.5f)));
+					continue;
+				}
+				for (int s = 0; s < 16; s++) {
+					const float top = std::min(gy + 0.5f, surface(gx - 0.5f + s / 16.f));
+					if (top > gy - 0.5f)
+						boxes.push_back(aabb3f(x - 0.5f + s / 16.f, y - 0.5f, z - 0.5f,
+								x - 0.5f + (s + 1) / 16.f, top - gy + y, z + 0.5f));
+				}
+			}
+	return true;
+}
+
+} // namespace
+
+void TestPhysics::testRollsDownASlicedSlope()
+{
+	// down a staircase of sixteenths a wheel hops; down its hull it rolls
+	World w(World::Opts{ physics::uniform(v3f(0, -G, 0)), slicedSlope });
+	World::Id id = w.add(cart(), Pose{ v3d(-6, 2.5, 0.5), {} });
+	run(w, 1.5); // landed
+	float jolt = 0;
+	v3f was = w.velocity(id);
+	for (double t = 0; t < 2; t += STEP) {
+		w.step(STEP);
+		const v3f v = w.velocity(id);
+		// rolling down, it's never thrown up off the slope
+		jolt = std::max(jolt, (v.Y - was.Y) / (float)STEP);
+		was = v;
+	}
+	UASSERT(w.velocity(id).X > 1);
+	UTEST(jolt < 3, "thrown off the slope at %f m/s²", jolt);
+}
+
+void TestPhysics::testCornerPushTurns()
+{
+	World w(flat());
+	Assembly a;
+	a.bodies.push_back(block(v3f(0), v3f(4, 1, 1), WOOD));
+	World::Id id = w.add(a, Pose{ v3d(8, 0.1, 8), {} });
+	run(w, 2);
+	// pushed along +z from beside its +x end: it turns as well as goes
+	w.impulse(id, v3f(0, 0, WOOD * 4 * 2), v3d(9.9, 0, 7));
+	run(w, 0.5);
+	const Quat q = w.pose(id).rotation;
+	UTEST(std::fabs(q.y) > 0.02f, "turned %f", q.y);
+	UASSERT(w.pose(id).position.Z > 8.05);
+}
+
+// Sprint 67: a tyre is cast for the ground and a wheel's body never meets
+// it: on its side a cart lay on nothing and sank. Its wheels' backstops
+// hold it up.
+void TestPhysics::testTippedWheelsHoldUp()
+{
+	World w(flat());
+	// on its side: its axles (z) upright
+	World::Id id = w.add(cart(), Pose{ v3d(0, 1.5, 0), about(v3f(1, 0, 0), core::PI / 2) });
+	run(w, 3);
+	// on its wheels' outer faces (0.75 out): its middle 0.25 up; through
+	// them, on the plate's edge (0.5 out), it'd be at 0
+	UTEST(w.pose(id).position.Y > 0.2, "sank to %f", w.pose(id).position.Y);
+}
+
+// Built on the ground, a wheel's in it: it's lifted out, not dropped through.
+void TestPhysics::testPutDownInTheGround()
+{
+	World w(flat());
+	// the wheels' bottoms (0.5 under the middle) 0.2 in the floor
+	World::Id id = w.add(cart(), Pose{ v3d(0, -0.2, 0), {} });
+	run(w, 2);
+	const double y = w.pose(id).position.Y;
+	UTEST(y > -0.1 && y < 0.5, "at %f", y);
+}
+
+// A player placed once a server step (0.09 s, 5 of ours) walks into a
+// light cart: it's pushed along, not thrown (all the way in one of five
+// steps, a stroll was 30 m/s).
+void TestPhysics::testWalkingIntoACartDoesntThrowIt()
+{
+	World w(flat());
+	Assembly light = cart();
+	for (Body &b : light.bodies)
+		for (Box &x : b.boxes)
+			x.density = 50;
+	World::Id id = w.add(light, Pose{ v3d(2, 0.1, 0), {} });
+	run(w, 1);
+	float most = 0;
+	for (int i = 0; i < 20; i++) {
+		// 1.5 m/s toward it, along x, through where it is
+		w.players({ Capsule{ v3d(-0.5 + i * 0.135, -0.5, 0), 0.35f, 1.8f } });
+		w.step(0.09);
+		most = std::max(most, w.velocity(id).getLength());
+	}
+	UTEST(most < 4, "thrown at %f m/s", most);
+}
+
+// Sprint 68: grabbed at a point, pulled toward a hand as hard as a person.
+// A light block comes up into it; a long beam grabbed at its end tips up
+// about its other end; a heavy one barely gives.
+void TestPhysics::testGrabbedLiftsTipsOrHolds()
+{
+	constexpr float PERSON = 1500;
+	{
+		World w(flat());
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(0.5f), WOOD)); // 75 kg
+		World::Id id = w.add(a, Pose{ v3d(0, -0.25, 0), {} });
+		run(w, 0.5);
+		w.grab(id, 1, v3f(0, 0.25f, 0), PERSON); // its top
+		for (double t = 0; t < 1.5; t += STEP) {
+			w.grabTo(id, 1, v3d(0, 1.5, 0));
+			w.step(STEP);
+		}
+		const v3d p = w.pose(id).position;
+		UTEST(p.getDistanceFrom(v3d(0, 1.25, 0)) < 0.15, "at %f %f %f", p.X, p.Y, p.Z);
+		w.release(id, 1);
+		run(w, 2);
+		UTEST(w.pose(id).position.Y < 0, "let go, it's at %f", w.pose(id).position.Y);
+	}
+	{
+		// a beam 4 long, 250 kg: its end lifted (half its weight, in a
+		// person's reach), it turns up about the other, which stays down
+		World w(flat());
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(4, 0.5f, 0.5f), 250));
+		World::Id id = w.add(a, Pose{ v3d(0, -0.25, 0), {} });
+		run(w, 0.5);
+		w.grab(id, 1, v3f(2, 0.25f, 0), PERSON);
+		for (double t = 0; t < 2; t += STEP) {
+			w.grabTo(id, 1, v3d(2, 1.5, 0));
+			w.step(STEP);
+		}
+		const Quat q = w.pose(id).rotation;
+		UTEST(std::fabs(q.z) > 0.1f, "turned %f", q.z);
+		UTEST(w.pose(id).position.Y < 0.8, "lifted whole to %f", w.pose(id).position.Y);
+	}
+	{
+		// 4 t of stone: a person can't lift it
+		World w(flat());
+		Assembly a;
+		a.bodies.push_back(block(v3f(0), v3f(1.2f), STONE));
+		World::Id id = w.add(a, Pose{ v3d(0, 0.1, 0), {} });
+		run(w, 1);
+		const double was = w.pose(id).position.Y;
+		w.grab(id, 1, v3f(0, 0.6f, 0), PERSON);
+		for (double t = 0; t < 1; t += STEP) {
+			w.grabTo(id, 1, v3d(0, 2, 0));
+			w.step(STEP);
+		}
+		UTEST(w.pose(id).position.Y - was < 0.02, "lifted %f", w.pose(id).position.Y - was);
+	}
+}
+
+// A copy brought toward the server's word: a share of the way, or put
+// there when it's far off.
+void TestPhysics::testCorrectedTowardAnother()
+{
+	World w(flat(v3f(0)));
+	World::Id id = w.add(cart(), Pose{ v3d(0, 2, 0), {} });
+	w.impulse(id, v3f(0)); // live
+	w.correct(id, Pose{ v3d(1, 2, 0), {} }, 0.5f, 3);
+	UTEST(std::fabs(w.pose(id).position.X - 0.5) < 1e-3, "at %f", w.pose(id).position.X);
+	// the wheels came along (each body's frame is the cart's: none off it)
+	for (const Relative &r : w.relatives(id))
+		UTEST(r.offset.getLength() < 1e-3, "a wheel left %f behind", r.offset.getLength());
+	w.correct(id, Pose{ v3d(10, 2, 0), {} }, 0.1f, 3);
+	UTEST(std::fabs(w.pose(id).position.X - 10) < 1e-3, "at %f", w.pose(id).position.X);
+}
+
+// One cart put on another and the lower pushed: they settle and go
+// together, without jolting about.
+void TestPhysics::testCartOnACart()
+{
+	World w(flat());
+	World::Id low = w.add(cart(), Pose{ v3d(0, 0.1, 0), {} });
+	World::Id high = w.add(cart(), Pose{ v3d(0, 0.9, 0), {} });
+	run(w, 2);
+	float most = 0;
+	for (int i = 0; i < 60; i++) {
+		w.impulse(low, v3f(470 * 0.05f, 0, 0)); // ~1 m/s² for a second
+		w.step(STEP);
+		most = std::max(most, std::fabs(w.velocity(high).Y));
+	}
+	run(w, 1);
+	UTEST(most < 0.5f, "the top one jolted at %f m/s", most);
+	UTEST(w.pose(high).position.Y > 0.5, "the top one's at %f", w.pose(high).position.Y);
 }

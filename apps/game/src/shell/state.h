@@ -28,10 +28,6 @@ struct HudView
 	bool crosshair;
 	bool focused; // Terra Firma: an object's on the workbench
 	bool cursor;  // Terra Firma: the cursor's free (the page is clicked)
-	// Terra Firma: the part selected of the machine held (its object id, its id)
-	std::optional<std::pair<u16, u64>> part;
-	// Terra Firma: its menu open, where (pixels: the other button clicked on it)
-	std::optional<v2s32> menu;
 };
 
 /*
@@ -57,8 +53,6 @@ public:
 	void forget();
 
 private:
-	// Terra Firma: a machine's part, for the page's card
-	Json::Value partCard(u16 object, u64 part) const;
 	Json::Value player(LocalPlayer &player) const;
 	// Where the player is on the planet's map, and which way they face; none
 	// past the atlas's top

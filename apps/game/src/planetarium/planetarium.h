@@ -27,6 +27,10 @@ namespace video { class IVideoDriver; }
 */
 namespace planetarium {
 
+// The system's index of an atlas body (planet::Atlas::HOME: the playable
+// one; another's found from the world code, terragen/worlds.h).
+size_t systemIndex(const planet::Atlas &atlas, const far::Horizon &horizon, const terragen::System &system, int body);
+
 class Planetarium
 {
 public:
@@ -125,6 +129,15 @@ public:
 	size_t heading() const { return m_flight ? m_flight->to : m_target; }
 	const terragen::System &system() const { return m_system.system(); }
 	void markers(std::vector<MarkerLayer::Marker> markers) { m_markers.set(std::move(markers)); }
+	// A path round an atlas body (its index; points in its frame, blocks
+	// from its centre: the player's orbit), drawn while that's the tiled
+	// body; none: none.
+	struct Path
+	{
+		int body;
+		std::vector<OrbitCamera::Vec> points;
+	};
+	void path(std::optional<Path> path) { m_path = std::move(path); }
 	// The system's moment shown: days after its day 0. The tiled body's
 	// spin: its time of day (0..1, noon at ½ on longitude 0, as the game's
 	// sun has it), or where its own sidereal day has turned it by then.
@@ -149,6 +162,9 @@ private:
 	bool m_seamsShown = false;
 	MarkerLayer m_markers;
 	SystemLayer m_system;
+	const int m_body; // the atlas's body drawn from its tiles (Opts::body)
+	std::optional<Path> m_path;
+	void drawPath(video::IVideoDriver *driver, const OrbitCamera::Vec &ground);
 	size_t m_tiled;  // the system's body drawn from its tiles (Opts::body)
 	size_t m_target; // the body the camera's round
 	double m_day = 0;

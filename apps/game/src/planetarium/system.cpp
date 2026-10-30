@@ -115,6 +115,13 @@ SystemLayer::~SystemLayer()
 		m_driver->removeTexture(m_glow);
 }
 
+double SystemLayer::spin(double day, double timeOfDay) const
+{
+	// longitude 0 faces the star at noon: the star's way round the body's axis, less the hours to noon
+	const terragen::System::Vec star = starCentre(day);
+	return std::atan2(star.z, star.x) + 2 * M_PI * (timeOfDay - 0.5);
+}
+
 void SystemLayer::draw(video::IVideoDriver *driver, const Camera &camera, double day,
 		const std::function<void(float near, float far)> &focused)
 {

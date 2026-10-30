@@ -45,16 +45,21 @@ struct Pose
 	core::matrix4 matrix() const;
 };
 
-// What a joint is, by kind.
+// What a joint is, by kind (sprint 63). A rotary joint spins freely (a
+// wheel's axle); a hinge turns between stops (a door, a steering knuckle).
+// Saved by number: before sprint 63 the second was "hinge" and spun freely,
+// so it stays the free one.
 enum class Joint : u8 {
-	Fixed, // welded
-	Hinge, // turning about its axis
+	Fixed,  // welded
+	Rotary, // turning about its axis, as far as it's turned
+	Hinge,  // turning about its axis, LIMIT either way
 	Count,
 };
 struct JointKind
 {
 	const char *id;
-	bool turns; // about its axis
+	bool turns;  // about its axis
+	f32 limit;   // degrees either way it turns; 0: no stops
 };
 extern const JointKind JOINTS[size_t(Joint::Count)];
 
@@ -120,9 +125,10 @@ public:
 	const Socket &socket(const Face &face, Joint joint);
 	void unsocket(u64 id);
 	// `other` carried onto socket `id`: its face `theirs` set flat against
-	// the socket's face, middles met, joined there as the socket says (a
-	// hinge about its axis), the socket taken up. Throws on no such socket.
-	void plug(u64 id, Machine other, const Face &theirs);
+	// the socket's face, middles met, turned `spin` quarters about the
+	// socket's axis (sprint 64), joined there as the socket says (a hinge
+	// about its axis), the socket taken up. Throws on no such socket.
+	void plug(u64 id, Machine other, const Face &theirs, u8 spin);
 	// Where on it (the machine's sixteenths: the face's middle) and which
 	// way it faces.
 	v3f point(const Face &face) const;
@@ -151,9 +157,10 @@ public:
 	// (its sixteenths), on the same part (a pair of wheels' second).
 	Face mirrored(const Face &face, int axis, s32 twice) const;
 	// `other`'s parts and joints made this one's: its face set flat
-	// against this one's (turned square, as little as it can be), joined
-	// there by `joint` about this face's normal.
-	void join(const Face &mine, Machine other, const Face &theirs, Joint joint);
+	// against this one's (turned square, as little as it can be, then
+	// `spin` quarters about the normal), joined there by `joint` about
+	// this face's normal.
+	void join(const Face &mine, Machine other, const Face &theirs, Joint joint, u8 spin);
 
 	// Its parts in rigid groups: welded together, they move as one; a
 	// hinge is between two groups. The first part's group is first; parts
@@ -175,8 +182,8 @@ private:
 	std::vector<Socket> m_sockets;
 
 	// `other`'s parts, joints and sockets made this one's, its face
-	// `theirs` set flat at `p` facing against `n`.
-	void adopt(Machine other, const Face &theirs, v3f p, v3s16 n);
+	// `theirs` set flat at `p` facing against `n`, `spin` quarters about it.
+	void adopt(Machine other, const Face &theirs, v3f p, v3s16 n, u8 spin);
 };
 
 } // namespace piece

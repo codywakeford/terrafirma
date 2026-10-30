@@ -11,9 +11,14 @@
 #include "terragen/atlas.h"
 #include "terragen/code.h"
 #include "util/string.h"
+#include <algorithm>
 #include <ctime>
 
 namespace shell {
+
+// The highest sky a new world gets (layers): what the map holds above the
+// sea with room to spare (planet::Atlas: 30,912 up).
+static constexpr int SKY_MOST = 28000;
 
 std::vector<WorldSpec> Worlds::list() const
 {
@@ -93,7 +98,13 @@ WorldSpec Worlds::create(const std::string &name, const std::string &code,
 		Settings meta("[end_of_params]");
 		meta.set("mg_name", "terra");
 		meta.set("mgterra_code", code);
-		meta.set("planet_atlas", terragen::Atlas(terragen::Atlas::standard(world_code.size / (2 * M_PI))).code());
+		// Its sky reaches a radius up (sprint 59): the air there is ten scale
+		// heights thin (terragen::sphere's), clear for an orbit, so you can
+		// fly to one and build up to it; as high as the map holds on the
+		// largest worlds.
+		terragen::Atlas::Params atlas = terragen::Atlas::standard(world_code.size / (2 * M_PI));
+		atlas.height = (int)std::min(atlas.radius, (double)SKY_MOST);
+		meta.set("planet_atlas", terragen::Atlas(atlas).code());
 		// map-block chunks: a region's box is narrow next to an 80-node chunk,
 		// which would be mostly seam and other regions' storage, generated
 		// for nothing

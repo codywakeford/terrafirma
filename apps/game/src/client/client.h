@@ -7,6 +7,7 @@
 #include "clientenvironment.h"
 #include "piece/machine.h"
 #include "sculpt/sculpt.h"
+#include "workshop/motion.h" // Terra Firma: Materials, Grip
 #include "gamedef.h"
 #include "gameparams.h" // ELoginRegister
 #include "inventorymanager.h"
@@ -34,6 +35,7 @@
 
 #define CLIENT_CHAT_MESSAGE_LIMIT_PER_10S 10.0f
 
+class Body;
 class Camera;
 class ClientMediaDownloader;
 class ISoundManager;
@@ -204,6 +206,7 @@ public:
 	void handleCommand_Shape(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Blueprints(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Held(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Materials(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -249,9 +252,15 @@ public:
 	// Terra Firma: a new object, held up in front (TOSERVER_PIECE_NEW)
 	void sendPieceNew();
 	// Terra Firma: an object held or let go (sprint 49)
-	void sendHold(u16 object, bool held);
+	void sendHold(u16 object, workshop::Grip grip);
 	// where a held object is (BS) and how it's turned (degrees, piece::frame)
 	void sendPose(u16 object, v3f position, v3f rotation);
+	void sendPush(u16 object, v3f impulse);
+	// Terra Firma: a point of an object grabbed (in its frame, BS) and pulled
+	// toward `hand`, or let go (none)
+	void sendGrab(u16 object, std::optional<std::pair<v3f, v3f>> grip);
+	// Terra Firma: another of the last plugged in, into this socket (sprint 64)
+	void sendPlugAgain(u16 object, u64 socket);
 	// Terra Firma: an object's design made a shell, `thickness` sixteenths
 	void sendHollow(u16 object, u64 part, int thickness);
 	// Terra Firma: machines (sprints 52–53): a joint between two parts set
@@ -260,14 +269,14 @@ public:
 	// joint none: the joint taken away
 	void sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
 			const std::optional<piece::Machine::Face> &at);
-	void sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint);
+	void sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint, u8 spin);
 	void sendPart(u16 object, u64 part, bool remove);
 	// Terra Firma: sockets (sprint 56): one made on a face (and its
 	// mirror's), one taken away, a machine carried onto one
 	void sendSocket(u16 object, const piece::Machine::Face &face, piece::Joint joint,
 			std::optional<sculpt::Stroke::Mirror> mirror);
 	void sendUnsocket(u16 object, u64 socket);
-	void sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b);
+	void sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b, u8 spin);
 	// Terra Firma: the new object the server made for the player, to focus
 	// when it's here; taken, it's gone
 	std::optional<u16> takeHeld() { return std::exchange(m_held, std::nullopt); }
@@ -279,6 +288,10 @@ public:
 	void sendBlueprintPlace(const std::string &name, v3s16 at);
 	// Terra Firma: the player's blueprints, as the server last said
 	const std::vector<std::string> &getBlueprints() const { return m_blueprints; }
+	// Terra Firma: what blocks weigh, as the server says (sprint 58)
+	const workshop::Materials &getMaterials() const { return m_materials; }
+	// Terra Firma: the player's body: this client's physics (sprint 58)
+	Body &getBody();
 	void sendChatMessage(const std::wstring &message);
 	void clearOutChatQueue();
 	void sendChangePassword(const std::string &oldpassword,
@@ -530,6 +543,8 @@ private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
 	std::vector<std::string> m_blueprints; // Terra Firma
+	workshop::Materials m_materials; // Terra Firma
+	std::unique_ptr<Body> m_body; // Terra Firma: made when it's first asked for
 	std::optional<u16> m_held; // Terra Firma
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 

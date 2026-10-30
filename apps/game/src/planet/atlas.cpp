@@ -350,6 +350,20 @@ std::optional<Atlas::Cell> Atlas::cell(Node node) const
 	return shapeOf(c).exists(c) ? std::optional(c) : std::nullopt;
 }
 
+std::optional<Atlas::Node> Atlas::charted(Node node) const
+{
+	if (cell(node))
+		return node;
+	const std::optional<int> b = bodyAt(node);
+	if (!b)
+		return std::nullopt;
+	const int32_t top = body(*b).params().height - 1;
+	if (node.y <= top)
+		return std::nullopt;
+	const Node below{ node.x, top, node.z };
+	return cell(below) ? std::optional(below) : std::nullopt;
+}
+
 Atlas::Node Atlas::node(const Cell &c) const
 {
 	const std::optional<int> slot = slotOf(tileOf(c));
@@ -991,27 +1005,51 @@ std::optional<Atlas::Seen> Atlas::seeAt(Node from, double x, double y, double z)
 
 std::optional<Atlas::Carried> Atlas::carry(double wasX, double wasY, double wasZ, double x, double y, double z) const
 {
-	const Node from = moverNode(wasX, wasY, wasZ);
-	const std::optional<Cell> c = cell(from);
-	if (!c)
+	// above the top too, charted from the column under it (an orbit over a
+	// low sky crosses seams like anything else)
+	const std::optional<Node> from = charted(moverNode(wasX, wasY, wasZ));
+	if (!from)
 		return std::nullopt;
-	const Node now = moverNode(x, y, z);
-	if (tileIndex(now) == tileIndex(from) && cell(now))
-		return std::nullopt; // still in its grid
+	const Cell c = *cell(*from);
+	// still in its grid (above the top, by the column under it: there's no tile up there)
+	const std::optional<Node> now = charted(moverNode(x, y, z));
+	if (now && tileIndex(*now) == tileIndex(*from))
+		return std::nullopt;
 	// located a centimetre up, as moverNode: a point on a face is the node above's
-	const terragen::Atlas::Vec there = chart(*c, x - from.x, y + UP - from.y, z - from.z);
-	const terragen::Atlas &shape = shapeOf(*c);
+	const terragen::Atlas::Vec there = chart(c, x - from->x, y + UP - from->y, z - from->z);
+	const terragen::Atlas &shape = shapeOf(c);
 	const auto &params = shape.params();
-	if (std::sqrt(there.x * there.x + there.y * there.y + there.z * there.z) >= params.radius + params.height)
-		return std::nullopt;
-	const Cell target = on(*c, shape.locate(there));
+	// above the top it's found in the top layer's cell under it
+	const double r = std::sqrt(there.x * there.x + there.y * there.y + there.z * there.z);
+	const double top = params.radius + params.height;
+	const bool above = r >= top - 0.5;
+	const double k = above ? (top - 0.5) / r : 1;
+	const Cell target = on(c, shape.locate({ there.x * k, there.y * k, there.z * k }));
 	const Node n = node(target);
-	// in the cell's box (a sliver merged into it lies a little outside it:
-	// it's the cell's)
 	std::array<double, 3> at = unchart(target, there);
-	for (double &v : at)
-		v = std::clamp(v, -0.499, 0.499);
-	return Carried{ n.x + at[0], n.y + at[1] - UP, n.z + at[2], turning(*c, target) };
+	if (above) {
+		// up there the grid's columns lean from the one found at the top:
+		// it's over the column its own grid says, if that's stored here
+		const std::array<double, 3> g = shape.grid(target.region, target.index, there);
+		Cell column = target;
+		column.i = (int32_t)std::floor(g[0]);
+		column.j = (int32_t)std::floor(g[1]);
+		if (const std::optional<int> slot = slotOf(tileOf(column))) {
+			const Tile &r = *layout().slots[*slot];
+			const Node m{ (int32_t)(r.rect.x + column.i - r.i0), target.k, (int32_t)(r.rect.z + column.j - r.j0) };
+			if (const std::optional<Cell> back = cell(m); back && *back == column) {
+				const std::array<double, 3> d = unchart(column, there);
+				return Carried{ m.x + d[0], m.y + d[1] - UP, m.z + d[2], turning(c, column) };
+			}
+		}
+	}
+	// in the cell's box (a sliver merged into it lies a little outside it:
+	// it's the cell's); up, as far over it as it is. Above the top that can
+	// move it: between leaning columns of different grids are wedges in none.
+	for (int i = 0; i < 3; i++)
+		if (i != 1 || !above)
+			at[i] = std::clamp(at[i], -0.499, 0.499);
+	return Carried{ n.x + at[0], n.y + at[1] - UP, n.z + at[2], turning(c, target) };
 }
 
 std::optional<Atlas::Frame> Atlas::frame(Node from, const std::array<double, 3> &at) const

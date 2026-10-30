@@ -4,6 +4,8 @@
 
 #include "server.h"
 #include "workshop/workshop.h"
+#include "orbit/field.h"
+#include "terragen/planet.h"
 #include "server/luaentity_sao.h"
 
 #include "activeobject.h"
@@ -644,7 +646,10 @@ void Server::init()
 	m_env = new ServerEnvironment(std::move(startup_server_map),
 		this, m_metrics_backend.get());
 	m_env->init();
-	m_workshop = std::make_unique<workshop::Workshop>(workshop::Workshop::Opts{ *m_env, this, m_path_world, *m_materials });
+	// what pulls on things: the planet's, or the home card's straight down (sprint 59)
+	m_field = m_atlas ? std::make_unique<orbit::Field>(*m_atlas) : std::make_unique<orbit::Field>(terragen::home());
+	m_workshop = std::make_unique<workshop::Workshop>(workshop::Workshop::Opts{ *m_env, this, m_path_world, *m_materials, *m_field,
+		[this](const std::string &player) { return checkPriv(player, "creative"); } });
 
 	m_inventory_mgr->setEnv(m_env);
 	m_clients.setEnv(m_env);
@@ -2606,6 +2611,16 @@ void Server::SendBlueprints(session_t peer_id, const std::string &player)
 	pkt << u16(names.size());
 	for (const std::string &name : names)
 		pkt << name;
+	Send(&pkt);
+}
+
+void Server::SendMaterials(session_t peer_id)
+{
+	const auto all = m_materials->all();
+	NetworkPacket pkt(TOCLIENT_MATERIALS, 2 + all.size() * 10, peer_id);
+	pkt << u16(all.size());
+	for (const auto &[c, m] : all)
+		pkt << u16(c) << m.density << m.friction;
 	Send(&pkt);
 }
 

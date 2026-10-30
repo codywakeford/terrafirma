@@ -121,6 +121,7 @@ const ToClientCommandHandler toClientCommandTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_SHAPE",                    TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Shape }, // 0x6B Terra Firma
 	{ "TOCLIENT_BLUEPRINTS",               TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Blueprints }, // 0x6C Terra Firma
 	{ "TOCLIENT_HELD",                     TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Held }, // 0x6D Terra Firma
+	{ "TOCLIENT_MATERIALS",                TOCLIENT_STATE_CONNECTED, &Client::handleCommand_Materials }, // 0x6E Terra Firma
 };
 
 const static ServerCommandFactory null_command_factory = { nullptr, 0, false };
@@ -236,4 +237,7 @@ const ServerCommandFactory serverCommandFactoryTable[TOSERVER_NUM_MSG_TYPES] =
 	{ "TOSERVER_PART",               0, true }, // 0x60 Terra Firma
 	{ "TOSERVER_SOCKET",             0, true }, // 0x61 Terra Firma
 	{ "TOSERVER_PLUG",               0, true }, // 0x62 Terra Firma
+	{ "TOSERVER_OBJECT_PUSH",        0, true }, // 0x63 Terra Firma
+	{ "TOSERVER_PLUG_AGAIN",         0, true }, // 0x64 Terra Firma
+	{ "TOSERVER_OBJECT_GRAB",        0, true }, // 0x65 Terra Firma
 };

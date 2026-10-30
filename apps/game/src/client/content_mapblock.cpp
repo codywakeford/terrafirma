@@ -371,9 +371,20 @@ static LightPair getSmoothLightCorner(const v3s16 &p,
 			ambient_occlusion++;
 			return false;
 		}
-		MapNode n = data->m_vmanip.getNodeNoExNoEmerge(p + dirs[i]);
+		v3s16 q = p + dirs[i];
+		MapNode n = data->m_vmanip.getNodeNoExNoEmerge(q);
 		if (n.getContent() == CONTENT_IGNORE)
 			return true;
+		// Terra Firma: a cut node (shape::Shape) is mostly open, but the
+		// lighting keeps no light in it (it's its material's, solid): what
+		// it lets through is the light above it, as if it weren't there
+		if (data->m_shapes.count(q)) {
+			do
+				n = data->m_vmanip.getNodeNoExNoEmerge(q += v3s16(0, 1, 0));
+			while (data->m_shapes.count(q));
+			if (n.getContent() == CONTENT_IGNORE)
+				return true;
+		}
 		const ContentFeatures &f = ndef->get(n);
 
 		light_source_max = std::max(light_source_max, f.light_source);
@@ -623,7 +634,12 @@ void MapblockMeshGenerator::drawSolidNode()
 				layer.material_flags |= MATERIAL_FLAG_BACKFACE_CULLING;
 		}
 		if (!data->m_smooth_lighting) {
-			lights[face] = getFaceLight(cur_node.n, neighbor, nodedef);
+			// Terra Firma: across a cut node, the light above it (see getSmoothLightCorner)
+			v3s16 q = p1 + tile_dirs[face];
+			MapNode lit = neighbor;
+			while (data->m_shapes.count(q))
+				lit = data->m_vmanip.getNodeNoExNoEmerge(q += v3s16(0, 1, 0));
+			lights[face] = getFaceLight(cur_node.n, lit, nodedef);
 		}
 	};
 

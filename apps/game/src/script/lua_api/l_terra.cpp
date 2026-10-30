@@ -130,12 +130,15 @@ static Calendar today(Server *server, const World &w)
 // The world model's column for a position (nodes): its block, z held inside
 // the world (beyond the polar edge the sky and climate are the edge's); on a
 // planet, the column at its latitude and longitude, wherever it stands (in
-// the core too). None for a node that stores no cell (seam): no place.
+// the core too, and above the sky). None for seam between tiles: no place.
 static std::optional<std::array<int32_t, 2>> placeColumn(Server *server, const World &w, const v3f &pos)
 {
 	if (const planet::Atlas *atlas = server->atlas()) {
-		const std::optional<terragen::Atlas::Vec> p =
-				atlas->point(planet::Atlas::moverNode(pos.X, pos.Y, pos.Z), pos.X, pos.Y, pos.Z);
+		// above the sky too: the column under it (Atlas::charted)
+		const std::optional<planet::Atlas::Node> from = atlas->charted(planet::Atlas::moverNode(pos.X, pos.Y, pos.Z));
+		if (!from)
+			return std::nullopt;
+		const std::optional<terragen::Atlas::Vec> p = atlas->point(*from, pos.X, pos.Y, pos.Z);
 		if (!p)
 			return std::nullopt;
 		const std::array<int32_t, 2> c = terra::equirect(std::atan2(p->y, std::hypot(p->x, p->z)),

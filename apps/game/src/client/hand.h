@@ -86,6 +86,16 @@ public:
 	void setMode(const Mode &mode);
 
 	bool out() const { return m_out; }
+	// Build mode's two ways in (sprint 62): X shapes the world, C creates
+	// objects. Creating, what's added is always an object (a part on the
+	// ground, or on the workpiece), and the world isn't cut or painted.
+	bool creating() const { return m_out && m_creating; }
+	void setCreating(bool creating) { m_creating = creating; }
+	// The brush as it acts: creating, adding makes parts.
+	const BrushKind &acting() const
+	{
+		return BRUSHES[size_t(creating() && m_brush == Brush::Add ? Brush::Part : m_brush)];
+	}
 	sculpt::Tool tool() const { return m_tool; }
 	int size() const { return m_size; }
 	bool mirrored() const { return m_mirror; }
@@ -110,6 +120,7 @@ public:
 
 private:
 	bool m_out = false;
+	bool m_creating = false;
 	sculpt::Tool m_tool = sculpt::Tool::Box;
 	int m_size = 1;
 	bool m_mirror = false;

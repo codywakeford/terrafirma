@@ -24,7 +24,8 @@ class Map;
 	it before the click.
 
 	A shape is drawn by its footprint (sprint 50): dragged out on the face
-	it starts on, from the sixteenth pointed at to `to`; the size is how far
+	it starts on, from the sixteenth pointed at to `to` (a box corner to
+	corner; a round one from its middle out, sprint 65); the size is how far
 	it goes, out of the face (adding) or into it (cutting, painting). Clicked, the
 	footprint's a square of the size. Each tool fills that box its own way:
 	the box whole, the ellipse across it (a cylinder), tapering to a point

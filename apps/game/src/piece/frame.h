@@ -57,5 +57,7 @@ u8 compose(u8 a, u8 b);
 // The turn taking `from` (a unit axis) to `to`, nearest `near` (the one
 // of those most like it).
 u8 turnTaking(v3s16 from, v3s16 to, u8 near);
+// A quarter turn about `axis` (a unit axis), right-handed.
+u8 quarterAbout(v3s16 axis);
 
 } // namespace piece

@@ -63,6 +63,10 @@ public:
 	// Where a body is in the scene `day` days on (blocks), and how big (blocks).
 	terragen::System::Vec centre(size_t body, double day) const;
 	terragen::System::Vec starCentre(double day) const;
+	// How far the focused body has turned (radians, its ground to space)
+	// `day` days on at a time of day (0..1, noon at ½ on longitude 0, as
+	// the game's sun has it).
+	double spin(double day, double timeOfDay) const;
 	double radius(size_t body) const { return m_opts.system->radius(body) * m_opts.blocksPerKm; }
 	double starRadius() const { return m_opts.system->starRadius() * m_opts.blocksPerKm; }
 	const terragen::System &system() const { return *m_opts.system; }

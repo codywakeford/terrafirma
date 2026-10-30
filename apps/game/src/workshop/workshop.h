@@ -3,11 +3,15 @@
 
 #pragma once
 
+#include "orbit/field.h"
+
 #include "entities.h"
 #include "library.h"
 #include "motion.h"
 #include "piece/machine.h"
 #include "sculpt/sculpt.h"
+#include <functional>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -50,6 +54,10 @@ public:
 		IGameDef *gamedef;
 		std::string world_path;
 		const Materials &materials;
+		// What pulls on machines: the planet's (sprint 59)
+		const orbit::Field &field;
+		// Whether a player builds in creative (pulls as hard as they like)
+		std::function<bool(const std::string &player)> creative;
 	};
 	explicit Workshop(const Opts &opts);
 
@@ -63,10 +71,21 @@ public:
 	// A new machine, one block of the block held, held up in front of the
 	// player: its object id.
 	u16 start(PlayerSAO &who);
-	// Held, it's kept still where its holder poses it; let go, it falls.
-	void hold(PlayerSAO &who, u16 object, bool held);
+	// Held still, it's kept where its holder poses it (the bench); carried,
+	// it's pulled toward their hands as hard as they can (sprint 58); let
+	// go, it falls as it's moving.
+	void hold(PlayerSAO &who, u16 object, Grip grip);
 	// Where a held machine is (BS) and how it's turned (degrees): within reach.
 	void pose(PlayerSAO &who, u16 object, v3f position, v3f rotation);
+	// What a player's body gave an object they walked into (N·s, nodes),
+	// as hard as a person pushes: their client holds it still where the
+	// server has it, so the push is the server's to give (sprint 61).
+	void push(PlayerSAO &who, u16 object, v3f impulse);
+	// Grabbed at `point` (BS, in the object's frame, where they first
+	// took it) and pulled toward their hand (`hand`, BS) as hard as a
+	// person can; or let go (none). Sent while it's held, ~20 a second;
+	// a grip sent after it's let go is a fresh one (sprint 68).
+	void grab(PlayerSAO &who, u16 object, std::optional<std::pair<v3f, v3f>> grip);
 	// A part's design made a shell `thickness` sixteenths thick (undone as a stroke is).
 	void hollow(PlayerSAO &who, u16 object, u64 part, int thickness);
 
@@ -76,14 +95,18 @@ public:
 			const std::optional<piece::Machine::Face> &at);
 	// Machine `b` set against `a` face to face and made one with it.
 	void join(PlayerSAO &who, u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b,
-			piece::Joint joint);
+			piece::Joint joint, u8 spin);
 	// A socket made on a face (and its mirror's, across the machine's
 	// plane), or taken away.
 	void socket(PlayerSAO &who, u16 object, const piece::Machine::Face &face, piece::Joint joint,
 			const std::optional<sculpt::Stroke::Mirror> &mirror);
 	void unsocket(PlayerSAO &who, u16 object, u64 socket);
 	// Machine `b` carried onto `a`'s socket, joined there.
-	void plug(PlayerSAO &who, u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b);
+	void plug(PlayerSAO &who, u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b, u8 spin);
+	// Another of the last thing they plugged in, plugged into `a`'s socket
+	// as that was (sprint 64: four wheels from one). Creative only: it's
+	// made from nothing.
+	void plugAgain(PlayerSAO &who, u16 a, u64 socket);
 	// A part made a machine of its own, where it was.
 	void detach(PlayerSAO &who, u16 object, u64 part);
 	// A part gone (the machine with it, if it's its last).
@@ -110,6 +133,17 @@ private:
 	Library m_library;
 	sculpt::History m_history;
 	Motion m_motion;
+	std::function<bool(const std::string &player)> m_creative;
+	// each player's last plugged in: what it was (its text), which of its
+	// parts met the socket (by order) and that part's face, the spin
+	struct Plugged
+	{
+		std::string machine;
+		size_t part;
+		piece::Machine::Face face;
+		u8 spin;
+	};
+	std::map<std::string, Plugged> m_plugged;
 };
 
 } // namespace workshop

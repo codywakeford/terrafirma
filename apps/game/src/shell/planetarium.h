@@ -58,6 +58,8 @@ public:
 	// Shows a body directly (a key, a command line), as `planetarium.show` does.
 	void show(planetarium::Planetarium::Opts body);
 	void hide();
+	// The player's orbit, drawn round its body (Planetarium::path); none: none.
+	void path(std::optional<planetarium::Planetarium::Path> path);
 	// The system's moment shown: a world's date (days into it, its year's
 	// length: System::dayFor), the game's clock; or the host's own clock
 	// (the menu's), run on by tick() while running, the page setting it.

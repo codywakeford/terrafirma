@@ -36,12 +36,15 @@ public:
 		WIKI, // Terra Firma
 		PLANETARIUM, // Terra Firma
 		TOOLS, // Terra Firma: the tools in hand out or away
+		BRAKE, // Terra Firma: flight's brake (sprint 59)
 		TOOL_NEXT, // Terra Firma
 		FOCUS, // Terra Firma: the focus view
 		MIRROR, // Terra Firma
 		UNDO, // Terra Firma
-		PIECE_NEW, // Terra Firma: a new object
+		CREATE, // Terra Firma: build mode, creating objects (sprint 62)
+		TURN_LEFT, TURN_RIGHT, // Terra Firma: what's carried turned a quarter (sprint 64)
 		CURSOR, // Terra Firma: the cursor freed, and taken back
+		ALT, // Terra Firma: the build layer: with it, the slot keys pick shapes, = mirrors, a click carries (sprint 68)
 		CHAT,
 		CMD,
 		CMD_LOCAL,

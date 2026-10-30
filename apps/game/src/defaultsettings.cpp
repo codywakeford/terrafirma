@@ -154,19 +154,23 @@ void set_default_settings()
 	settings->setDefault("keymap_sneak", "SYSTEM_SCANCODE_225|GAMEPAD_BUTTON_1"); // KEY_LSHIFT|Gamepad East
 	settings->setDefault("keymap_dig", "MOUSE_BUTTON_1|GAMEPAD_AXIS_PLUS_5"); // LMB|Gamepad RT
 	settings->setDefault("keymap_place", "MOUSE_BUTTON_3|GAMEPAD_AXIS_PLUS_4"); // RMB|Gamepad LT
-	settings->setDefault("keymap_drop", "SYSTEM_SCANCODE_20|GAMEPAD_BUTTON_12"); // KEY_KEY_Q|D-Pad Down
+	settings->setDefault("keymap_drop", "SYSTEM_SCANCODE_42|GAMEPAD_BUTTON_12"); // KEY_BACK|D-Pad Down (Terra Firma: Q turns what's carried)
 	settings->setDefault("keymap_zoom", "SYSTEM_SCANCODE_29|GAMEPAD_BUTTON_11"); // KEY_KEY_Z|D-Pad Up
-	settings->setDefault("keymap_inventory", "SYSTEM_SCANCODE_8|GAMEPAD_BUTTON_3"); // KEY_KEY_E|Gamepad North
+	settings->setDefault("keymap_inventory", "SYSTEM_SCANCODE_12|GAMEPAD_BUTTON_3"); // KEY_KEY_I|Gamepad North (Terra Firma: E turns what's carried)
+	settings->setDefault("keymap_turn_left", "SYSTEM_SCANCODE_20"); // KEY_KEY_Q (Terra Firma: what's carried turned, sprint 64)
+	settings->setDefault("keymap_turn_right", "SYSTEM_SCANCODE_8"); // KEY_KEY_E
 	settings->setDefault("keymap_lab", "SYSTEM_SCANCODE_15"); // KEY_KEY_L (Terra Firma: the Lab panel)
 	settings->setDefault("keymap_planetarium", "SYSTEM_SCANCODE_64"); // KEY_F7 (Terra Firma: the planet viewer)
 	settings->setDefault("keymap_wiki", "SYSTEM_SCANCODE_10"); // KEY_KEY_G (Terra Firma: the wiki)
-	settings->setDefault("keymap_tools", "SYSTEM_SCANCODE_27"); // KEY_KEY_X (Terra Firma: the tools in hand)
+	settings->setDefault("keymap_tools", "SYSTEM_SCANCODE_27"); // KEY_KEY_X (Terra Firma: build mode, shaping the world)
+	settings->setDefault("keymap_brake", "SYSTEM_SCANCODE_5"); // KEY_KEY_B (Terra Firma: flight's brake)
 	settings->setDefault("keymap_tool_next", "SYSTEM_SCANCODE_21"); // KEY_KEY_R (Terra Firma: the next tool)
 	settings->setDefault("keymap_focus", "SYSTEM_SCANCODE_9"); // KEY_KEY_F (Terra Firma: the focus view)
 	settings->setDefault("keymap_mirror", "SYSTEM_SCANCODE_28"); // KEY_KEY_Y (Terra Firma: mirrored strokes)
 	settings->setDefault("keymap_undo", "SYSTEM_SCANCODE_24"); // KEY_KEY_U (Terra Firma: undo a stroke)
-	settings->setDefault("keymap_piece_new", "SYSTEM_SCANCODE_17"); // KEY_KEY_N (Terra Firma: a new object)
+	settings->setDefault("keymap_create", "SYSTEM_SCANCODE_6"); // KEY_KEY_C (Terra Firma: build mode, creating objects)
 	settings->setDefault("keymap_cursor", "SYSTEM_SCANCODE_43"); // KEY_TAB (Terra Firma: the cursor freed)
+	settings->setDefault("keymap_alt", "SYSTEM_SCANCODE_226"); // KEY_LMENU (Terra Firma: the build layer, sprint 68)
 	settings->setDefault("keymap_pause", "GAMEPAD_BUTTON_6"); // Gamepad Start
 	settings->setDefault("keymap_aux1", "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2"); // KEY_LCONTROL|Gamepad West (Terra Firma: sprint, as Minecraft; E is the inventory)
 	settings->setDefault("keymap_chat", "SYSTEM_SCANCODE_23"); // KEY_KEY_T

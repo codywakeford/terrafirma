@@ -3,6 +3,7 @@
 // Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "client.h"
+#include "body.h" // Terra Firma
 #include "ground/ground.h" // Terra Firma
 
 #include "chatmessage.h"
@@ -1382,10 +1383,10 @@ void Client::sendPieceNew()
 	Send(&pkt);
 }
 
-void Client::sendHold(u16 object, bool held)
+void Client::sendHold(u16 object, workshop::Grip grip)
 {
 	NetworkPacket pkt(TOSERVER_OBJECT_HOLD, 3);
-	pkt << object << u8(held);
+	pkt << object << u8(grip);
 	Send(&pkt);
 }
 
@@ -1411,14 +1412,15 @@ void Client::sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> join
 	Send(&pkt);
 }
 
-void Client::sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint)
+void Client::sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint,
+		u8 spin)
 {
-	NetworkPacket pkt(TOSERVER_JOIN, 2 + 23 + 2 + 23 + 1);
+	NetworkPacket pkt(TOSERVER_JOIN, 2 + 23 + 2 + 23 + 2);
 	pkt << a;
 	writeFace(pkt, on_a);
 	pkt << b;
 	writeFace(pkt, on_b);
-	pkt << u8(joint);
+	pkt << u8(joint) << spin;
 	Send(&pkt);
 }
 
@@ -1439,11 +1441,12 @@ void Client::sendUnsocket(u16 object, u64 socket)
 	Send(&pkt);
 }
 
-void Client::sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b)
+void Client::sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b, u8 spin)
 {
-	NetworkPacket pkt(TOSERVER_PLUG, 12 + 23);
+	NetworkPacket pkt(TOSERVER_PLUG, 12 + 23 + 1);
 	pkt << a << socket << b;
 	writeFace(pkt, on_b);
+	pkt << spin;
 	Send(&pkt);
 }
 
@@ -1451,6 +1454,29 @@ void Client::sendPart(u16 object, u64 part, bool remove)
 {
 	NetworkPacket pkt(TOSERVER_PART, 11);
 	pkt << object << part << u8(remove);
+	Send(&pkt);
+}
+
+void Client::sendPlugAgain(u16 object, u64 socket)
+{
+	NetworkPacket pkt(TOSERVER_PLUG_AGAIN, 10);
+	pkt << object << socket;
+	Send(&pkt);
+}
+
+void Client::sendPush(u16 object, v3f impulse)
+{
+	NetworkPacket pkt(TOSERVER_OBJECT_PUSH, 2 + 12);
+	pkt << object << impulse;
+	Send(&pkt);
+}
+
+void Client::sendGrab(u16 object, std::optional<std::pair<v3f, v3f>> grip)
+{
+	NetworkPacket pkt(TOSERVER_OBJECT_GRAB, 2 + 1 + 24);
+	pkt << object << u8(grip.has_value());
+	if (grip)
+		pkt << grip->first << grip->second;
 	Send(&pkt);
 }
 
@@ -1969,6 +1995,15 @@ void Client::addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server, bool 
 {
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, true);
 	updateMeshReaders(blockpos, urgent); // Terra Firma
+	if (m_body) // Terra Firma: what the player walks on is as the map is
+		m_body->groundChanged(blockpos);
+}
+
+Body &Client::getBody()
+{
+	if (!m_body)
+		m_body = std::make_unique<Body>(this);
+	return *m_body;
 }
 
 // Terra Firma, an atlas: the meshes that read a block over a seam (made

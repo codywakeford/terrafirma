@@ -37,12 +37,13 @@ v3f walk(const Gait &gait, const Intent &intent, const Footing &now, float dt)
 	const float most = rate * dt;
 	across += gap.getLength() > most ? gap * (most / gap.getLength()) : gap;
 
-	float up;
-	if (now.on_ground)
-		up = intent.jump ? ground.Y + std::sqrt(2 * gait.gravity * gait.jump) : ground.Y;
-	else
-		up = now.velocity.Y - gait.gravity * dt;
-	return v3f(across.X + ground.X, up, across.Z + ground.Z);
+	if (now.on_ground) {
+		const float g = std::max(0.0f, -gait.gravity.Y);
+		const float up = intent.jump ? ground.Y + std::sqrt(2 * g * gait.jump) : ground.Y;
+		return v3f(across.X + ground.X, up, across.Z + ground.Z);
+	}
+	// falling: the whole pull, steering only across
+	return v3f(across.X, now.velocity.Y, across.Z) + gait.gravity * dt;
 }
 
 } // namespace physics

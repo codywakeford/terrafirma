@@ -5,6 +5,7 @@
 #include "client/hand.h"
 #include "piece/machine.h"
 #include "bridge.h"
+#include "client/body.h"
 #include "client/client.h"
 #include "terragen/worlds.h"
 #include "client/localplayer.h"
@@ -15,6 +16,9 @@
 #include "porting.h"
 
 namespace shell {
+
+// How many points the player's orbit is drawn with in the Planetarium.
+static constexpr int PATH_POINTS = 2048;
 
 static const char *const VERBS[] = {
 	"screen.close", "game.leave", "game.quit",
@@ -201,6 +205,17 @@ void Session::update(const HudView &view)
 	// the system as the world's date has it (its year's share of the orbit)
 	if (m_planetarium.shown() && m_year > 0)
 		m_planetarium.dayIn(m_client->getEnv().getDayCount() + m_client->getEnv().getTimeOfDayF(), m_year);
+	// and the player's orbit round the body they're on
+	if (m_planetarium.shown()) {
+		const std::optional<std::vector<orbit::Vec>> path = m_client->getBody().path(PATH_POINTS);
+		std::optional<planetarium::Planetarium::Path> shown;
+		if (path) {
+			shown = planetarium::Planetarium::Path{ bodyHere(), {} };
+			for (const orbit::Vec &p : *path)
+				shown->points.push_back({ p.x, p.y, p.z });
+		}
+		m_planetarium.path(std::move(shown));
+	}
 }
 
 std::vector<terragen::BodyWorld> Session::bodies() const

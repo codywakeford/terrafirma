@@ -21,20 +21,23 @@ static unsigned buildThreads()
 	return all > 2 ? all - 2 : 1;
 }
 
-// The system's index of the body drawn from its tiles: the playable one
-// for the home, another's found from the world code (terragen/worlds.h).
+size_t systemIndex(const planet::Atlas &atlas, const far::Horizon &horizon, const terragen::System &system, int body)
+{
+	if (body == planet::Atlas::HOME)
+		return system.playable();
+	const std::vector<terragen::BodyWorld> worlds = terragen::bodyWorlds(
+			terragen::WorldCode::decode(horizon.code), atlas.body(planet::Atlas::HOME).params());
+	if ((int)worlds.size() != atlas.bodies())
+		throw BaseException("planetarium: the atlas holds " + std::to_string(atlas.bodies()) +
+				" bodies, the world code's system " + std::to_string(worlds.size()));
+	return worlds.at(body).system;
+}
+
 static size_t tiledOf(const Planetarium::Opts &o)
 {
 	if (!o.system)
 		throw BaseException("planetarium: a body needs its system");
-	if (o.body == planet::Atlas::HOME)
-		return o.system->playable();
-	const std::vector<terragen::BodyWorld> worlds = terragen::bodyWorlds(
-			terragen::WorldCode::decode(o.horizon.code), o.atlas.body(planet::Atlas::HOME).params());
-	if ((int)worlds.size() != o.atlas.bodies())
-		throw BaseException("planetarium: the atlas holds " + std::to_string(o.atlas.bodies()) +
-				" bodies, the world code's system " + std::to_string(worlds.size()));
-	return worlds.at(o.body).system;
+	return systemIndex(o.atlas, o.horizon, *o.system, o.body);
 }
 
 static double seaOf(const Planetarium::Opts &o)
@@ -71,6 +74,7 @@ Planetarium::Planetarium(Opts opts) :
 	m_seams(opts.atlas.body(opts.body).params(), m_sea),
 	m_markers(m_sea),
 	m_system({ opts.system, tiledOf(opts), opts.atlas.body(opts.body).params().radius / opts.system->radius(tiledOf(opts)) }),
+	m_body(opts.body),
 	m_tiled(tiledOf(opts)),
 	m_target(m_tiled)
 {
@@ -86,9 +90,7 @@ void Planetarium::day(double days, std::optional<double> timeOfDay)
 	m_day = days;
 	const terragen::System &s = m_system.system();
 	if (timeOfDay) {
-		// longitude 0 faces the star at noon: the star's way round the body's axis, less the hours to noon
-		const terragen::System::Vec star = m_system.starCentre(days);
-		m_spin = std::atan2(star.z, star.x) + 2 * M_PI * (*timeOfDay - 0.5);
+		m_spin = m_system.spin(days, *timeOfDay);
 	} else {
 		const double hours = s.spec().bodies[m_tiled].causes.day / 65536.0;
 		m_spin = 2 * M_PI * std::fmod(days * 24 / hours, 1.0);
@@ -384,6 +386,35 @@ void Planetarium::update(v2u32 screen)
 	}
 }
 
+void Planetarium::drawPath(video::IVideoDriver *driver, const OrbitCamera::Vec &ground)
+{
+	if (!m_path || m_path->body != m_body || m_path->points.size() < 2)
+		return;
+	// the accent's blue, bright where it is, dimming round to where it's going
+	std::vector<video::S3DVertex> vertices;
+	std::vector<u16> indices;
+	const size_t n = std::min<size_t>(m_path->points.size(), 0xffff);
+	for (size_t i = 0; i < n; i++) {
+		const OrbitCamera::Vec &p = m_path->points[i];
+		const double fresh = 1 - 0.7 * i / (n - 1);
+		vertices.emplace_back(v3f((f32)(p.x - ground.x), (f32)(p.y - ground.y), (f32)(p.z - ground.z)) * BS, v3f(),
+				video::SColor(255, 0, (u32)(148 * fresh), (u32)(210 * fresh)), v2f());
+		if (i + 1 < n) {
+			indices.push_back((u16)i);
+			indices.push_back((u16)(i + 1));
+		}
+	}
+	video::SMaterial mat;
+	mat.MaterialType = video::EMT_SOLID;
+	mat.FogEnable = false;
+	mat.ColorMask = video::ECP_RGB;
+	mat.Thickness = 2;
+	driver->setMaterial(mat);
+	driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+	driver->drawVertexPrimitiveList(vertices.data(), (u32)vertices.size(), indices.data(), (u32)indices.size() / 2,
+			video::EVT_STANDARD, scene::EPT_LINES, video::EIT_16BIT);
+}
+
 void Planetarium::draw(video::IVideoDriver *driver, core::recti view)
 {
 	const auto frameFrom = std::chrono::steady_clock::now();
@@ -436,6 +467,7 @@ void Planetarium::draw(video::IVideoDriver *driver, core::recti view)
 		if (m_seamsShown)
 			m_seams.draw(driver, ground);
 		m_markers.draw(driver, ground, m_camera.altitude());
+		drawPath(driver, ground);
 	});
 	driver->setViewPort(core::recti(0, 0, window.Width, window.Height)); // the page draws over the whole window
 }

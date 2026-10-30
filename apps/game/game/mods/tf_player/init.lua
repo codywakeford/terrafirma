@@ -7,6 +7,15 @@
 -- mode, as Minecraft's: hold Ctrl (aux1), or double-tap forward; it lasts
 -- until you stop moving forward. A run, not Luanti's fast mode.
 
+-- Building in creative: the engine asks for this privilege (the workshop's
+-- tools, and how hard a player carries: as hard as they like). Nothing else
+-- registers it; build mode grants it with every other privilege.
+core.register_privilege("creative", {
+	description = "Can build in creative (the workshop's tools, carrying anything)",
+	give_to_singleplayer = false,
+	give_to_admin = false,
+})
+
 local SPRINT = 1.6 -- × walking speed
 -- Creative grants every privilege; survival takes back what creative granted,
 -- and these whoever granted them (survival never moves this way)
@@ -79,6 +88,12 @@ end
 
 -- Match the player inventory's nine-column layout. Existing worlds may have
 -- items in the old 3×3 craft list, so move them before resizing it.
+-- What a player looks like (sprint 58): a jointed body the engine poses by
+-- how they move (client/figure.h), not a flat picture.
+core.register_on_joinplayer(function(player)
+	player:set_properties({ visual = "body", textures = {} })
+end)
+
 core.register_on_joinplayer(function(player)
 	local inv = player:get_inventory()
 	local craft = inv:get_list("craft") or {}

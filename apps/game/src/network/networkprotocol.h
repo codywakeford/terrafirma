@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 70;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 76;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 70;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 76;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -780,7 +780,15 @@ enum ToClientCommand : u16
 		u16 object: its object id
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x6E,
+	TOCLIENT_MATERIALS = 0x6E,
+	/*
+		Terra Firma: what each block weighs in a machine (core.physics.material,
+		sprint 58), on joining: the client's physics weighs what it carries so
+		u16 count
+		for each: u16 content id, f32 density (kg/m³), f32 friction
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x6F,
 };
 
 enum ToServerCommand : u16
@@ -1050,9 +1058,9 @@ enum ToServerCommand : u16
 
 	TOSERVER_OBJECT_HOLD = 0x5B,
 	/*
-		Terra Firma: an object held (lifted, kept still) or let go (sprint 49)
+		Terra Firma: an object held or let go (sprints 49, 58)
 		u16 object: its object id
-		u8 held
+		u8 grip: workshop::Grip (0 let go, 1 still: the bench, 2 carried)
 	*/
 
 	TOSERVER_OBJECT_POSE = 0x5C,
@@ -1108,7 +1116,29 @@ enum ToServerCommand : u16
 		u16 a, u64 socket, u16 b, face on b
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x63,
+	TOSERVER_OBJECT_PUSH = 0x63,
+	/*
+		Terra Firma: a player walking into an object (sprint 61): what their
+		body gave it since the last (N·s, in nodes), the server's to move
+		u16 object, v3f impulse
+	*/
+
+	TOSERVER_PLUG_AGAIN = 0x64,
+	/*
+		Terra Firma: another of the last thing plugged in, plugged into a's
+		socket as that was (sprint 64; creative)
+		u16 a, u64 socket
+	*/
+
+	TOSERVER_OBJECT_GRAB = 0x65,
+	/*
+		Terra Firma: a point of an object grabbed and pulled toward a hand
+		(sprint 68), sent while it's held; or let go
+		u16 object, u8 held (0: let go, and nothing more)
+		v3f point (BS, in the object's frame), v3f hand (BS)
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x66,
 };
 
 enum AuthMechanism

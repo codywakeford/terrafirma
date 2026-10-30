@@ -5,6 +5,7 @@
 #pragma once
 
 namespace piece { class Machine; }
+class Figure;
 
 #include "irrlichttypes.h"
 
@@ -119,6 +120,9 @@ private:
 	v3f m_acceleration;
 	v3f m_rotation;
 	std::unique_ptr<piece::Machine> m_machine; // Terra Firma
+	std::unique_ptr<Figure> m_figure; // Terra Firma: visual "body" (sprint 58)
+	v3f m_figure_was;    // where it was last frame (BS): how fast it moves
+	v3f m_figure_moving; // nodes/s, smoothed
 	// Terra Firma (sprint 57): its rigid groups but the first, each drawn on
 	// its own (a wheel turns), and where each is in the first's (BS; x y z w)
 	std::vector<scene::IMeshSceneNode *> m_group_nodes;
@@ -127,7 +131,12 @@ private:
 		v3f offset;
 		f32 x, y, z, w;
 	};
-	std::vector<GroupPose> m_group_poses;
+	// glided from where they were drawn to the server's latest over its
+	// update interval, as the machine's position is (sprint 66: a wheel's
+	// turn put at once while the body glides tore it off the axle)
+	std::vector<GroupPose> m_group_poses, m_group_from;
+	f32 m_group_t = 1, m_group_interval = 0.1f;
+	GroupPose groupShown(size_t i) const;
 	void poseGroups();
 	// Terra Firma: how its parts are drawn
 	struct Look
@@ -143,6 +152,15 @@ private:
 	};
 	Look m_look;
 	std::optional<std::pair<v3f, v3f>> m_posed;
+public:
+	// Terra Firma: where the server last said it is (BS), turned (degrees),
+	// moving (BS/s): posed here, it's drawn elsewhere (sprint 68)
+	struct Served
+	{
+		v3f position, rotation, velocity;
+	};
+private:
+	Served m_served;
 	u16 m_hp = 1;
 	SmoothTranslator<v3f> pos_translator;
 	SmoothTranslatorWrappedv3f rot_translator;
@@ -236,6 +254,10 @@ public:
 	// Terra Firma: drawn where this client says (BS, and its rotation in
 	// degrees), carried or held; none: where the server says
 	void setPosed(std::optional<std::pair<v3f, v3f>> posed);
+	// Terra Firma: posed so and drawn there now, not at its next step (what
+	// the camera's already moved for this frame is drawn where it's seen)
+	void applyPosed(std::pair<v3f, v3f> posed);
+	const Served &served() const { return m_served; }
 	// Terra Firma: its grid in the world as it's drawn (piece::frame)
 	core::matrix4 getFrame() const;
 

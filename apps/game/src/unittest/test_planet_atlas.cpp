@@ -35,6 +35,7 @@ public:
 	void testPolewardReachesCaps();
 	void testSeeingCarriesTheGrid();
 	void testCarryKeepsThePoint();
+	void testCarryAboveTheTop();
 	void testTurnsFollowTheGround();
 	void testViewIsTheGrid();
 	void testCutsPartitionThePlanet();
@@ -104,6 +105,7 @@ void TestPlanetAtlas::runTests(IGameDef *gamedef)
 	TEST(testPolewardReachesCaps);
 	TEST(testSeeingCarriesTheGrid);
 	TEST(testCarryKeepsThePoint);
+	TEST(testCarryAboveTheTop);
 	TEST(testTurnsFollowTheGround);
 	TEST(testViewIsTheGrid);
 	TEST(testCutsPartitionThePlanet);
@@ -374,8 +376,8 @@ void TestPlanetAtlas::testCarryKeepsThePoint()
 			if (!to)
 				continue;
 			carried++;
-			const Atlas::Node m = Atlas::moverNode(to->x, to->y, to->z);
-			UASSERT(a.cell(m).has_value());
+			// (a step up past the top lands over the top: charted from under it)
+			const Atlas::Node m = *a.charted(Atlas::moverNode(to->x, to->y, to->z));
 			const terragen::Atlas::Vec before = *a.point(n, x, y, z), after = *a.point(m, to->x, to->y, to->z);
 			// and it stays: carried again from where it landed, it doesn't move
 			UASSERT(!a.carry(to->x, to->y, to->z, to->x, to->y, to->z).has_value());
@@ -394,6 +396,46 @@ void TestPlanetAtlas::testCarryKeepsThePoint()
 		}
 		rawstream << "carried " << carried << ", worst " << worst << " blocks" << std::endl;
 		UTEST(carried > 100, "only %zu carried", carried);
+	}
+}
+
+// Above the atlas's top (an orbit over a low sky), crossing a seam still
+// carries: charted from the top cell under it, it lands over a column of
+// the new grid and stays; the point is kept, but for the wedges between
+// leaning columns (at most 1.5% of the height above the top).
+void TestPlanetAtlas::testCarryAboveTheTop()
+{
+	std::mt19937_64 rng(11);
+	std::uniform_real_distribution<double> wander(-2.4, 2.4);
+	for (const auto &p : planets()) {
+		const Atlas a = Atlas::resident(p);
+		const int32_t top = a.body(planet::Atlas::HOME).params().height - 1;
+		const double up = 300;
+		size_t carried = 0;
+		double worst = 0;
+		size_t over = 0;
+		for (const Atlas::Node n : edgeNodes(a, 1)) {
+			if (n.y != top)
+				continue;
+			const double x = n.x + wander(rng), y = top + up, z = n.z + wander(rng);
+			const std::optional<Atlas::Carried> to = a.carry(n.x, top + up, n.z, x, y, z);
+			if (!to)
+				continue;
+			carried++;
+			const std::optional<Atlas::Node> m = a.charted(Atlas::moverNode(to->x, to->y, to->z));
+			UASSERT(m.has_value());
+			UTEST(!a.carry(to->x, to->y, to->z, to->x, to->y, to->z).has_value(), "carried again, %.0f up", to->y);
+			const terragen::Atlas::Vec before = *a.point(n, x, y, z), after = *a.point(*m, to->x, to->y, to->z);
+			const double gap = std::sqrt(std::pow(before.x - after.x, 2) + std::pow(before.y - after.y, 2) +
+					std::pow(before.z - after.z, 2));
+			worst = std::max(worst, gap);
+			over += gap > 0.5;
+			// columns of neighbouring grids lean apart up there, leaving
+			// wedges in none: a point in one goes to the nearest column's edge
+			UTEST(gap < 0.015 * up, "carried %.3g blocks off, %.0f above the top", gap, up);
+		}
+		rawstream << "carried above the top " << carried << ", worst " << worst << " blocks, " << over << " over half a block" << std::endl;
+		UTEST(carried > 50, "only %zu carried above the top", carried);
 	}
 }
 

@@ -12,7 +12,7 @@ import SurvivalPanel from "./SurvivalPanel.vue"
  * The inventory, laid out as Minecraft's: in survival, the player's own
  * inventory; in creative, the catalogue in tabs (icons along the top, the
  * player's inventory along the bottom), the search box always there. One
- * frame whose size never changes with the tab. E or Esc closes it (unless
+ * frame whose size never changes with the tab. I or Esc closes it (unless
  * you're typing in the search). What's carried, and every click, is in
  * carry.ts; the engine owns every stack.
  */
@@ -67,7 +67,7 @@ function keydown(e: KeyboardEvent) {
     const typing = document.activeElement === search.value
     if (e.key === "Escape") { e.preventDefault(); close(); return }
     if (typing) return
-    if (e.key === "e" || e.key === "E") { e.preventDefault(); close(); return }
+    if (e.key === "i" || e.key === "I") { e.preventDefault(); close(); return }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); carry.key(Number(e.key), over.value); return }
     // any other letter starts a search, as Minecraft's creative tabs do
     if (creative.value && tab.value !== "inventory" && e.key.length === 1 && /\S/.test(e.key) && !e.ctrlKey && !e.metaKey) {
@@ -124,7 +124,7 @@ const tooltip = computed(() => {
             <div class="body">
                 <header>
                     <h2>{{ !creative ? "Inventory" : tab === "inventory" ? "Inventory" : query ? "Search" : tabs.find((t) => t.id === tab)?.label ?? "" }}</h2>
-                    <button class="close" title="Close (E or Esc)" @click="close">✕</button>
+                    <button class="close" title="Close (I or Esc)" @click="close">✕</button>
                 </header>
                 <label v-if="creative && tab !== 'inventory'" class="search">
                     <svg viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true">

@@ -17,6 +17,7 @@
 #include "clientdynamicinfo.h"
 #include "clouds.h"
 #include "far/view.h"
+#include "planetarium/sky.h"
 #include "client/hold.h"
 #include "client/hand.h"
 #include "sculpt/sculpt.h"
@@ -354,6 +355,7 @@ private:
 	Camera *camera = nullptr;
 	irr_ptr<Clouds> clouds;
 	irr_ptr<Sky> sky;
+	irr_ptr<planetarium::Sky> space; // Terra Firma: the system round the planet, behind far_view
 	irr_ptr<far::View> far_view; // Terra Firma: the horizon, on a terra world
 	int far_body = 0;            // Terra Firma: the atlas body far_view draws
 	// Terra Firma: the planet viewer, while it's open (it takes the input)
@@ -382,6 +384,8 @@ private:
 		v3s16 normal;
 	};
 	std::optional<Aim> aimAt(const PointedThing &pointed) const;
+	// the ray in each of machine `id`'s parts' grids: the nearest hit
+	std::optional<Aim> aimAtPiece(u16 id) const;
 	// the stroke a click would make there, or a drag to `to`
 	std::optional<sculpt::Stroke> strokeAt(const Aim &aim, sculpt::Act act,
 			std::optional<shape::Sixteenth> to = std::nullopt) const;
@@ -396,7 +400,21 @@ private:
 		bool pulling = false;
 		s32 deep = 1; // sixteenths, out of the face (in, < 0)
 		std::optional<shape::Sixteenth> pull_from; // a face pulled: its stretch's first corner
+		bool clicked = false; // let go before it was dragged: the footprint's ended by a click
+		u64 pressed_at = 0;   // ms: a press let go quickly is a click, however the mouse moved
+		bool pull = false;    // Shift held as it began: a flat face pulled (sprint 65)
+		std::optional<u64> socket; // begun on the workpiece's socket: the part grown out of it
 	};
+	// the brush as it acts now: Shift pulls with Add or Cut (sprint 65)
+	const Hand::BrushKind &brushNow() const;
+	// what a stroke would begin on: a socket of the workpiece, creating
+	// (m_aimed_socket), else aimAt
+	std::optional<Aim> aimFor(const PointedThing &pointed);
+	std::optional<u64> m_aimed_socket;
+	const piece::Machine::Socket *socketOf(u16 object, u64 id) const;
+	// the socket across a stroke's mirror from `k` (made with it), if there's one
+	const piece::Machine::Socket *mirrorSocket(u16 object, const piece::Machine::Socket &k,
+			const sculpt::Stroke::Mirror &mirror) const;
 	// the stroke it's come to, pulled as far as it's been
 	std::optional<sculpt::Stroke> drawn(const Draw &draw) const;
 	// how far along the start's normal the cursor's ray comes nearest
@@ -426,16 +444,50 @@ private:
 		bool turned = false; // it's turned something: not a click
 		bool place = false;  // the other button's (a click of it: the part's menu)
 	} m_drag;
-	// a part's menu, opened by the other button clicked on it: where
-	// (pixels), and the face it was opened on (sockets go there)
-	std::optional<v2s32> m_menu;
-	piece::Machine::Face m_menu_face{};
+	// a face's joint menu (sprint 63), opened by the other button clicked
+	// on it: its buttons laid on the face, in the world, picked by looking
+	// at one and clicking; a socket of that joint's made there
+	struct Menu
+	{
+		// what a button does
+		enum class Do : u8 { Socket, Edit, Detach, Delete, Unsocket, Relink, Unlink };
+		struct Button
+		{
+			const char *label;
+			Do does;
+			piece::Joint joint; // a socket's, or the joint set
+			int row;
+		};
+		piece::Machine::Face face;
+		u64 part;       // the part it's on
+		u64 other = 0;  // relinking: the part the joint's to
+		std::vector<Button> buttons;
+		v3f at, normal; // BS, the world's: the face's middle, out of it
+		v3f u, w;       // the face's plane: across (level), up it
+		int lit = -1;   // the button looked at
+	};
+	std::optional<Menu> m_menu;
+	// a part's menu (sockets on the face; edit, detach, delete), or the
+	// joint menu between the part selected and `other`
+	void openMenu(const Aim &aim);
+	void openJointMenu(const Aim &aim, u64 other);
+	void placeMenu(const Aim &aim, std::vector<Menu::Button> buttons, u64 other);
+	// the buttons drawn, the one looked at lit; a click picks it (or, off
+	// them, closes it). True: the click was the menu's
+	bool menuStep();
+	// a part clicked to select (Shift, with another selected: their joint)
+	void selectPart(const Aim &aim);
+	void closeMenu();
 	// the cursor free (Tab): the view stays, clicks go where it points
 	bool m_cursor = false;
 	// the workbench's frame: its handle turned, its pose said
 	void benchStep(f32 dtime);
 	// a machine's sockets, drawn
 	void showSockets(GenericCAO &obj, bool lit) const;
+	// a part's words over it: its material, its joints
+	void labelPart(GenericCAO &obj, u64 id);
+	// the socket looked at (of anything in reach): its object and id
+	std::optional<std::pair<u16, u64>> socketAt() const;
 	// the held object's turning handle, drawn
 	void showHandle(v3s16 camera_offset);
 	// an object grabbed (the tools away) and carried as the button's held,
@@ -456,7 +508,19 @@ private:
 			piece::Machine::Face mine;
 			std::optional<u64> socket; // their socket it'd go on
 		};
-		std::optional<Snap> snap;
+		std::optional<Snap> snap = std::nullopt;
+		// sprint 64: asked since it was last moved (Q/E quarters, R the
+		// next axis, F the other side)
+		int turn_asked = 0, tilt_asked = 0;
+		bool flip_asked = false;
+		// fitted to something: its side that meets it (its own axes), what
+		// that was chosen against, the quarters it's spun about the joint
+		std::optional<v3s16> side = std::nullopt;
+		u16 side_for = 0;
+		std::optional<u64> side_socket = std::nullopt;
+		u8 spin = 0;
+		// where it's drawn, fitted (BS position, rotation in degrees)
+		std::optional<std::pair<v3f, v3f>> fitted = std::nullopt;
 	};
 	std::optional<Carry> m_carry;
 	// the view's own ways (BS-free unit vectors)
@@ -467,7 +531,20 @@ private:
 	static View view(v3f look);
 	// the object pointed at in the world, lit
 	u16 m_lit = 0;
+	std::optional<u64> m_lit_part; // the part of it looked at
 	void handleCarry(const PointedThing &pointed, f32 dtime);
+	// Terra Firma: grabbing (sprint 68): a point of an object pressed on,
+	// pulled toward the hand (as far off as it was, nearer or further by
+	// the wheel) as hard as a person, here at once and on the server
+	struct Grab
+	{
+		u16 object;
+		v3f point;    // BS, in its frame
+		f32 distance; // BS, from the eye
+		f32 age;      // s since the grip was last sent
+	};
+	std::optional<Grab> m_grab;
+	void handleGrab(const PointedThing &pointed, f32 dtime);
 	void showTool();
 	// an object's middle in its own grid (node coordinates); nothing if
 	// it's not an object (or gone)
@@ -482,6 +559,18 @@ private:
 	piece::Machine::Face faceOf(const Aim &aim) const;
 	// what a socket's mirrored across: the workbench machine's middle, if mirrored
 	std::optional<sculpt::Stroke::Mirror> machineMirror() const;
+	// Terra Firma: the axis mirroring mirrors across, chosen once when it's
+	// turned on and kept (sprint 68: it was the screen's right at each
+	// stroke, so it flipped as the player walked round); in the machine's
+	// grid while one's held, else the world's. Alt+= steps it on.
+	struct MirrorPlane
+	{
+		u16 object; // what it's in (0: the world)
+		int axis;
+	};
+	mutable std::optional<MirrorPlane> m_mirror_plane; // chosen at the first stroke, which only looks
+	int mirrorAxis(u16 object, int now) const;
+	void stepMirror();
 	// a click in a mode that isn't drawing, on what's aimed at
 	void clickMode(const Aim &aim);
 	// opens the focus view on what's pointed at, or closes it
@@ -491,6 +580,7 @@ private:
 	void toggleFocus();
 	// the ghost's outline (world sixteenths), and the stroke it's of
 	std::optional<sculpt::Stroke> m_ghost_of;
+	bool m_ghost_shown = false; // a stroke's ghost drawn this frame: seen through the ground
 	std::vector<std::pair<v3s32, v3s32>> m_ghost;
 	Hud *hud = nullptr;
 	Minimap *mapper = nullptr;

@@ -15,8 +15,9 @@
 namespace piece {
 
 const JointKind JOINTS[size_t(Joint::Count)] = {
-	{ "fixed", false },
-	{ "hinge", true },
+	{ "fixed", false, 0 },
+	{ "rotary", true, 0 },
+	{ "hinge", true, 90 },
 };
 
 namespace {
@@ -450,7 +451,22 @@ std::optional<Machine::Face> Machine::faceToward(v3s16 d) const
 	if (!box)
 		return std::nullopt;
 	const v3f dir = v3f::from(d);
-	const v3f middle = (box->getCenter() + v3f(0.5f)) * STEPS; // its sixteenths
+	// its middle (sixteenths), from what's filled, not its nodes' box: a
+	// wheel 3½ nodes across is met at its middle (sprint 65)
+	v3f lo(1e9f), hi(-1e9f);
+	for (const Part &p : m_parts)
+		p.object.design().each([&](v3s16 n, MapNode, const shape::Shape *s) {
+			for (s16 x = 0; x < STEPS; x++)
+				for (s16 y = 0; y < STEPS; y++)
+					for (s16 z = 0; z < STEPS; z++) {
+						if (s && !s->has(v3s16(x, y, z)))
+							continue;
+						const v3f c = p.pose.apply(v3f(n.X * STEPS + x + 0.5f, n.Y * STEPS + y + 0.5f, n.Z * STEPS + z + 0.5f));
+						lo = v3f(std::min(lo.X, c.X), std::min(lo.Y, c.Y), std::min(lo.Z, c.Z));
+						hi = v3f(std::max(hi.X, c.X), std::max(hi.Y, c.Y), std::max(hi.Z, c.Z));
+					}
+		});
+	const v3f middle = (lo + hi) / 2;
 	std::optional<Face> best;
 	f32 best_far = 0, best_off = 0;
 	for (const Part &p : m_parts) {
@@ -466,10 +482,11 @@ std::optional<Machine::Face> Machine::faceToward(v3s16 d) const
 			const f32 off = across.getLengthSQ();
 			if (best && (far < best_far - 0.5f || (far < best_far + 0.5f && off >= best_off)))
 				return;
-			v3s16 cell(7, 7, 7);
+			// across, the sixteenth nearest its middle (in the node)
+			const v3f there = p.pose.unapply(middle) - v3f(n.X, n.Y, n.Z) * STEPS;
+			v3s16 cell;
 			for (int a = 0; a < 3; a++)
-				if (local[a])
-					cell[a] = local[a] > 0 ? 15 : 0;
+				cell[a] = local[a] ? (local[a] > 0 ? 15 : 0) : s16(core::clamp<f32>(std::floor(there[a]), 0, STEPS - 1));
 			best = Face{ p.object.id(), { n, cell }, local };
 			best_far = far;
 			best_off = off;
@@ -502,20 +519,24 @@ Machine::Face Machine::mirrored(const Face &face, int axis, s32 twice) const
 		local };
 }
 
-void Machine::join(const Face &mine, Machine other, const Face &theirs, Joint joint)
+void Machine::join(const Face &mine, Machine other, const Face &theirs, Joint joint, u8 spin)
 {
 	const v3f p = point(mine);
 	const v3s16 n = normal(mine);
-	adopt(std::move(other), theirs, p, n);
+	adopt(std::move(other), theirs, p, n, spin);
 	m_links.push_back({ mine.part, theirs.part, joint, p, n });
 }
 
-void Machine::adopt(Machine other, const Face &theirs, v3f p, v3s16 n)
+void Machine::adopt(Machine other, const Face &theirs, v3f p, v3s16 n, u8 spin)
 {
 	const v3f q = other.point(theirs);
 	const v3s16 m = other.normal(theirs);
-	// their face's normal turned against ours; their point on ours
-	const u8 t = turnTaking(m, v3s16(-n.X, -n.Y, -n.Z), 0);
+	// their face's normal turned against ours, then spun about it; their
+	// point on ours
+	u8 t = turnTaking(m, v3s16(-n.X, -n.Y, -n.Z), 0);
+	const u8 quarter = quarterAbout(n);
+	for (u8 i = 0; i < spin % 4; i++)
+		t = compose(t, quarter);
 	const Turn &turned = turn(t);
 	const v3f shift = p - turned.apply(q);
 	const v3s32 by(std::lround(shift.X), std::lround(shift.Y), std::lround(shift.Z));
@@ -552,14 +573,14 @@ void Machine::unsocket(u64 id)
 			m_sockets.end());
 }
 
-void Machine::plug(u64 id, Machine other, const Face &theirs)
+void Machine::plug(u64 id, Machine other, const Face &theirs, u8 spin)
 {
 	const auto it = std::find_if(m_sockets.begin(), m_sockets.end(), [&](const Socket &k) { return k.id == id; });
 	if (it == m_sockets.end())
 		throw BaseException("Machine::plug: no socket " + std::to_string(id));
 	const Socket k = *it;
 	m_sockets.erase(it);
-	adopt(std::move(other), theirs, k.point, k.axis);
+	adopt(std::move(other), theirs, k.point, k.axis, spin);
 	m_links.push_back({ k.part, theirs.part, k.joint, k.point, k.axis });
 }
 

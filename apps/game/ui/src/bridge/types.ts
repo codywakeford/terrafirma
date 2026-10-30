@@ -55,15 +55,9 @@ export type ActionId = (typeof ACTION_IDS)[number]
 /** What the brush does with a shape (src/client/hand.h: Hand::BRUSHES). */
 export const BRUSH_IDS = ["add", "cut", "paint", "pull", "part"] as const
 export type BrushId = (typeof BRUSH_IDS)[number]
-export type JointId = "fixed" | "hinge"
+export type JointId = "fixed" | "rotary" | "hinge"
 /** What a click does (src/client/hand.h: Hand::Mode): draw with the brush, select a part, join two. */
 export type ToolMode = { click: "draw" | "select" }
-/** The part selected, as its card shows it (src/shell/state.cpp: partCard). Ids are strings: they're 64 bits. */
-export type PartCard = {
-    id: string; material: string; joints: { other: string; joint: JointId; material: string }[]
-    /** Joints waiting for a part: something carried onto one is joined there. */
-    sockets: { id: string; joint: JointId }[]
-}
 export type Ask = { action: Exclude<ActionId, "save" | "place"> } | { action: "save" | "place"; name: string }
     | { action: "relink"; other: string; joint: JointId | "none" }
     | { action: "socket"; joint: JointId } | { action: "unsocket"; socket: string }
@@ -78,13 +72,13 @@ export type StateSections = {
     tools: { out: false } | {
         /** `focused`: an object's on the workbench. `cursor`: the cursor's free (Tab, or a menu open): the page is clicked. */
         out: true; tool: ToolId; size: number; mirrored: boolean; focused: boolean; cursor: boolean
+        /** The brush as it acts: creating, adding makes parts. */
         brush: BrushId
+        /** Build mode's way in (sprint 62): C creates objects (true), X shapes the world. */
+        creating: boolean
         /** A new part's joint to what it's drawn on. */
         partJoint: JointId
         mode: ToolMode
-        part: PartCard | null
-        /** The part's menu, opened by a right-click on it: where (the window's pixels). */
-        menu: { x: number; y: number } | null
     }
     /** The player's blueprints by name (src/workshop/library.h), sorted. */
     library: string[]

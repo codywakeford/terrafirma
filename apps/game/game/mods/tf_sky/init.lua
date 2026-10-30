@@ -4,6 +4,12 @@
 -- lights the world from it; this only keeps it told. Worlds terra didn't
 -- generate (the Lab) have no real sun to follow and keep the stock sky; the
 -- Lab shows the solar sky through its own scenarios (lab.lua).
+--
+-- On a planet (an atlas world) the stock sky is off (sprint 60): no dome,
+-- sun, moon, stars or clouds. The client draws space there itself, the
+-- system seen from where the player is (planetarium/sky), and the far view
+-- the planet. The real sun is still sent: it lights the world. The air's
+-- blue comes back with the atmosphere.
 
 dofile(core.get_modpath("tf_sky") .. "/lab.lua") -- its Lab scenario
 
@@ -23,6 +29,8 @@ local BLUE = {
 }
 local SPACE = { 0, 0, 4 }
 local CLOUDS = 12000 -- m above the sea: above them, they're gone
+
+local PLANET = (core.get_mapgen_setting("planet_atlas") or "") ~= ""
 
 local sent = {} -- player name → the sky they have: { latitude, declination, thin }
 
@@ -46,17 +54,29 @@ local function update(player)
 			and math.abs(last.declination - sun.declination) < CHANGE and math.abs(last.thin - thin) < THIN then
 		return
 	end
-	local blue = math.sqrt(thin) -- the sky darkens early: a third of the air is already a deep blue
-	local colours = {}
-	for k, c in pairs(BLUE) do colours[k] = hex(c, blue) end
-	colours.fog_tint_type = "default"
-	player:set_sky({
-		type = "regular",
-		clouds = at.altitude < CLOUDS,
-		solar = { latitude = sun.latitude, declination = sun.declination },
-		sky_color = colours,
-	})
-	player:set_stars({ day_opacity = 1 - blue })
+	if PLANET then
+		player:set_sky({
+			type = "plain",
+			base_color = "#000000",
+			clouds = false,
+			solar = { latitude = sun.latitude, declination = sun.declination },
+		})
+		player:set_sun({ visible = false, sunrise_visible = false })
+		player:set_moon({ visible = false })
+		player:set_stars({ visible = false })
+	else
+		local blue = math.sqrt(thin) -- the sky darkens early: a third of the air is already a deep blue
+		local colours = {}
+		for k, c in pairs(BLUE) do colours[k] = hex(c, blue) end
+		colours.fog_tint_type = "default"
+		player:set_sky({
+			type = "regular",
+			clouds = at.altitude < CLOUDS,
+			solar = { latitude = sun.latitude, declination = sun.declination },
+			sky_color = colours,
+		})
+		player:set_stars({ day_opacity = 1 - blue })
+	end
 	sent[name] = { latitude = sun.latitude, declination = sun.declination, thin = thin }
 end
 

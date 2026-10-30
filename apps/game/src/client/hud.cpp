@@ -321,6 +321,27 @@ bool Hud::hasElementOfType(HudElementType type)
 }
 
 // Calculates screen position of waypoint. Returns true if waypoint is visible (in front of the player), else false.
+// Terra Firma: each label centred where its place is on screen (behind
+// the camera: not drawn)
+void Hud::drawLabels(const v3s16 &camera_offset)
+{
+	gui::IGUIFont *const font = g_fontengine->getFont();
+	scene::ICameraSceneNode *camera = client->getSceneManager()->getActiveCamera();
+	core::matrix4 trans = camera->getProjectionMatrix();
+	trans *= camera->getViewMatrix();
+	for (const Label &l : m_labels) {
+		const v3f w = l.at - intToFloat(camera_offset, BS);
+		f32 p[4] = { w.X, w.Y, w.Z, 1.0f };
+		trans.multiplyWith1x4Matrix(p);
+		if (p[3] <= 0)
+			continue;
+		const v2s32 at(m_screensize.X * (0.5f * p[0] / p[3] + 0.5f), m_screensize.Y * (0.5f - 0.5f * p[1] / p[3]));
+		const core::dimension2d<u32> size = font->getDimension(l.text.c_str());
+		font->draw(l.text.c_str(), core::rect<s32>(at.X - size.Width / 2, at.Y - size.Height / 2,
+				at.X + size.Width / 2 + 1, at.Y + size.Height / 2 + 1), l.colour);
+	}
+}
+
 bool Hud::calculateScreenPos(const v3s16 &camera_offset, HudElement *e, v2s32 *pos)
 {
 	v3f w_pos = e->world_pos * BS;
@@ -344,6 +365,7 @@ void Hud::drawLuaElements(const v3s16 &camera_offset, bool only_unhidable)
 {
 	const u32 text_height = g_fontengine->getTextHeight();
 	gui::IGUIFont *const font = g_fontengine->getFont();
+	drawLabels(camera_offset); // Terra Firma
 
 	std::vector<HudElement*> elems;
 
@@ -913,6 +935,17 @@ void Hud::drawSelectionMesh()
 				selectionbox_argb.getGreen() * m_selection_mesh_color.getGreen() / 255,
 				selectionbox_argb.getBlue() * m_selection_mesh_color.getBlue() / 255);
 		driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+		if (m_selection_through) {
+			// what's behind the ground (a cut going in) seen through it,
+			// dim; then what's in front, bright
+			video::SMaterial through = m_selection_material;
+			through.ZBuffer = video::ECFN_DISABLED;
+			driver->setMaterial(through);
+			const video::SColor dim(255, colour.getRed() / 3, colour.getGreen() / 3, colour.getBlue() / 3);
+			for (const auto &[a, b] : m_selection_lines)
+				driver->draw3DLine(a, b, dim);
+			driver->setMaterial(m_selection_material);
+		}
 		for (const auto &[a, b] : m_selection_lines)
 			driver->draw3DLine(a, b, colour);
 	} else if (m_mode == HIGHLIGHT_BOX) {

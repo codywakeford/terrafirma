@@ -13,12 +13,17 @@
 #include <Jolt/Physics/Collision/GroupFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
@@ -26,6 +31,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <tuple>
 
 namespace physics {
 
@@ -35,9 +41,11 @@ using namespace JPH;
 
 // What touches what. Characters (players) aren't bodies: they move
 // themselves, meeting the ground and assemblies, but not what's carried
-// (what you carry can't push you, nor you stand on it).
+// (what you carry can't push you, nor you stand on it). A wheel's body is
+// only there to be touched; its tyre (what a vehicle casts for the
+// ground) meets the ground and what moves.
 namespace Layer {
-constexpr ObjectLayer GROUND = 0, MOVING = 1, CHARACTER = 2, CARRIED = 3, COUNT = 4;
+constexpr ObjectLayer GROUND = 0, MOVING = 1, CHARACTER = 2, CARRIED = 3, WHEEL = 4, TYRE = 5, COUNT = 6;
 }
 namespace Broad {
 constexpr BroadPhaseLayer STILL(0), MOVING(1);
@@ -65,7 +73,7 @@ class LayerVsBroad final : public ObjectVsBroadPhaseLayerFilter
 public:
 	bool ShouldCollide(ObjectLayer l, BroadPhaseLayer b) const override
 	{
-		return l != Layer::GROUND || b == Broad::MOVING;
+		return (l != Layer::GROUND && l != Layer::WHEEL) || b == Broad::MOVING;
 	}
 };
 
@@ -75,11 +83,13 @@ public:
 	bool ShouldCollide(ObjectLayer a, ObjectLayer b) const override
 	{
 		static constexpr bool TOUCH[Layer::COUNT][Layer::COUNT] = {
-			//          ground moving character carried
-			/* ground */ { false, true, true, true },
-			/* moving */ { true, true, true, true },
-			/* char.  */ { true, true, false, false },
-			/* carr.  */ { true, true, false, true },
+			//          ground moving character carried wheel tyre
+			/* ground */ { false, true, true, true, false, true },
+			/* moving */ { true, true, true, true, false, true },
+			/* char.  */ { true, true, false, false, true, false },
+			/* carr.  */ { true, true, false, true, false, false },
+			/* wheel  */ { false, false, true, false, false, false },
+			/* tyre   */ { true, true, false, false, false, false },
 		};
 		return TOUCH[a][b];
 	}
@@ -210,6 +220,7 @@ struct World::Impl
 	{
 		std::vector<RefConst<Shape>> shapes;
 		std::vector<float> friction;
+		std::vector<float> masses;
 		float mass = 0;
 	};
 	struct Rec
@@ -224,9 +235,25 @@ struct World::Impl
 		v3f velocity{ 0 };               // frozen: none, unless it was made moving
 		std::optional<Pose> target;      // held or carried: where it's to be
 		std::optional<float> carried;    // carried: how hard it's pulled there (N)
+		struct Grip
+		{
+			size_t body;                 // the one grabbed (never a wheel: its root)
+			Vec3 point;                  // where, in that body's frame
+			float strength;              // N
+			std::optional<RVec3> hand;   // where it's pulled to (none till told)
+		};
+		std::map<unsigned, Grip> grips; // grabbed, by who
 		Ref<GroupFilterTable> group;
 		std::vector<BodyID> bodies;      // live
 		std::vector<Ref<Constraint>> hinges;
+		Ref<VehicleConstraint> vehicle;  // live, not held: its wheels
+		bool isWheel(size_t body) const
+		{
+			for (const Wheel &w : source.wheels)
+				if (w.body == body)
+					return true;
+			return false;
+		}
 	};
 	std::map<Id, Rec> recs;
 	Id next = 1;
@@ -242,8 +269,11 @@ struct World::Impl
 	{
 		Ref<CharacterVirtual> c;
 		v3f want{ 0 };                // the velocity it moves at next step
-		std::optional<RVec3> to;      // placed: where it's to be next step (pushing on the way)
+		std::optional<RVec3> to;      // placed: where it's to be after this call's steps (pushing on the way)
+		RVec3 from;                   // placed: where it was when they began
 		RVec3 was;                    // its foot before the last step: drawn between
+		bool unknown_is_air = false;  // unloaded ground: flown through, not waited for
+		std::map<Id, Vec3> pushed;    // what it's pressed on held assemblies since taken (N·s)
 	};
 	std::map<CharId, Char> chars;
 	CharId next_char = 1;
@@ -289,17 +319,17 @@ struct World::Impl
 	bool charGround(const Char &c)
 	{
 		const RVec3 p = c.to ? *c.to : c.c->GetPosition();
+		bool all = true; // every block's built that can be (one flying through needs the rest)
 		for (int x = blockOf(p.GetX() - 2); x <= blockOf(p.GetX() + 2); x++)
 			for (int y = blockOf(p.GetY() - 2); y <= blockOf(p.GetY() + 3); y++)
 				for (int z = blockOf(p.GetZ() - 2); z <= blockOf(p.GetZ() + 2); z++)
-					if (!groundAt(v3s16(x, y, z)))
-						return false;
-		return true;
+					all = groundAt(v3s16(x, y, z)) && all;
+		return all;
 	}
 
-	void moveChars()
+	// The `k`th of this call's `n` steps.
+	void moveChars(int k, int n)
 	{
-		const Vec3 g = vec(opts.gravity);
 		CharacterVirtual::ExtendedUpdateSettings up;
 		up.mStickToFloorStepDown = Vec3(0, -0.5f, 0);
 		up.mWalkStairsStepUp = Vec3(0, opts.step_up, 0);
@@ -307,19 +337,53 @@ struct World::Impl
 		DefaultObjectLayerFilter objects(pairs, Layer::CHARACTER);
 		for (auto &[id, c] : chars) {
 			c.was = c.c->GetPosition();
-			if (!charGround(c)) {
+			if (!charGround(c) && !c.unknown_is_air) {
 				// in ground that isn't loaded: it waits there
 				c.c->SetLinearVelocity(Vec3::sZero());
 				continue;
 			}
 			// placed (a player the client moves): it goes there, pushing
-			// what's in the way as hard as it can, and is put there
-			const Vec3 v = c.to ? Vec3(*c.to - c.c->GetPosition()) / (float)STEP : vec(c.want);
+			// what's in the way as hard as it can, and is put there. The
+			// way is spread over the steps till the next placing: gone in
+			// one, a stroll was 30 m/s and threw what it walked into
+			// (sprint 67)
+			if (c.to && k == 0)
+				c.from = c.c->GetPosition();
+			const std::optional<RVec3> there = c.to ? std::optional<RVec3>(c.from + (*c.to - c.from) * std::min(1.0, (k + 1) / (double)n)) : std::nullopt;
+			const Vec3 v = there ? Vec3(*there - c.c->GetPosition()) / (float)STEP : vec(c.want);
 			c.c->SetLinearVelocity(v);
+			const Vec3 g = vec(opts.field(rout(c.c->GetPosition()), out(v)).gravity);
 			c.c->ExtendedUpdate((float)STEP, g, up, broad, objects, BodyFilter(), ShapeFilter(), temp);
-			if (c.to) {
-				c.c->SetPosition(*c.to);
-				c.to.reset();
+			if (there) {
+				c.c->SetPosition(*there);
+				if (k >= n - 1)
+					c.to.reset();
+			}
+			pressed(c, v);
+		}
+	}
+
+	// What a character walking at `v` pressed on held assemblies this step:
+	// they don't give (they're kinematic), so it's kept for whoever moves
+	// them (a client's mirror of the server's) — as hard as it pushes once
+	// it walks into them at a metre a second
+	void pressed(Char &c, Vec3 v)
+	{
+		for (const CharacterVirtual::Contact &k : c.c->GetActiveContacts()) {
+			if (!k.mHadCollision || k.mBodyB.IsInvalid())
+				continue;
+			const Vec3 into = -k.mContactNormal;
+			// stood on: its weight's the server's own character's to give
+			// (sent too, a light cart run over was stamped on and thrown)
+			if (into.GetY() < -0.7f)
+				continue;
+			const float hard = std::min(1.f, v.Dot(into));
+			if (hard <= 0)
+				continue;
+			for (auto &[id, r] : recs) {
+				if (!r.held || std::find(r.bodies.begin(), r.bodies.end(), k.mBodyB) == r.bodies.end())
+					continue;
+				c.pushed[id] += into * (c.c->GetMaxStrength() * hard * (float)STEP);
 			}
 		}
 	}
@@ -350,6 +414,7 @@ struct World::Impl
 			if (!(mass > 0))
 				throw PhysicsError("physics: a body of no mass");
 			out.mass += mass;
+			out.masses.push_back(mass);
 			out.friction.push_back(rubs / mass);
 			if (b.round) {
 				const Round &r = *b.round;
@@ -380,17 +445,26 @@ struct World::Impl
 		r.rel.resize(n);
 		for (size_t i = 0; i < n; i++) {
 			const Placed at = i == 0 ? root : then(root, r.rel[i]);
-			BodyCreationSettings s(r.built.shapes[i], at.position, at.rotation,
-					r.held ? EMotionType::Kinematic : EMotionType::Dynamic, r.carried ? Layer::CARRIED : Layer::MOVING);
+			const bool wheel = r.isWheel(i);
+			BodyCreationSettings s(i == 0 && !r.source.wheels.empty() ? withWheels(r) : r.built.shapes[i], at.position,
+					at.rotation, r.held || wheel ? EMotionType::Kinematic : EMotionType::Dynamic,
+					wheel ? Layer::WHEEL : r.carried ? Layer::CARRIED : Layer::MOVING);
+			if (i == 0 && !r.source.wheels.empty()) {
+				s.mOverrideMassProperties = EOverrideMassProperties::MassAndInertiaProvided;
+				s.mMassPropertiesOverride = wheeledMass(r);
+			}
 			s.mAllowDynamicOrKinematic = true;
 			s.mFriction = r.built.friction[i];
 			s.mRestitution = 0.05f;
-			s.mLinearDamping = 0.05f;
+			s.mLinearDamping = 0; // the air drags (weigh), as the field says
 			s.mAngularDamping = 0.1f;
 			s.mCollisionGroup = CollisionGroup(r.group, id, (CollisionGroup::SubGroupID)i);
 			s.mLinearVelocity = vec(r.velocity);
 			// over the ground's seams without catching on their edges
 			s.mEnhancedInternalEdgeRemoval = true;
+			// a plate a sixteenth thick falling fast passes through the
+			// ground between two steps: it's swept instead (sprint 67)
+			s.mMotionQuality = EMotionQuality::LinearCast;
 			const BodyID b = bi().CreateAndAddBody(s, EActivation::Activate);
 			if (b.IsInvalid())
 				throw PhysicsError("physics: too many bodies");
@@ -404,11 +478,149 @@ struct World::Impl
 			s.mHingeAxis1 = s.mHingeAxis2 = axis;
 			s.mNormalAxis1 = s.mNormalAxis2 = axis.GetNormalizedPerpendicular();
 			s.mMaxFrictionTorque = h.friction;
+			if (h.limit > 0) {
+				s.mLimitsMin = -h.limit;
+				s.mLimitsMax = h.limit;
+			}
 			Ref<Constraint> c = bi().CreateConstraint(&s, r.bodies[h.a], r.bodies[h.b]);
 			system.AddConstraint(c);
 			r.hinges.push_back(c);
 		}
 		r.tier = Tier::Live;
+		if (!r.held)
+			roll(r, true);
+	}
+
+	// A wheel's suspension's travel (nodes): a little, so it rides over a
+	// sixteenth's step, and springs stiff enough that it sits near true;
+	// its backstop is short of the tyre by all its travel and a little
+	static constexpr float TRAVEL = 0.1f, SAG = 0.05f, BACKSTOP = TRAVEL / 2 + SAG + 0.02f;
+
+	// Its root as it weighs with its wheels on (they're kinematic: their
+	// weight is the root's to carry), its centre of mass where all of
+	// theirs is: a cart with heavy wheels sits low.
+	MassProperties wheeledMass(const Rec &r) const
+	{
+		const Shape &shape = *r.built.shapes[0];
+		float mass = r.built.masses[0];
+		Vec3 centre = shape.GetCenterOfMass() * mass;
+		for (const Wheel &w : r.source.wheels) {
+			mass += r.built.masses[w.body];
+			centre += vec(w.centre) * r.built.masses[w.body];
+		}
+		centre /= mass;
+		MassProperties all = shape.GetMassProperties();
+		all.Translate(shape.GetCenterOfMass() - centre);
+		for (const Wheel &w : r.source.wheels) {
+			// a solid cylinder about its axle (y), then turned onto it
+			const float m = r.built.masses[w.body], rr = w.radius * w.radius, ww = 4 * w.half_width * w.half_width;
+			MassProperties one;
+			one.mMass = m;
+			one.mInertia = Mat44::sScale(Vec3(m * (3 * rr + ww) / 12, m * rr / 2, m * (3 * rr + ww) / 12));
+			one.Rotate(Mat44::sRotation(JPH::Quat::sFromTo(Vec3::sAxisY(), vec(w.axis))));
+			one.Translate(vec(w.centre) - centre);
+			all.mMass += one.mMass;
+			for (int c = 0; c < 3; c++)
+				all.mInertia.SetColumn4(c, all.mInertia.GetColumn4(c) + one.mInertia.GetColumn4(c));
+		}
+		all.mInertia.SetColumn4(3, Vec4(0, 0, 0, 1));
+		return all;
+	}
+
+	// The root's shape with each wheel's backstop in it, its centre of
+	// mass moved to where its wheels' and its together is. A wheel's tyre
+	// is cast for the ground and its body never meets it; tipped on its
+	// side, or put down with a wheel in the ground, nothing would hold it
+	// up. The backstop is the wheel short of its suspension's travel: it
+	// only touches what the tyre's let past (sprint 67).
+	RefConst<Shape> withWheels(const Rec &r) const
+	{
+		const Shape &shape = *r.built.shapes[0];
+		float mass = r.built.masses[0];
+		Vec3 centre = shape.GetCenterOfMass() * mass;
+		StaticCompoundShapeSettings all;
+		all.AddShape(Vec3::sZero(), JPH::Quat::sIdentity(), r.built.shapes[0]);
+		for (const Wheel &w : r.source.wheels) {
+			mass += r.built.masses[w.body];
+			centre += vec(w.centre) * r.built.masses[w.body];
+			const float radius = std::max(w.radius / 2, w.radius - BACKSTOP);
+			all.AddShape(vec(w.centre), JPH::Quat::sFromTo(Vec3::sAxisY(), vec(w.axis)),
+					new CylinderShape(w.half_width, radius, std::min(0.02f, w.half_width * 0.5f)));
+		}
+		const RefConst<Shape> with = made(all);
+		OffsetCenterOfMassShapeSettings s(centre / mass - with->GetCenterOfMass(), with);
+		return made(s);
+	}
+
+	// Its wheels rolling (a Jolt vehicle on its root), or not (it's held,
+	// or frozen).
+	void roll(Rec &r, bool on)
+	{
+		if (!on) {
+			if (r.vehicle) {
+				system.RemoveStepListener(r.vehicle);
+				system.RemoveConstraint(r.vehicle);
+				r.vehicle = nullptr;
+			}
+			return;
+		}
+		if (r.vehicle || r.source.wheels.empty())
+			return;
+		const Vec3 up(0, 1, 0), axis = vec(r.source.wheels[0].axis);
+		VehicleConstraintSettings v;
+		v.mUp = up;
+		v.mForward = up.Cross(axis).Normalized();
+		WheeledVehicleControllerSettings *controller = new WheeledVehicleControllerSettings();
+		v.mController = controller;
+		for (const Wheel &w : r.source.wheels) {
+			WheelSettingsWV *s = new WheelSettingsWV();
+			// the wheel is where it was built with the spring sagged SAG
+			s->mPosition = vec(w.centre) + up * (TRAVEL / 2 + SAG);
+			s->mSuspensionDirection = -up;
+			s->mSuspensionMinLength = 0;
+			s->mSuspensionMaxLength = TRAVEL / 2 + SAG + TRAVEL / 2;
+			s->mSuspensionForcePoint = vec(w.centre);
+			s->mWheelUp = s->mSteeringAxis = up;
+			s->mWheelForward = v.mForward;
+			s->mRadius = w.radius;
+			s->mWidth = 2 * w.half_width;
+			s->mInertia = r.built.masses[w.body] * w.radius * w.radius / 2;
+			// its axle's friction is follow()'s: Jolt's brakes lock a wheel
+			// that's stopped for good
+			s->mAngularDamping = 0;
+			s->mMaxSteerAngle = 0;
+			v.mWheels.push_back(s);
+		}
+		// springs as stiff as sag SAG under the root's share of the weight
+		// (ω² = g / sag), damped short of bouncing
+		const float hz = std::sqrt(9.81f / SAG) / (2 * JPH_PI);
+		for (Ref<WheelSettings> &s : v.mWheels)
+			s->mSuspensionSpring = SpringSettings(ESpringMode::FrequencyAndDamping, hz, 0.7f);
+		{
+			BodyLockWrite lock(system.GetBodyLockInterfaceNoLock(), r.bodies[0]);
+			r.vehicle = new VehicleConstraint(lock.GetBody(), v);
+		}
+		r.vehicle->SetVehicleCollisionTester(new VehicleCollisionTesterCastCylinder(Layer::TYRE));
+		system.AddConstraint(r.vehicle);
+		system.AddStepListener(r.vehicle);
+	}
+
+	// Each wheel's axle friction taken from its turn, and its body put
+	// where it is (it follows; it's touched).
+	void follow(Rec &r)
+	{
+		if (!r.vehicle || !bi().IsActive(r.bodies[0]))
+			return;
+		for (size_t i = 0; i < r.source.wheels.size(); i++) {
+			const Wheel &w = r.source.wheels[i];
+			JPH::Wheel &turning = *r.vehicle->GetWheel((uint)i);
+			const float spin = turning.GetAngularVelocity();
+			const float less = w.friction * (float)STEP / static_cast<const WheelSettingsWV *>(turning.GetSettings())->mInertia;
+			turning.SetAngularVelocity(std::fabs(spin) <= less ? 0.f : spin - std::copysign(less, spin));
+			const RMat44 at = r.vehicle->GetWheelWorldTransform((uint)i, vec(w.axis), Vec3(0, 1, 0))
+					* Mat44::sTranslation(-vec(w.centre));
+			bi().MoveKinematic(r.bodies[w.body], at.GetTranslation(), at.GetQuaternion(), (float)STEP);
+		}
 	}
 
 	// Out of Jolt, kept as where it is.
@@ -419,6 +631,7 @@ struct World::Impl
 		r.pose = livePose(r);
 		r.rel = liveRelatives(r);
 		r.velocity = v3f(0);
+		roll(r, false);
 		for (Ref<Constraint> &c : r.hinges)
 			system.RemoveConstraint(c);
 		r.hinges.clear();
@@ -488,12 +701,58 @@ struct World::Impl
 		return true;
 	}
 
+	// Shaped ground (a slope, a wedge, a corner) comes as a node's worth of
+	// sixteenth slices: a staircase a wheel hops down. A node of slices
+	// whose hull is near enough what they fill is the hull (the slope that's
+	// drawn), and its slices are taken out; a node cut hollow keeps them.
+	static void slopes(std::vector<aabb3f> &boxes, std::vector<std::pair<Vec3, Ref<ShapeSettings>>> &parts)
+	{
+		// a 45° staircase of 16 steps overfills by 1/32 of a node
+		constexpr float OVERFILL = 0.06f;
+		std::map<std::tuple<int, int, int>, std::vector<size_t>> by_node;
+		for (size_t i = 0; i < boxes.size(); i++) {
+			const v3f c = boxes[i].getCenter();
+			by_node[{ (int)std::floor(c.X + 0.5f), (int)std::floor(c.Y + 0.5f), (int)std::floor(c.Z + 0.5f) }].push_back(i);
+		}
+		std::vector<bool> gone(boxes.size());
+		for (const auto &[n, in] : by_node) {
+			if (in.size() < 3)
+				continue; // a block, a slab, a step: boxes are its shape
+			const Vec3 at((float)std::get<0>(n), (float)std::get<1>(n), (float)std::get<2>(n));
+			Array<Vec3> points;
+			float filled = 0;
+			for (size_t i : in) {
+				const aabb3f &b = boxes[i];
+				filled += volume(b);
+				for (int k = 0; k < 8; k++)
+					points.push_back(Vec3(k & 1 ? b.MaxEdge.X : b.MinEdge.X, k & 2 ? b.MaxEdge.Y : b.MinEdge.Y,
+							k & 4 ? b.MaxEdge.Z : b.MinEdge.Z) - at);
+			}
+			Ref<ConvexHullShapeSettings> hull = new ConvexHullShapeSettings(points, 0.f);
+			ShapeSettings::ShapeResult r = hull->Create();
+			// one that fills its hull is a box (or boxes) already: merged
+			// with its neighbours, it has no seams to catch on
+			const float hull_volume = r.HasError() ? 0 : r.Get()->GetVolume();
+			if (r.HasError() || hull_volume < filled + 1e-4f || hull_volume > filled + OVERFILL)
+				continue;
+			parts.push_back({ at, Ref<ShapeSettings>(hull) });
+			for (size_t i : in)
+				gone[i] = true;
+		}
+		std::vector<aabb3f> kept;
+		for (size_t i = 0; i < boxes.size(); i++)
+			if (!gone[i])
+				kept.push_back(boxes[i]);
+		boxes = std::move(kept);
+	}
+
 	BodyID makeGround(v3s16 block, std::vector<aabb3f> &boxes)
 	{
 		if (boxes.empty())
 			return BodyID();
-		merge(boxes);
 		std::vector<std::pair<Vec3, Ref<ShapeSettings>>> parts;
+		slopes(boxes, parts);
+		merge(boxes);
 		for (const aabb3f &b : boxes)
 			parts.push_back({ vec(b.getCenter()), box(b, 1000) });
 		BodyCreationSettings s(compound(parts), RVec3(block.X * BLOCK, block.Y * BLOCK, block.Z * BLOCK),
@@ -524,8 +783,8 @@ struct World::Impl
 
 	bool asleep(const Rec &r)
 	{
-		for (const BodyID &b : r.bodies)
-			if (bi().IsActive(b))
+		for (size_t i = 0; i < r.bodies.size(); i++)
+			if (!r.isWheel(i) && bi().IsActive(r.bodies[i]))
 				return false;
 		return true;
 	}
@@ -536,16 +795,20 @@ struct World::Impl
 		for (auto &[id, r] : recs) {
 			const v3d at = r.tier == Tier::Live ? livePose(r).position : r.pose.position;
 			const double d = nearest(at);
-			if (r.tier == Tier::Frozen && (r.held || r.carried || !r.settled || d < opts.live)) {
+			if (r.tier == Tier::Frozen && (r.held || r.carried || !r.grips.empty() || !r.settled || d < opts.live)) {
 				wake(id, r);
 				std::vector<v3s16> unused;
-				if (!needs(r, unused))
-					freeze(r); // its ground isn't loaded: it waits, as it is
+				// its ground isn't loaded: it waits, as it is (but what's
+				// carried is in someone's hands: the sky round it, or a
+				// planet's seam, is never loaded)
+				if (!r.carried && !needs(r, unused))
+					freeze(r);
 			} else if (r.tier == Tier::Live) {
 				std::vector<v3s16> unused;
-				if (!r.held && !r.carried && asleep(r))
+				const bool handled = r.held || r.carried || !r.grips.empty();
+				if (!handled && asleep(r))
 					r.settled = true;
-				if (!r.held && !r.carried && (!needs(r, unused) || (d > opts.freeze && r.settled && asleep(r))))
+				if (!handled && (!needs(r, unused) || (d > opts.freeze && r.settled && asleep(r))))
 					freeze(r);
 			}
 		}
@@ -573,7 +836,8 @@ struct World::Impl
 			mass = 1 / std::max(1e-6f, lock.GetBody().GetMotionProperties()->GetInverseMass());
 		}
 		const float most = *r.carried / mass; // nodes/s² the carrier can give it
-		const Vec3 g = vec(opts.gravity), v = bi().GetLinearVelocity(root);
+		const Vec3 v = bi().GetLinearVelocity(root);
+		const Vec3 g = vec(opts.field(rout(at.position), out(v)).gravity);
 		Vec3 want = Vec3(rvec(r.target->position) - at.position) / TAU;
 		if (want.Length() > FASTEST)
 			want = want.Normalized() * FASTEST;
@@ -597,11 +861,85 @@ struct World::Impl
 		bi().SetAngularVelocity(root, w + dw);
 	}
 
+	// Each moving body's weight and drag, from the field where it is (Jolt's
+	// own gravity is off: one direction everywhere isn't a planet's).
+	void weigh()
+	{
+		// drag as a blunt body's: its coefficient times the area it shows
+		constexpr float CD = 1.0f;
+		for (auto &[id, r] : recs) {
+			if (r.tier != Tier::Live || r.held)
+				continue;
+			for (size_t k = 0; k < r.bodies.size(); k++) {
+				const BodyID &b = r.bodies[k];
+				// a wheel's weight is its root's (wheeledMass)
+				if (!bi().IsActive(b) || r.isWheel(k))
+					continue;
+				// the area it shows the air: its boxes' bounds, a face's on average
+				aabb3f bounds = r.source.bodies[k].boxes[0].box;
+				for (const Box &x : r.source.bodies[k].boxes)
+					bounds.addInternalBox(x.box);
+				const v3f size = bounds.getExtent();
+				const float area = (size.X * size.Y + size.Y * size.Z + size.Z * size.X) / 3;
+				BodyLockRead lock(system.GetBodyLockInterfaceNoLock(), b);
+				const JPH::Body &body = lock.GetBody();
+				const float mass = 1 / std::max(1e-6f, body.GetMotionProperties()->GetInverseMass());
+				const Vec3 v = body.GetLinearVelocity();
+				const Here h = opts.field(rout(body.GetCenterOfMassPosition()), out(v));
+				const Vec3 force = vec(h.gravity) * mass - v * (0.5f * h.air * v.Length() * CD * area);
+				lock.ReleaseLock();
+				bi().AddForce(b, force, EActivation::DontActivate);
+			}
+		}
+	}
+
+	// Grabbed: each grip's point pulled toward its hand, as hard as its
+	// grabber can. The pull is what closes the gap at the point (its mass
+	// there: a lever's end is light) plus that much of its weight, so a
+	// thing held up doesn't sag; a corner pulled turns it.
+	void grip(Rec &r)
+	{
+		constexpr float TAU = 0.08f, FASTEST = 15, GAIN = 0.5f; // s to close the gap; nodes/s; of the gap a step
+		for (const auto &[who, g] : r.grips) {
+			if (!g.hand)
+				continue;
+			const BodyID b = r.bodies[g.body];
+			BodyLockRead lock(system.GetBodyLockInterfaceNoLock(), b);
+			const JPH::Body &body = lock.GetBody();
+			const RVec3 p = body.GetWorldTransform() * g.point;
+			const Vec3 arm = Vec3(p - body.GetCenterOfMassPosition());
+			const float inverse_mass = body.GetMotionProperties()->GetInverseMass();
+			const Mat44 inertia = body.GetInverseInertia();
+			// the mass the point has along `n`: its body's, less what turning gives
+			const auto massAlong = [&](Vec3 n) {
+				const Vec3 t = arm.Cross(n);
+				return 1 / std::max(1e-6f, inverse_mass + t.Dot(inertia.Multiply3x3(t)));
+			};
+			const Vec3 v = body.GetPointVelocity(p);
+			const Vec3 g_here = vec(opts.field(rout(p), out(v)).gravity);
+			lock.ReleaseLock();
+			Vec3 want = Vec3(*g.hand - p) / TAU;
+			if (want.Length() > FASTEST)
+				want = want.Normalized() * FASTEST;
+			const Vec3 dv = want - v;
+			Vec3 force = dv.Length() > 1e-6f ? dv * (massAlong(dv.Normalized()) * GAIN / (float)STEP) : Vec3::sZero();
+			if (g_here.Length() > 1e-6f)
+				force -= g_here * massAlong(g_here.Normalized());
+			if (force.Length() > g.strength)
+				force = force.Normalized() * g.strength;
+			bi().AddForce(b, force, p, EActivation::Activate);
+		}
+	}
+
 	void steer()
 	{
 		for (auto &[id, r] : recs) {
 			if (r.tier == Tier::Live && r.carried && r.target)
 				pull(r);
+			if (r.tier == Tier::Live && !r.held && !r.grips.empty())
+				grip(r);
+			if (r.tier == Tier::Live && !r.held)
+				follow(r);
 			if (r.tier != Tier::Live || !r.held || !r.target)
 				continue;
 			const Placed root{ rvec(r.target->position), quat(r.target->rotation) };
@@ -614,14 +952,19 @@ struct World::Impl
 	}
 };
 
+Field uniform(v3f gravity)
+{
+	return [gravity](const v3d &, const v3f &) { return Here{ gravity, 0 }; };
+}
+
 // Jolt's allocator is registered before Impl's members use it.
 World::World(const Opts &opts) : m((startJolt(), std::make_unique<Impl>()))
 {
-	if (!opts.ground)
-		throw PhysicsError("physics: a world needs its ground");
+	if (!opts.ground || !opts.field)
+		throw PhysicsError("physics: a world needs its ground and its field");
 	m->opts = opts;
 	m->system.Init(65536, 0, 65536, 16384, m->layers, m->layer_vs_broad, m->pairs);
-	m->system.SetGravity(vec(opts.gravity));
+	m->system.SetGravity(Vec3::sZero()); // the field's, body by body (weigh)
 }
 
 World::~World()
@@ -650,6 +993,8 @@ void World::remove(Id id)
 {
 	m->freeze(m->rec(id));
 	m->recs.erase(id);
+	for (auto &[c, chr] : m->chars)
+		chr.pushed.erase(id);
 }
 
 bool World::has(Id id) const { return m->recs.count(id) != 0; }
@@ -668,6 +1013,9 @@ void World::rebuild(Id id, const Assembly &a)
 	// bodies came and went: they start where its root is
 	if (r.rel.size() != a.bodies.size())
 		r.rel.assign(a.bodies.size(), Relative{});
+	// a grip on a body that's gone, or is now a wheel, is let go
+	for (auto it = r.grips.begin(); it != r.grips.end();)
+		it = it->second.body >= a.bodies.size() || r.isWheel(it->second.body) ? r.grips.erase(it) : std::next(it);
 	if (live)
 		m->wake(id, r);
 }
@@ -682,8 +1030,11 @@ void World::hold(Id id, bool held)
 	r.target.reset();
 	if (r.tier != Tier::Live)
 		return;
-	for (const BodyID &b : r.bodies)
-		m->bi().SetMotionType(b, held ? EMotionType::Kinematic : EMotionType::Dynamic, EActivation::Activate);
+	m->roll(r, false);
+	for (size_t i = 0; i < r.bodies.size(); i++)
+		if (!r.isWheel(i))
+			m->bi().SetMotionType(r.bodies[i], held ? EMotionType::Kinematic : EMotionType::Dynamic, EActivation::Activate);
+	m->roll(r, !held);
 }
 
 void World::moveTo(Id id, const Pose &to)
@@ -696,13 +1047,38 @@ void World::moveTo(Id id, const Pose &to)
 		r.pose = to;
 }
 
-void World::impulse(Id id, v3f impulse)
+void World::impulse(Id id, v3f impulse, std::optional<v3d> from)
 {
 	Impl::Rec &r = m->rec(id);
 	r.settled = false;
 	if (r.tier == Tier::Frozen)
 		m->wake(id, r);
-	m->bi().AddImpulse(r.bodies[0], vec(impulse));
+	if (!from) {
+		m->bi().AddImpulse(r.bodies[0], vec(impulse));
+		return;
+	}
+	BodyID nearest;
+	RVec3 at;
+	double best = std::numeric_limits<double>::infinity();
+	for (size_t i = 0; i < r.bodies.size(); i++) {
+		if (r.isWheel(i))
+			continue; // it follows its wheel: the push is the root's
+		const BodyID &b = r.bodies[i];
+		BodyLockRead lock(m->system.GetBodyLockInterfaceNoLock(), b);
+		const AABox box = lock.GetBody().GetWorldSpaceBounds();
+		// the nearest point of its bounds, at its centre of mass's height:
+		// a corner pushed turns it, but a push never tips it (its bounds'
+		// top corner can be well off it)
+		RVec3 p = RVec3::sMax(RVec3(box.mMin), RVec3::sMin(RVec3(box.mMax), rvec(*from)));
+		p.SetY(lock.GetBody().GetCenterOfMassPosition().GetY());
+		const double d = (p - rvec(*from)).LengthSq();
+		if (d < best) {
+			best = d;
+			nearest = b;
+			at = p;
+		}
+	}
+	m->bi().AddImpulse(nearest, vec(impulse), at);
 }
 
 void World::players(const std::vector<Capsule> &players)
@@ -719,6 +1095,16 @@ void World::players(const std::vector<Capsule> &players)
 	}
 }
 
+std::vector<std::pair<World::Id, v3f>> World::pushes(CharId id)
+{
+	Impl::Char &c = m->chr(id);
+	std::vector<std::pair<Id, v3f>> all;
+	for (const auto &[a, p] : c.pushed)
+		all.push_back({ a, out(p) });
+	c.pushed.clear();
+	return all;
+}
+
 World::CharId World::addCharacter(const CharacterSpec &spec, const v3d &foot) { return m->makeChar(spec, foot); }
 
 void World::removeCharacter(CharId id)
@@ -728,6 +1114,11 @@ void World::removeCharacter(CharId id)
 }
 
 void World::want(CharId id, v3f velocity) { m->chr(id).want = velocity; }
+
+void World::unknownIsAir(CharId id, bool air)
+{
+	m->chr(id).unknown_is_air = air;
+}
 
 void World::place(CharId id, const v3d &foot, v3f velocity)
 {
@@ -758,7 +1149,8 @@ void World::carry(Id id, std::optional<float> strength)
 	Impl::Rec &r = m->rec(id);
 	if (strength && !(*strength > 0))
 		throw PhysicsError("physics: a carrier's strength is more than 0");
-	if (r.held)
+	// carrying replaces holding; ending a carry leaves a hold alone
+	if (strength && r.held)
 		hold(id, false);
 	r.carried = strength;
 	r.settled = false;
@@ -766,9 +1158,10 @@ void World::carry(Id id, std::optional<float> strength)
 		r.target.reset();
 	if (r.tier != Tier::Live)
 		return;
-	for (const BodyID &b : r.bodies) {
-		m->bi().SetObjectLayer(b, strength ? Layer::CARRIED : Layer::MOVING);
-		m->bi().ActivateBody(b);
+	for (size_t i = 0; i < r.bodies.size(); i++) {
+		if (!r.isWheel(i))
+			m->bi().SetObjectLayer(r.bodies[i], strength ? Layer::CARRIED : Layer::MOVING);
+		m->bi().ActivateBody(r.bodies[i]);
 	}
 }
 
@@ -781,6 +1174,83 @@ void World::pullTo(Id id, const Pose &to)
 }
 
 bool World::carried(Id id) const { return m->rec(id).carried.has_value(); }
+
+void World::grab(Id id, unsigned who, v3f point, float strength)
+{
+	if (!(strength > 0))
+		throw PhysicsError("physics: a grabber's strength is more than 0");
+	Impl::Rec &r = m->rec(id);
+	r.settled = false;
+	if (r.tier == Tier::Frozen)
+		m->wake(id, r);
+	// the body whose bounds are nearest the point (a wheel's is its root's:
+	// it follows it), the point in its frame
+	const Placed root = m->placed(r.bodies[0]);
+	const RVec3 at = root.position + RVec3(root.rotation * vec(point));
+	size_t nearest = 0;
+	double best = std::numeric_limits<double>::infinity();
+	for (size_t i = 0; i < r.bodies.size(); i++) {
+		if (r.isWheel(i))
+			continue;
+		BodyLockRead lock(m->system.GetBodyLockInterfaceNoLock(), r.bodies[i]);
+		const AABox box = lock.GetBody().GetWorldSpaceBounds();
+		const RVec3 p = RVec3::sMax(RVec3(box.mMin), RVec3::sMin(RVec3(box.mMax), at));
+		const double d = (p - at).LengthSq();
+		if (d < best) {
+			best = d;
+			nearest = i;
+		}
+	}
+	const Placed b = m->placed(r.bodies[nearest]);
+	const Vec3 local = b.rotation.Conjugated() * Vec3(at - b.position);
+	r.grips[who] = { nearest, local, strength, std::nullopt };
+	m->bi().ActivateBody(r.bodies[nearest]);
+}
+
+void World::grabTo(Id id, unsigned who, const v3d &hand)
+{
+	Impl::Rec &r = m->rec(id);
+	auto it = r.grips.find(who);
+	if (it == r.grips.end())
+		throw PhysicsError("physics: only a grip is pulled to a hand");
+	it->second.hand = rvec(hand);
+	if (r.tier == Tier::Live)
+		m->bi().ActivateBody(r.bodies[it->second.body]);
+}
+
+void World::release(Id id, unsigned who)
+{
+	Impl::Rec &r = m->rec(id);
+	r.grips.erase(who);
+	r.settled = false;
+}
+
+bool World::grabbed(Id id) const { return !m->rec(id).grips.empty(); }
+
+void World::correct(Id id, const Pose &to, float share, float snap)
+{
+	Impl::Rec &r = m->rec(id);
+	if (r.tier != Tier::Live) {
+		r.pose = to;
+		return;
+	}
+	const Placed root = m->placed(r.bodies[0]);
+	const RVec3 target = rvec(to.position);
+	const bool put = (target - root.position).Length() > snap;
+	const float s = put ? 1.f : std::clamp(share, 0.f, 1.f);
+	const RVec3 position = root.position + (target - root.position) * s;
+	JPH::Quat goal = quat(to.rotation);
+	if (goal.Dot(root.rotation) < 0)
+		goal = -goal;
+	const JPH::Quat rotation = (root.rotation * (1 - s) + goal * s).Normalized();
+	// every body moved as the root is: the same turn about it, then along
+	const JPH::Quat turn = rotation * root.rotation.Conjugated();
+	for (const BodyID &b : r.bodies) {
+		const Placed p = m->placed(b);
+		m->bi().SetPositionAndRotation(b, position + RVec3(turn * Vec3(p.position - root.position)),
+				(turn * p.rotation).Normalized(), EActivation::DontActivate);
+	}
+}
 bool World::held(Id id) const { return m->rec(id).held; }
 
 void World::groundChanged(v3s16 block)
@@ -796,22 +1266,25 @@ void World::groundChanged(v3s16 block)
 			m->bi().ActivateBody(b);
 }
 
+// a server steps every 0.09 s by default (5–6 of ours): up to a fifth of
+// a second is caught up, more is dropped
+constexpr int MOST_STEPS = 12;
+
 void World::step(double dt)
 {
 	m->behind += dt;
 	int steps = 0;
-	// a server steps every 0.09 s by default (5–6 of ours): up to a fifth of
-	// a second is caught up, more is dropped
-	constexpr int MOST = 12;
-	while (m->behind >= STEP && steps < MOST) {
+	const int n = std::max(1, std::min(MOST_STEPS, (int)(m->behind / STEP)));
+	while (m->behind >= STEP && steps < MOST_STEPS) {
 		m->tiers();
 		m->steer();
-		m->moveChars();
+		m->weigh();
+		m->moveChars(steps, n);
 		m->system.Update((float)STEP, 1, &m->temp, &m->jobs);
 		m->behind -= STEP;
 		steps++;
 	}
-	if (steps == MOST)
+	if (steps == MOST_STEPS)
 		m->behind = 0; // too far behind: the time's dropped, not caught up
 }
 

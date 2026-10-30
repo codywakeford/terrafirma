@@ -406,6 +406,7 @@ void Server::handleCommand_ClientReady(NetworkPacket* pkt)
 	m_script->getAuth(playersao->getPlayer()->getName(), nullptr, nullptr, &last_login);
 	m_script->on_joinplayer(playersao, last_login);
 	SendBlueprints(peer_id, playersao->getPlayer()->getName()); // Terra Firma
+	SendMaterials(peer_id); // Terra Firma
 
 	// Send shutdown timer if shutdown has been scheduled
 	if (m_shutdown_state.isTimerRunning())
@@ -1962,9 +1963,13 @@ void Server::handleCommand_BlueprintPlace(NetworkPacket *pkt)
 void Server::handleCommand_ObjectHold(NetworkPacket *pkt)
 {
 	u16 id;
-	u8 held;
-	*pkt >> id >> held;
-	inWorkshop(pkt->getPeerId(), "hold", [&](PlayerSAO &sao) { m_workshop->hold(sao, id, held != 0); });
+	u8 grip;
+	*pkt >> id >> grip;
+	if (grip > u8(workshop::Grip::Carried)) {
+		warningstream << "Server: a hold that's none of the grips: " << int(grip) << std::endl;
+		return;
+	}
+	inWorkshop(pkt->getPeerId(), "hold", [&](PlayerSAO &sao) { m_workshop->hold(sao, id, workshop::Grip(grip)); });
 }
 
 // Terra Firma: where a held object is (sprint 50)
@@ -1974,6 +1979,48 @@ void Server::handleCommand_ObjectPose(NetworkPacket *pkt)
 	v3f position, rotation;
 	*pkt >> id >> position >> rotation;
 	inWorkshop(pkt->getPeerId(), "pose", [&](PlayerSAO &sao) { m_workshop->pose(sao, id, position, rotation); });
+}
+
+// Terra Firma: a player walking into an object (sprint 61)
+void Server::handleCommand_ObjectPush(NetworkPacket *pkt)
+{
+	u16 id;
+	v3f impulse;
+	*pkt >> id >> impulse;
+	// anyone may push (it's not a tool), ~20 a second: what can't be
+	// pushed (gone, held, out of reach) isn't worth a word
+	RemotePlayer *player = m_env->getPlayer(pkt->getPeerId());
+	PlayerSAO *sao = player ? player->getPlayerSAO() : nullptr;
+	if (!sao || !checkPriv(player->getName(), "interact"))
+		return;
+	try {
+		m_workshop->push(*sao, id, impulse);
+	} catch (const workshop::Refused &) {
+	}
+}
+
+// Terra Firma: a point of an object grabbed, or let go (sprint 68)
+void Server::handleCommand_ObjectGrab(NetworkPacket *pkt)
+{
+	u16 id;
+	u8 held;
+	*pkt >> id >> held;
+	std::optional<std::pair<v3f, v3f>> grip;
+	if (held) {
+		v3f point, hand;
+		*pkt >> point >> hand;
+		grip = std::make_pair(point, hand);
+	}
+	// anyone may grab (it's not a tool), ~20 a second: what can't be
+	// grabbed (gone, held, out of reach) isn't worth a word
+	RemotePlayer *player = m_env->getPlayer(pkt->getPeerId());
+	PlayerSAO *sao = player ? player->getPlayerSAO() : nullptr;
+	if (!sao || !checkPriv(player->getName(), "interact"))
+		return;
+	try {
+		m_workshop->grab(*sao, id, grip);
+	} catch (const workshop::Refused &) {
+	}
 }
 
 // Terra Firma: an object's design made a shell (sprint 50)
@@ -2030,14 +2077,16 @@ void Server::handleCommand_Join(NetworkPacket *pkt)
 	const piece::Machine::Face on_a = readFace(*pkt);
 	*pkt >> b;
 	const piece::Machine::Face on_b = readFace(*pkt);
-	u8 joint;
-	*pkt >> joint;
+	u8 joint, spin;
+	*pkt >> joint >> spin;
 	inWorkshop(pkt->getPeerId(), "join", [&](PlayerSAO &sao) {
 		checkFace(on_a);
 		checkFace(on_b);
 		if (joint >= u8(piece::Joint::Count))
 			throw workshop::Refused("No such joint");
-		m_workshop->join(sao, a, on_a, b, on_b, piece::Joint(joint));
+		if (spin >= 4)
+			throw workshop::Refused("A spin's a number of quarter turns, under 4");
+		m_workshop->join(sao, a, on_a, b, on_b, piece::Joint(joint), spin);
 	});
 }
 
@@ -2088,14 +2137,29 @@ void Server::handleCommand_Socket(NetworkPacket *pkt)
 }
 
 // Terra Firma: a machine carried onto another's socket (sprint 56)
+// Terra Firma: another of the last plugged in (sprint 64)
+void Server::handleCommand_PlugAgain(NetworkPacket *pkt)
+{
+	u16 a;
+	u64 socket;
+	*pkt >> a >> socket;
+	inWorkshop(pkt->getPeerId(), "plug again", [&](PlayerSAO &sao) {
+		m_workshop->plugAgain(sao, a, socket);
+	});
+}
+
 void Server::handleCommand_Plug(NetworkPacket *pkt)
 {
 	u16 a, b;
 	u64 socket;
 	*pkt >> a >> socket >> b;
 	const piece::Machine::Face on_b = readFace(*pkt);
+	u8 spin;
+	*pkt >> spin;
 	inWorkshop(pkt->getPeerId(), "plug", [&](PlayerSAO &sao) {
 		checkFace(on_b);
-		m_workshop->plug(sao, a, socket, b, on_b);
+		if (spin >= 4)
+			throw workshop::Refused("A spin's a number of quarter turns, under 4");
+		m_workshop->plug(sao, a, socket, b, on_b, spin);
 	});
 }

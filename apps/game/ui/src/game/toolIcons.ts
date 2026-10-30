@@ -93,7 +93,7 @@ export const TOOL_ICONS: Record<ToolId, { label: string; rows: readonly string[]
     ] },
 }
 
-export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete"> | "library" | "select" | "wheel", { label: string; rows: readonly string[] }> = {
+export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete"> | "library" | "select", { label: string; rows: readonly string[] }> = {
     focus: { label: "Pick up / let go (F)", rows: [
         "###........###",
         "#............#",
@@ -136,7 +136,7 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
         ".....######...",
         "..............",
     ] },
-    start: { label: "New object, of the block held (N)", rows: [
+    start: { label: "New object, of the block held", rows: [
         "..........##..",
         "..........##..",
         "........######",
@@ -206,7 +206,7 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
         "..............",
         "..............",
     ] },
-    select: { label: "Select a part", rows: [
+    select: { label: "Select: click a part, Shift-click another for the joint between", rows: [
         "#.............",
         "##............",
         "#.#...........",
@@ -219,20 +219,6 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
         "##.#..#.......",
         "#...#.#.......",
         "......#.......",
-    ] },
-    wheel: { label: "Wheel: a cylinder part, hinged", rows: [
-        "....######....",
-        "..##......##..",
-        ".#....##....#.",
-        ".#...#..#...#.",
-        "#...#....#...#",
-        "#..#..##..#..#",
-        "#..#..##..#..#",
-        "#...#....#...#",
-        ".#...#..#...#.",
-        ".#....##....#.",
-        "..##......##..",
-        "....######....",
     ] },
     library: { label: "Blueprints", rows: [
         "..............",
@@ -251,7 +237,7 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
 }
 
 export const BRUSH_ICONS: Record<BrushId, { label: string; rows: readonly string[] }> = {
-    add: { label: "Add to the part", rows: [
+    add: { label: "Add (Shift: pull a face out) · creating, on the ground or a socket: a new part", rows: [
         "..............",
         "......##......",
         "......##......",
@@ -265,7 +251,7 @@ export const BRUSH_ICONS: Record<BrushId, { label: string; rows: readonly string
         "......##......",
         "..............",
     ] },
-    cut: { label: "Cut it away", rows: [
+    cut: { label: "Cut (Shift: push a face in)", rows: [
         "..............",
         "..............",
         "..............",
@@ -307,7 +293,7 @@ export const BRUSH_ICONS: Record<BrushId, { label: string; rows: readonly string
         "..##########..",
         "..............",
     ] },
-    part: { label: "A new part, joined as chosen below", rows: [
+    part: { label: "A new part", rows: [
         "..............",
         "....######....",
         "...#.....##...",

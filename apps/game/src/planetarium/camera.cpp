@@ -11,7 +11,7 @@ namespace planetarium {
 static constexpr double LOWEST = 100;  // blocks over the sea
 static constexpr double TURN = 0.004;  // radians a pixel, from a body radius up
 static constexpr double STEP = 0.85;   // a wheel step's share of the altitude
-static constexpr float CELL = 2;       // pixels a tile's cell may span before it splits
+static constexpr float CELL = 6;       // pixels a tile's cell may span before it splits: finer cost frames (a ninth the cells of 2)
 
 OrbitCamera::OrbitCamera(double sea, double farthest) : m_sea(sea), m_farthest(farthest), m_altitude(2.5 * sea)
 {
@@ -154,9 +154,10 @@ core::matrix4 OrbitCamera::perspective(float aspect, float near, float far, v2f 
 
 core::matrix4 OrbitCamera::projection(float aspect, v2f shift) const
 {
-	// near: well short of the highest ground under it; far: past the body's back
+	// near: well short of the highest ground under it; far: past the body's
+	// back, and round the far side of an orbit drawn out to five radii
 	const float near = (float)std::max(1.0, m_altitude * 0.2) * BS;
-	const float far = (float)(m_altitude + 2.2 * m_sea) * BS;
+	const float far = (float)(m_altitude + 6.2 * m_sea) * BS;
 	return perspective(aspect, near, far, shift);
 }
 

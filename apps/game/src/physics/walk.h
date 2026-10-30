@@ -17,6 +17,10 @@
 	snap. In the air it barely steers. It moves relative to what it stands
 	on, so a cart carries it. A jump is a height, not a speed: the speed
 	that height takes under this gravity.
+
+	Gravity is the field's where it is (sprint 59): in a grid's axes it's
+	all but straight down, so "up" for walking stays the grid's +y, and in
+	the air the whole pull acts.
 */
 namespace physics {
 
@@ -29,7 +33,7 @@ struct Gait
 	float brake = 28;        // nodes/s² slowing (letting go, or turning back)
 	float air = 3;           // nodes/s² steering in the air
 	float jump = 1.25f;      // nodes high
-	float gravity = 9.81f;   // nodes/s²
+	v3f gravity{ 0, -9.81f, 0 }; // nodes/s²
 };
 
 struct Intent

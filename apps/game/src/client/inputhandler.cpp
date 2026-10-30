@@ -56,11 +56,15 @@ void MyEventReceiver::reloadKeybindings()
 	keybindings[KeyType::LAB] = getKeySetting("keymap_lab");
 	keybindings[KeyType::WIKI] = getKeySetting("keymap_wiki");
 	keybindings[KeyType::TOOLS] = getKeySetting("keymap_tools");
+	keybindings[KeyType::BRAKE] = getKeySetting("keymap_brake");
 	keybindings[KeyType::TOOL_NEXT] = getKeySetting("keymap_tool_next");
 	keybindings[KeyType::FOCUS] = getKeySetting("keymap_focus");
 	keybindings[KeyType::MIRROR] = getKeySetting("keymap_mirror");
+	keybindings[KeyType::ALT] = getKeySetting("keymap_alt");
 	keybindings[KeyType::UNDO] = getKeySetting("keymap_undo");
-	keybindings[KeyType::PIECE_NEW] = getKeySetting("keymap_piece_new");
+	keybindings[KeyType::CREATE] = getKeySetting("keymap_create");
+	keybindings[KeyType::TURN_LEFT] = getKeySetting("keymap_turn_left");
+	keybindings[KeyType::TURN_RIGHT] = getKeySetting("keymap_turn_right");
 	keybindings[KeyType::CURSOR] = getKeySetting("keymap_cursor");
 	keybindings[KeyType::PLANETARIUM] = getKeySetting("keymap_planetarium");
 	keybindings[KeyType::CHAT] = getKeySetting("keymap_chat");

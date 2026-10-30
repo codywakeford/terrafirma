@@ -39,7 +39,7 @@ piece::Machine::Part &partOf(piece::Machine &m, u64 part)
 
 Workshop::Workshop(const Opts &opts) :
 	m_env(opts.env), m_gamedef(opts.gamedef), m_entities(opts.env, opts.gamedef), m_library(opts.world_path),
-	m_motion(opts.env, opts.gamedef, opts.materials)
+	m_motion(opts.env, opts.gamedef, opts.materials, opts.field), m_creative(opts.creative)
 {
 }
 
@@ -199,13 +199,15 @@ u16 Workshop::start(PlayerSAO &who)
 	return obj.getId();
 }
 
-void Workshop::hold(PlayerSAO &who, u16 id, bool held)
+void Workshop::hold(PlayerSAO &who, u16 id, Grip grip)
 {
 	LuaEntitySAO &obj = m_entities.object(id);
 	within(who, obj.getBasePosition(), piece::SIDE * 2);
-	obj.setVelocity(v3f(0));
-	m_motion.hold(obj, held);
-	actionstream << "workshop: " << name(who) << (held ? " holds" : " lets go of") << " object " << id << std::endl;
+	m_motion.hold(obj, grip == Grip::Still);
+	m_motion.carry(obj, grip == Grip::Carried
+			? std::optional<float>(m_creative(name(who)) ? STRENGTH_CREATIVE : STRENGTH) : std::nullopt);
+	static const char *const SAID[] = { " lets go of", " holds", " carries" };
+	actionstream << "workshop: " << name(who) << SAID[u8(grip)] << " object " << id << std::endl;
 }
 
 void Workshop::pose(PlayerSAO &who, u16 id, v3f position, v3f rotation)
@@ -216,13 +218,67 @@ void Workshop::pose(PlayerSAO &who, u16 id, v3f position, v3f rotation)
 	LuaEntitySAO &obj = m_entities.object(id);
 	// the holder sends poses ~20 times a second: one sent before they let
 	// go can arrive after; it's moot, not an error (the physics has it now)
-	if (!m_motion.held(obj))
+	if (!m_motion.held(obj) && !m_motion.carried(obj))
 		return;
 	within(who, position, piece::SIDE * 2);
-	obj.setVelocity(v3f(0));
-	obj.moveTo(position, true);
-	obj.setRotation(v3f(wrapDegrees_0_360(rotation.X), wrapDegrees_0_360(rotation.Y), wrapDegrees_0_360(rotation.Z)));
-	m_motion.pose(obj, position, obj.getRotation());
+	const v3f turned(wrapDegrees_0_360(rotation.X), wrapDegrees_0_360(rotation.Y), wrapDegrees_0_360(rotation.Z));
+	if (m_motion.held(obj)) { // still: it's put there; carried, it's pulled there
+		obj.setVelocity(v3f(0));
+		obj.moveTo(position, true);
+		obj.setRotation(turned);
+	}
+	m_motion.pose(obj, position, turned);
+}
+
+void Workshop::push(PlayerSAO &who, u16 id, v3f impulse)
+{
+	// at most a person's push over a packet's worth of time, late or not
+	constexpr float MOST = 600 * 0.25f; // N·s
+	// creative: m/s² over that packet's time, well past a wheel's rolling
+	// resistance (0.2 m/s²)
+	constexpr float CREATIVE_PUSH = 2 * 0.25f;
+	if (!std::isfinite(impulse.X) || !std::isfinite(impulse.Y) || !std::isfinite(impulse.Z))
+		throw Refused("That's not a push");
+	LuaEntitySAO &obj = m_entities.object(id);
+	within(who, obj.getBasePosition(), piece::SIDE * 2);
+	if (m_motion.held(obj) || m_motion.carried(obj) || !m_motion.velocity(id))
+		return; // in someone's hands, or not moved by physics
+	// pushing along, a person doesn't lift what they lean on: only from
+	// under it (their head below its middle) is a push up
+	const v3f from = who.getBasePosition() + v3f(0, BS, 0); // their middle
+	if (who.getBasePosition().Y + 1.6f * BS > obj.getBasePosition().Y)
+		impulse.Y = std::min(impulse.Y, 0.f);
+	// in creative anything rolls: as hard as gets it going at a walk
+	const float most = m_creative(name(who)) ? std::max(MOST, *m_motion.mass(id) * CREATIVE_PUSH) : MOST;
+	const float l = impulse.getLength();
+	if (!(l > 0))
+		return;
+	m_motion.impulse(id, (l > most ? impulse * (most / l) : impulse) * BS, from);
+}
+
+void Workshop::grab(PlayerSAO &who, u16 id, std::optional<std::pair<v3f, v3f>> grip)
+{
+	LuaEntitySAO &obj = m_entities.object(id);
+	if (!grip) {
+		m_motion.grab(obj, who.getId(), std::nullopt);
+		return;
+	}
+	const auto finite = [](v3f v) { return std::isfinite(v.X) && std::isfinite(v.Y) && std::isfinite(v.Z); };
+	if (!finite(grip->first) || !finite(grip->second))
+		throw Refused("That's not a grip");
+	if (m_motion.held(obj) || m_motion.carried(obj) || !m_motion.velocity(id))
+		return; // in someone's hands, or not moved by physics
+	// the hand within reach (a grip can't pull from across the world), and
+	// the point, when it's taken, where they can touch it
+	within(who, grip->second, 1);
+	const bool fresh = !m_motion.grabbing(obj, who.getId());
+	if (fresh) {
+		v3f at = grip->first;
+		piece::frame(obj.getBasePosition(), obj.getRotation()).transformVect(at);
+		within(who, at, 1);
+		actionstream << "workshop: " << name(who) << " grabs object " << id << std::endl;
+	}
+	m_motion.grab(obj, who.getId(), Motion::Grab{ grip->first, grip->second, STRENGTH });
 }
 
 void Workshop::hollow(PlayerSAO &who, u16 id, u64 part, int thickness)
@@ -260,7 +316,7 @@ void Workshop::relink(PlayerSAO &who, u16 id, u64 a, u64 b, std::optional<piece:
 }
 
 void Workshop::join(PlayerSAO &who, u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b,
-		piece::Joint joint)
+		piece::Joint joint, u8 spin)
 {
 	if (a == b)
 		throw Refused("Join two things, not one to itself");
@@ -270,7 +326,7 @@ void Workshop::join(PlayerSAO &who, u16 a, const piece::Machine::Face &on_a, u16
 	piece::Machine m = m_entities.read(into), other = m_entities.read(from);
 	partOf(m, on_a.part);
 	partOf(other, on_b.part);
-	m.join(on_a, std::move(other), on_b, joint);
+	m.join(on_a, std::move(other), on_b, joint, spin);
 	m_entities.store(into, m);
 	from.markForRemoval();
 	actionstream << "workshop: " << name(who) << " joined object " << b << " onto " << a << " ("
@@ -318,7 +374,7 @@ void Workshop::unsocket(PlayerSAO &who, u16 id, u64 socket)
 	m_entities.store(obj, m);
 }
 
-void Workshop::plug(PlayerSAO &who, u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b)
+void Workshop::plug(PlayerSAO &who, u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b, u8 spin)
 {
 	if (a == b)
 		throw Refused("Plug one thing into another, not into itself");
@@ -329,10 +385,36 @@ void Workshop::plug(PlayerSAO &who, u16 a, u64 socket, u16 b, const piece::Machi
 	partOf(other, on_b.part);
 	if (std::none_of(m.sockets().begin(), m.sockets().end(), [&](const piece::Machine::Socket &k) { return k.id == socket; }))
 		throw Refused("That socket's taken, or gone");
-	m.plug(socket, std::move(other), on_b);
+	const auto &parts = other.parts();
+	const size_t index = std::find_if(parts.begin(), parts.end(),
+			[&](const piece::Machine::Part &p) { return p.object.id() == on_b.part; }) - parts.begin();
+	m_plugged[name(who)] = { other.write(), index, on_b, spin };
+	m.plug(socket, std::move(other), on_b, spin);
 	m_entities.store(into, m);
 	from.markForRemoval();
 	actionstream << "workshop: " << name(who) << " plugged object " << b << " into " << a << std::endl;
+}
+
+void Workshop::plugAgain(PlayerSAO &who, u16 a, u64 socket)
+{
+	if (!m_creative(name(who)))
+		throw Refused("Another of the same is made from nothing: creative only, for now");
+	const auto last = m_plugged.find(name(who));
+	if (last == m_plugged.end())
+		throw Refused("Plug something in first: then Shift-click puts another of it on a socket");
+	LuaEntitySAO &into = m_entities.object(a);
+	within(who, into.getBasePosition(), piece::SIDE * 2);
+	piece::Machine m = m_entities.read(into);
+	if (std::none_of(m.sockets().begin(), m.sockets().end(), [&](const piece::Machine::Socket &k) { return k.id == socket; }))
+		throw Refused("That socket's taken, or gone");
+	piece::Machine other(m_gamedef);
+	other.read(last->second.machine);
+	other.renew();
+	piece::Machine::Face face = last->second.face;
+	face.part = other.parts().at(last->second.part).object.id();
+	m.plug(socket, std::move(other), face, last->second.spin);
+	m_entities.store(into, m);
+	actionstream << "workshop: " << name(who) << " plugged another into " << a << std::endl;
 }
 
 void Workshop::remove(PlayerSAO &who, u16 id, u64 part)

@@ -120,6 +120,9 @@ public:
 	void setPitch(f32 pitch) { m_pitch = pitch; }
 	f32 getPitch() const { return m_pitch; }
 
+	// Terra Firma: the ground turned under the player by this much, east
+	// toward north (the body crosses seams itself, sprint 59).
+	void turnWithGround(double radians) { m_planet_turn += (f32)(radians * 180 / M_PI); }
 	// Terra Firma: degrees the ground has turned under the player since
 	// last asked (carried over a planet's edge or an atlas's seam), east
 	// toward north; the camera turns with it. Asking clears it.

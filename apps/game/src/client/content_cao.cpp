@@ -5,6 +5,7 @@
 #include "content_cao.h"
 #include "piece/frame.h" // Terra Firma
 #include "piece/machine.h" // Terra Firma
+#include "client/figure.h" // Terra Firma
 #include "planet/atlas.h" // Terra Firma
 #include <IBillboardSceneNode.h>
 #include <ICameraSceneNode.h>
@@ -461,6 +462,8 @@ scene::ISceneNode *GenericCAO::getSceneNode() const
 	if (m_spritenode) {
 		return m_spritenode;
 	}
+	if (m_figure) // Terra Firma
+		return m_figure->root();
 	return NULL;
 }
 
@@ -600,6 +603,7 @@ void GenericCAO::removeFromScene(bool permanent)
 		n->drop();
 	}
 	m_group_nodes.clear();
+	m_figure.reset(); // Terra Firma
 	if (m_meshnode) {
 		m_meshnode->remove();
 		m_meshnode->drop();
@@ -891,12 +895,23 @@ void GenericCAO::addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr)
 			group_meshes[g]->recalculateBoundingBox();
 			scene::IMeshSceneNode *node = m_smgr->addMeshSceneNode(group_meshes[g], m_matrixnode);
 			node->setSharedMaterials(true);
+			// its box is about the machine's origin, not where its turn
+			// puts it: culled by that, a wheel blinked out
+			node->setAutomaticCulling(scene::EAC_OFF);
 			node->grab();
 			group_meshes[g]->drop();
 			setSceneNodeMaterials(node);
 			m_group_nodes.push_back(node);
 		}
 		poseGroups();
+		break;
+	} case OBJECTVISUAL_BODY: { // Terra Firma
+		updateMaterialType(false);
+		m_figure = std::make_unique<Figure>(m_smgr, m_matrixnode,
+				m_client->tsrc()->getTextureForMesh("[fill:1x1:#ffffff"),
+				[&](scene::ISceneNode *node) { node->forEachMaterial(setMaterial); });
+		m_figure_was = m_position;
+		m_figure_moving = v3f(0);
 		break;
 	} case OBJECTVISUAL_NODE: {
 		auto *mesh = generateNodeMesh(m_client, m_prop.node, m_meshnode_animation);
@@ -989,8 +1004,15 @@ void GenericCAO::updateLight(u32 day_night_ratio)
 	u8 light_at_pos_intensity = 0;
 	bool pos_ok = false;
 
-	v3s16 pos[3];
+	v3s16 pos[5];
 	u16 npos = getLightPosition(pos);
+	// Terra Firma: a machine's box is its origin's, often inside the ground
+	// it rests on: it's lit as brightly as the air just above it
+	if (!m_group_nodes.empty()) {
+		const v3s16 at = floatToInt(m_position, BS);
+		pos[npos++] = at + v3s16(0, 1, 0);
+		pos[npos++] = at + v3s16(0, 2, 0);
+	}
 	for (u16 i = 0; i < npos; i++) {
 		bool this_ok;
 		MapNode n = m_env->getMap().getNode(pos[i], &this_ok);
@@ -1020,12 +1042,31 @@ void GenericCAO::updateLight(u32 day_night_ratio)
 	}
 }
 
+GenericCAO::GroupPose GenericCAO::groupShown(size_t i) const
+{
+	const GroupPose &to = m_group_poses[i];
+	if (i >= m_group_from.size() || m_group_t >= 1)
+		return to;
+	const GroupPose &from = m_group_from[i];
+	const f32 t = m_group_t;
+	// the short way round: q and -q are the same turn
+	const f32 sign = from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w < 0 ? -1.f : 1.f;
+	GroupPose p{ from.offset + (to.offset - from.offset) * t, from.x + (sign * to.x - from.x) * t,
+		from.y + (sign * to.y - from.y) * t, from.z + (sign * to.z - from.z) * t, from.w + (sign * to.w - from.w) * t };
+	const f32 l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z + p.w * p.w);
+	p.x /= l;
+	p.y /= l;
+	p.z /= l;
+	p.w /= l;
+	return p;
+}
+
 void GenericCAO::poseGroups()
 {
 	// a machine edited since: its groups may not be these till the next
 	// poses come, so only as many as both have are posed
 	for (size_t i = 0; i < m_group_nodes.size() && i < m_group_poses.size(); i++) {
-		const GroupPose &p = m_group_poses[i];
+		const GroupPose p = groupShown(i);
 		const f32 x = p.x, y = p.y, z = p.z, w = p.w;
 		core::matrix4 m;
 		auto set = [&](int r, int c, f32 v) { m[c * 4 + r] = v; };
@@ -1059,6 +1100,8 @@ void GenericCAO::setNodeLight(const video::SColor &light_color)
 		setColorParam(node, light_color);
 		for (scene::IMeshSceneNode *g : m_group_nodes) // Terra Firma
 			setColorParam(g, light_color);
+		if (m_figure) // Terra Firma
+			m_figure->light(light_color);
 	}
 }
 
@@ -1150,6 +1193,16 @@ void GenericCAO::updateNodePos()
 void GenericCAO::setPosed(std::optional<std::pair<v3f, v3f>> posed)
 {
 	m_posed = posed;
+}
+
+void GenericCAO::applyPosed(std::pair<v3f, v3f> posed)
+{
+	m_posed = posed;
+	m_position = posed.first;
+	pos_translator.init(posed.first);
+	rot_translator.val_current = rot_translator.val_target = posed.second;
+	m_rotation = posed.second;
+	updateNodePos();
 }
 
 void GenericCAO::setLook(const Look &look)
@@ -1320,6 +1373,10 @@ void GenericCAO::step(float dtime, ClientEnvironment *env)
 			lastpos = m_position;
 		}
 		pos_translator.translate(dtime);
+		if (m_group_t < 1 && !m_group_nodes.empty()) {
+			m_group_t = std::min(1.f, m_group_t + dtime / m_group_interval);
+			poseGroups();
+		}
 		// Terra Firma: carried or held here, it's where this client says,
 		// each frame (the server's word comes late and stepped)
 		if (m_posed) {
@@ -1329,6 +1386,31 @@ void GenericCAO::step(float dtime, ClientEnvironment *env)
 			m_rotation = m_posed->second;
 		}
 		updateNodePos();
+
+		// Terra Firma: the figure posed by how it moves, in its own frame
+		if (m_figure && dtime > 0) {
+			v3f moving;
+			float pitch = 0;
+			bool airborne;
+			if (m_is_local_player) {
+				LocalPlayer *me = env->getLocalPlayer();
+				moving = me->getSpeed() / BS;
+				pitch = me->getPitch() * core::DEGTORAD;
+				airborne = !me->touching_ground;
+			} else {
+				// others: from where they're drawn, smoothed (positions come in steps)
+				const v3f now = pos_translator.val_current;
+				m_figure_moving += ((now - m_figure_was) / BS / dtime - m_figure_moving) * std::min(1.f, dtime * 10);
+				m_figure_was = now;
+				moving = m_figure_moving;
+				airborne = std::fabs(moving.Y) > 1.5f;
+			}
+			core::matrix4 back;
+			getPosRotMatrix().getInverse(back);
+			back.setTranslation(v3f(0));
+			back.transformVect(moving);
+			m_figure->pose(dtime, moving, pitch, airborne);
+		}
 
 		float moved = lastpos.getDistanceFrom(pos_translator.val_current);
 		m_step_distance_counter += moved;
@@ -1864,6 +1946,7 @@ void GenericCAO::processMessage(const std::string &data)
 		m_rotation = readV3F32(is);
 
 		m_rotation = wrapDegrees_0_360_v3f(m_rotation);
+		m_served = { m_position, m_rotation, m_velocity };
 		bool do_interpolate = readU8(is);
 		bool is_end_position = readU8(is);
 		float update_interval = readF32(is);
@@ -1995,6 +2078,11 @@ void GenericCAO::processMessage(const std::string &data)
 		}
 	} else if (cmd == AO_CMD_SET_PARTS) { // Terra Firma
 		const u16 count = readU16(is);
+		m_group_from.clear();
+		for (size_t i = 0; i < m_group_poses.size(); i++)
+			m_group_from.push_back(groupShown(i));
+		m_group_t = 0;
+		m_group_interval = std::max(pos_translator.anim_time, 0.05f);
 		m_group_poses.resize(count);
 		for (GroupPose &p : m_group_poses) {
 			p.offset = readV3F32(is);

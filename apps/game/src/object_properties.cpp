@@ -26,6 +26,7 @@ const struct EnumString es_ObjectVisual[] =
 	{OBJECTVISUAL_WIELDITEM, "wielditem"},
 	{OBJECTVISUAL_NODE, "node"},
 	{OBJECTVISUAL_PIECE, "piece"},
+	{OBJECTVISUAL_BODY, "body"},
 	{0, nullptr},
 };
 
