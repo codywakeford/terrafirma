@@ -14,21 +14,27 @@ namespace terragen {
 
 static int octavesFor(const WorldCode &c) { return 3 + roundInt(c.roughness * 3); }
 
-fix landmass(const WorldCode &c, fix u, fix v)
+const Sphere &gridSphere()
+{
+	static const Sphere sphere(GRID_FREQUENCY);
+	return sphere;
+}
+
+fix landmass(const WorldCode &c, const Dir &d)
 {
 	fix persistence = ratio(35, 100) + mul(c.roughness, ratio(25, 100));
 	// continents, with the coastline broken up by finer noise
-	return fbm(u, v, c.seed_hash + CONTINENT, c.continents, octavesFor(c), persistence)
-			+ mul(fbm(u, v, c.seed_hash + COAST, c.continents * 7, 3, HALF), mul(c.coast, ratio(22, 100)));
+	return fbm(d, c.seed_hash + CONTINENT, c.continents, octavesFor(c), persistence)
+			+ mul(fbm(d, c.seed_hash + COAST, c.continents * 7, 3, HALF), mul(c.coast, ratio(22, 100)));
 }
 
-fix elevation(const WorldCode &c, fix u, fix v, fix sea_offset, fix belt, fix relief)
+fix elevation(const WorldCode &c, const Dir &d, fix sea_offset, fix belt, fix relief)
 {
-	fix land = landmass(c, u, v) - sea_offset;
+	fix land = landmass(c, d) - sea_offset;
 	if (land < 0) // ridges and trenches shape the sea floor, never above the sea
 		return std::min<fix>(land + relief, -ratio(1, 160));
 	// mountain ridges, sharp where their noise crosses zero, rising from the coast inland
-	fix ridge = ONE - fabsx(fbm(u, v, c.seed_hash + RIDGE, c.continents * 4, octavesFor(c), HALF));
+	fix ridge = ONE - fabsx(fbm(d, c.seed_hash + RIDGE, c.continents * 4, octavesFor(c), HALF));
 	fix inland = clamp(div(land, ratio(25, 100)), 0, ONE);
 	// plains level off inland (land / (land + 0.3) · 0.4 → at most ~0.4):
 	// height comes from mountain ranges, not from distance to the coast
@@ -48,24 +54,14 @@ const int EROSION_ROUNDS = 12;
 const fix LAKE_DEPTH = ratio(1, 160);
 // …if its basin is big and deep enough; smaller hollows fill with sediment,
 // and so do basins wider than this share of the land (they'd be inland seas).
-const int32_t LAKE_MIN_CELLS = 10;
-const fix LAKE_MIN_DEEPEST = ratio(6, 160);
+// (On the sphere's cells, about two thirds of the flat map's in area, hollows
+// come out shallower: 15 cells and 4 blocks deep keep about as many lakes.)
+const int32_t LAKE_MIN_CELLS = 15;
+const fix LAKE_MIN_DEEPEST = ratio(4, 160);
 const fix LAKE_MAX_SHARE = ratio(3, 100);
-// Steepness toward a neighbour is drop ÷ distance; compared as drop × weight
-// (1000 straight, 707 ≈ 1000/√2 diagonal) so a one-unit drop never rounds away.
-const int64_t STRAIGHT_WEIGHT = 1000, DIAGONAL_WEIGHT = 707;
-
-const int DX[8] = { -1, 0, 1, -1, 1, -1, 0, 1 };
-const int DZ[8] = { -1, -1, -1, 0, 0, 1, 1, 1 };
-
-int32_t neighbour(int32_t i, int k)
-{
-	int32_t cx = i % GRID + DX[k], cz = i / GRID + DZ[k];
-	if (cz < 0 || cz >= GRID)
-		return -1;
-	cx = (cx + GRID) % GRID; // east–west wraps
-	return Grid::index(cx, cz);
-}
+// Steepness toward a neighbour is drop ÷ distance; compared as drop · SPAN ÷
+// distance (fixed, unit sphere) so a one-unit drop never rounds away.
+const int64_t SPAN = (int64_t)1 << 24;
 
 fix jitter(int32_t i)
 {
@@ -81,8 +77,9 @@ fix jitter(int32_t i)
 	run downhill to the sea. Seeds are the sea cells; with no sea at all, the
 	lowest cell. Ties pop by index, so the result is deterministic.
 */
-std::vector<fix> fill(const Grid &g, const std::vector<fix> &h)
+std::vector<fix> fill(const std::vector<fix> &h)
 {
+	const Sphere &sphere = gridSphere();
 	using Entry = std::pair<fix, int32_t>;
 	std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> open;
 	std::vector<fix> out = h;
@@ -90,8 +87,6 @@ std::vector<fix> fill(const Grid &g, const std::vector<fix> &h)
 
 	int32_t lowest = -1;
 	for (int32_t i = 0; i < (int32_t)h.size(); i++) {
-		if (g.polar[i])
-			continue;
 		if (lowest < 0 || h[i] < h[lowest])
 			lowest = i;
 		if (h[i] < 0) {
@@ -107,9 +102,9 @@ std::vector<fix> fill(const Grid &g, const std::vector<fix> &h)
 	while (!open.empty()) {
 		auto [level, c] = open.top();
 		open.pop();
-		for (int k = 0; k < 8; k++) {
-			int32_t n = neighbour(c, k);
-			if (n < 0 || seen[n] || g.polar[n])
+		for (const int32_t *p = sphere.neighboursBegin(c); p != sphere.neighboursEnd(c); p++) {
+			int32_t n = *p;
+			if (seen[n])
 				continue;
 			seen[n] = 1;
 			// the step up is jittered per cell (under a fifth of a block), so
@@ -122,22 +117,21 @@ std::vector<fix> fill(const Grid &g, const std::vector<fix> &h)
 }
 
 // Where each cell drains: its steepest strictly-lower neighbour on `surface`;
-// −1 for the sea, polar walls, and (on an unfilled surface) pits.
-std::vector<int32_t> receivers(const Grid &g, const std::vector<fix> &surface)
+// −1 for the sea and (on an unfilled surface) pits.
+std::vector<int32_t> receivers(const std::vector<fix> &surface)
 {
+	const Sphere &sphere = gridSphere();
 	std::vector<int32_t> out(surface.size(), -1);
 	for (int32_t i = 0; i < (int32_t)surface.size(); i++) {
-		if (g.polar[i] || surface[i] < 0)
+		if (surface[i] < 0)
 			continue;
 		int64_t best = 0;
-		for (int k = 0; k < 8; k++) {
-			int32_t n = neighbour(i, k);
-			if (n < 0 || g.polar[n])
-				continue;
-			int64_t steep = (int64_t)(surface[i] - surface[n]) * (DX[k] != 0 && DZ[k] != 0 ? DIAGONAL_WEIGHT : STRAIGHT_WEIGHT);
+		const fix *gap = sphere.distancesBegin(i);
+		for (const int32_t *p = sphere.neighboursBegin(i); p != sphere.neighboursEnd(i); p++, gap++) {
+			int64_t steep = (int64_t)(surface[i] - surface[*p]) * SPAN / *gap;
 			if (steep > best) {
 				best = steep;
-				out[i] = n;
+				out[i] = *p;
 			}
 		}
 	}
@@ -173,13 +167,14 @@ std::vector<int32_t> upstreamOrder(const std::vector<int32_t> &receiver)
 	return order;
 }
 
-// Rain-weighted area draining through each cell.
+// Rain-weighted area draining through each cell (each cell's own by its area).
 std::vector<int64_t> accumulate(const std::vector<int32_t> &receiver, const std::vector<int32_t> &order,
 		const std::vector<fix> &rain)
 {
+	const Sphere &sphere = gridSphere();
 	std::vector<int64_t> area(receiver.size());
 	for (size_t i = 0; i < area.size(); i++)
-		area[i] = rain[i];
+		area[i] = mul(rain[i], sphere.area((int32_t)i));
 	for (size_t k = order.size(); k-- > 0;) {
 		int32_t c = order[k];
 		if (receiver[c] >= 0)
@@ -189,20 +184,20 @@ std::vector<int64_t> accumulate(const std::vector<int32_t> &receiver, const std:
 }
 
 /*
-	Water standing over the eroded land, grouped into basins (8-connected,
-	wrapping east–west). A basin becomes a lake only if it is big and deep
+	Water standing over the eroded land, grouped into basins (by neighbours). A basin becomes a lake only if it is big and deep
 	enough; smaller hollows fill with sediment — the land rises to the water.
 */
 void keepRealLakes(Grid &g)
 {
+	const Sphere &sphere = gridSphere();
 	size_t n = g.filled.size();
 	int64_t land = 0;
 	for (size_t i = 0; i < n; i++)
-		land += !g.polar[i] && g.base[i] >= 0;
+		land += g.base[i] >= 0;
 	int32_t max_cells = (int32_t)((land * LAKE_MAX_SHARE) >> FRAC);
 	std::vector<uint8_t> wet(n), seen(n);
 	for (size_t i = 0; i < n; i++)
-		wet[i] = !g.polar[i] && g.filled[i] >= 0 && g.filled[i] - g.eroded[i] >= LAKE_DEPTH;
+		wet[i] = g.filled[i] >= 0 && g.filled[i] - g.eroded[i] >= LAKE_DEPTH;
 
 	std::vector<int32_t> basin;
 	for (int32_t start = 0; start < (int32_t)n; start++) {
@@ -215,9 +210,9 @@ void keepRealLakes(Grid &g)
 		for (size_t head = 0; head < basin.size(); head++) {
 			int32_t c = basin[head];
 			deepest = std::max(deepest, g.filled[c] - g.eroded[c]);
-			for (int k = 0; k < 8; k++) {
-				int32_t nb = neighbour(c, k);
-				if (nb >= 0 && wet[nb] && !seen[nb]) {
+			for (const int32_t *p = sphere.neighboursBegin(c); p != sphere.neighboursEnd(c); p++) {
+				int32_t nb = *p;
+				if (wet[nb] && !seen[nb]) {
 					seen[nb] = 1;
 					basin.push_back(nb);
 				}
@@ -258,97 +253,121 @@ const fix SUPPLY[(int)Province::Count] = {
 
 std::vector<fix> fertility(const WorldCode &code, const Grid &g)
 {
-	size_t n = (size_t)GRID * GRID;
+	const Sphere &sphere = gridSphere();
+	size_t n = (size_t)sphere.size();
 	std::vector<fix> out(n, 0);
-	for (int32_t cz = 0; cz < GRID; cz++) {
-		fix v = ratio(2 * cz + 1, 2 * GRID);
+	for (int32_t i = 0; i < (int32_t)n; i++) {
+		fix e = g.eroded[i];
+		if (e < 0)
+			continue;
+		const Dir &d = sphere.centre(i);
+		fix u = World::u(d), v = World::v(d);
 		fix sun = sunlight(code, v, std::nullopt);
-		for (int32_t cx = 0; cx < GRID; cx++) {
-			int32_t i = Grid::index(cx, cz);
-			fix e = g.eroded[i];
-			if (e < 0)
-				continue;
-			fix supply = SUPPLY[(int)g.province[i]];
-			// rivers spread silt over the low land they cross
-			fix flood = e < ratio(12, 100) && g.river_threshold != INT64_MAX
-					? mul(ratio(35, 100), (fix)std::min<int64_t>(ONE, ((g.drained[i] << FRAC) / g.river_threshold)))
-					: 0;
-			fix heat = heatAt(code, ratio(2 * cx + 1, 2 * GRID), v, sun, e) + g.sea_heat[i];
-			// leaching grows with wetness (log₂ of the rain, like the biomes') and warmth
-			fix wet = clamp(log2(maxx(g.rain(i), ratio(1, 100))) / 2, -ONE, ONE);
-			fix leached = mul(mul(maxx(0, wet + ratio(5, 10)), maxx(0, heat + ratio(3, 10))), ratio(45, 100));
-			out[i] = clamp(supply + flood - leached, 0, ONE);
-		}
+		fix supply = SUPPLY[(int)g.province[i]];
+		// rivers spread silt over the low land they cross
+		fix flood = e < ratio(12, 100) && g.river_threshold != INT64_MAX
+				? mul(ratio(35, 100), (fix)std::min<int64_t>(ONE, ((g.drained[i] << FRAC) / g.river_threshold)))
+				: 0;
+		fix heat = heatAt(code, u, v, sun, e) + g.sea_heat[i];
+		// leaching grows with wetness (log₂ of the rain, like the biomes') and warmth
+		fix wet = clamp(log2(maxx(g.rain(i), ratio(1, 100))) / 2, -ONE, ONE);
+		fix leached = mul(mul(maxx(0, wet + ratio(5, 10)), maxx(0, heat + ratio(3, 10))), ratio(45, 100));
+		out[i] = clamp(supply + flood - leached, 0, ONE);
 	}
 	return out;
 }
 
+// The climate grid's cells (CLIMATE², row 0 north, columns wrapping) round a
+// place, and how much each counts: the climate is read between its centres.
+void climateAt(fix u, fix v, int32_t cells[4], fix weights[4])
+{
+	fix x = mul(u, toFix(CLIMATE)) - HALF, z = clamp(mul(v, toFix(CLIMATE)) - HALF, 0, toFix(CLIMATE - 1));
+	int32_t x0 = floorInt(x), z0 = floorInt(z), z1 = std::min(z0 + 1, CLIMATE - 1);
+	auto at = [&](int32_t ax, int32_t az) { return az * CLIMATE + ((ax % CLIMATE) + CLIMATE) % CLIMATE; };
+	fix tx = fraction(x), tz = fraction(z);
+	cells[0] = at(x0, z0);
+	cells[1] = at(x0 + 1, z0);
+	cells[2] = at(x0, z1);
+	cells[3] = at(x0 + 1, z1);
+	weights[0] = mul(ONE - tx, ONE - tz);
+	weights[1] = mul(tx, ONE - tz);
+	weights[2] = mul(ONE - tx, tz);
+	weights[3] = ONE - weights[0] - weights[1] - weights[2];
+}
+
+// A grid field read at a place, between the three cells round it.
+fix read(const std::vector<fix> &field, const Dir &d)
+{
+	const Sphere::Spot spot = gridSphere().spot(d);
+	int64_t sum = 0;
+	for (int k = 0; k < 3; k++)
+		sum += (int64_t)field[spot.cells[k]] * spot.weights[k];
+	return (fix)(sum >> FRAC);
+}
+
 std::shared_ptr<Grid> build(const WorldCode &code)
 {
+	const Sphere &sphere = gridSphere();
 	auto g = std::make_shared<Grid>();
-	size_t n = (size_t)GRID * GRID;
+	size_t n = (size_t)sphere.size();
 	std::vector<fix> mass(n), rain(n);
-	g->polar.resize(n);
-
-	for (int32_t cz = 0; cz < GRID; cz++) {
-		fix v = ratio(2 * cz + 1, 2 * GRID);
-		for (int32_t cx = 0; cx < GRID; cx++) {
-			fix u = ratio(2 * cx + 1, 2 * GRID);
-			int32_t i = Grid::index(cx, cz);
-			mass[i] = landmass(code, u, v);
-			g->polar[i] = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
-		}
-	}
+	for (size_t i = 0; i < n; i++)
+		mass[i] = landmass(code, sphere.centre((int32_t)i));
 
 	// The sea, by quantile of the landmass field: exactly the Land share of
-	// the open (non-polar) cells is above it.
-	std::vector<fix> open_cells;
-	for (size_t i = 0; i < n; i++)
-		if (!g->polar[i])
-			open_cells.push_back(mass[i]);
-	std::sort(open_cells.begin(), open_cells.end());
-	size_t sea_cells = (size_t)(((int64_t)open_cells.size() * (ONE - code.land)) >> FRAC);
-	sea_cells = std::min(sea_cells, open_cells.size() - 1);
-	g->sea_offset = open_cells[sea_cells];
+	// the planet's area is above it.
+	{
+		std::vector<int32_t> by(n);
+		for (size_t i = 0; i < n; i++)
+			by[i] = (int32_t)i;
+		std::sort(by.begin(), by.end(), [&](int32_t a, int32_t b) { return mass[a] != mass[b] ? mass[a] < mass[b] : a < b; });
+		const int64_t sea = (int64_t)n * (ONE - code.land); // of the planet's n·ONE (each cell's area()), fixed
+		int64_t under = 0;
+		size_t k = 0;
+		while (k + 1 < n && under + sphere.area(by[k]) <= sea)
+			under += sphere.area(by[k++]);
+		g->sea_offset = mass[by[k]];
+	}
 	// the plates, before the height: mountains follow their collisions
 	g->tectonics = tectonics(code, mass, g->sea_offset);
 	g->base.resize(n);
-	for (int32_t cz = 0; cz < GRID; cz++)
-		for (int32_t cx = 0; cx < GRID; cx++) {
-			int32_t i = Grid::index(cx, cz);
-			g->base[i] = elevation(code, ratio(2 * cx + 1, 2 * GRID), ratio(2 * cz + 1, 2 * GRID), g->sea_offset,
-					g->tectonics.belt[i], g->tectonics.relief[i]);
-		}
+	for (size_t i = 0; i < n; i++)
+		g->base[i] = elevation(code, sphere.centre((int32_t)i), g->sea_offset, g->tectonics.belt[i], g->tectonics.relief[i]);
 
-	// The climate over the land as made: where rain falls, which wears the
+	// The climate over the land as made, on its own grid in latitude and
+	// longitude (smooth and banded by latitude, so its rows suit it; the
+	// energy-balance climate replaces it): where rain falls, which wears the
 	// land and feeds the rivers (a little everywhere, so every slope runs)
 	{
-		const int32_t k = GRID / CLIMATE;
 		std::vector<fix> coarse((size_t)CLIMATE * CLIMATE);
 		for (int32_t cz = 0; cz < CLIMATE; cz++)
 			for (int32_t cx = 0; cx < CLIMATE; cx++) {
+				// the land under a climate cell: four points across it
 				int64_t sum = 0;
-				for (int32_t dz = 0; dz < k; dz++)
-					for (int32_t dx = 0; dx < k; dx++)
-						sum += g->base[Grid::index(cx * k + dx, cz * k + dz)];
-				coarse[cz * CLIMATE + cx] = (fix)(sum / (k * k));
+				for (int32_t s4 = 0; s4 < 4; s4++) {
+					fix u = ratio(4 * cx + 1 + 2 * (s4 & 1), 4 * CLIMATE), v = ratio(4 * cz + 1 + 2 * (s4 >> 1), 4 * CLIMATE);
+					sum += read(g->base, World::place(u, v));
+				}
+				coarse[cz * CLIMATE + cx] = (fix)(sum / 4);
 			}
 		Climate cl = climate(code, coarse);
-		// up to the grid: each cell's centre, in climate cells, between their centres
-		auto upsample = [&](const std::vector<fix> &from, std::vector<fix> &to) {
+		// back onto the cells: each centre, between the climate's
+		auto onto = [&](const std::vector<fix> &from, std::vector<fix> &to) {
 			to.resize(n);
-			for (int32_t cz = 0; cz < GRID; cz++)
-				for (int32_t cx = 0; cx < GRID; cx++) {
-					fix x = ratio(2 * cx + 1, 2 * k) - HALF, z = clamp(ratio(2 * cz + 1, 2 * k) - HALF, 0, toFix(CLIMATE - 1));
-					int32_t x0 = floorInt(x), z0 = floorInt(z), z1 = std::min(z0 + 1, CLIMATE - 1);
-					auto at = [&](int32_t ax, int32_t az) { return from[az * CLIMATE + ((ax % CLIMATE) + CLIMATE) % CLIMATE]; };
-					to[Grid::index(cx, cz)] = lerp(lerp(at(x0, z0), at(x0 + 1, z0), fraction(x)),
-							lerp(at(x0, z1), at(x0 + 1, z1), fraction(x)), fraction(z));
-				}
+			for (size_t i = 0; i < n; i++) {
+				const Dir &d = sphere.centre((int32_t)i);
+				int32_t cells[4];
+				fix weights[4];
+				climateAt(World::u(d), World::v(d), cells, weights);
+				int64_t sum = 0;
+				for (int k = 0; k < 4; k++)
+					sum += (int64_t)from[cells[k]] * weights[k];
+				to[i] = (fix)(sum >> FRAC);
+			}
 		};
-		upsample(cl.rain[0], g->rain_season[0]);
-		upsample(cl.rain[1], g->rain_season[1]);
-		upsample(cl.sea, g->sea_heat);
+		onto(cl.rain[0], g->rain_season[0]);
+		onto(cl.rain[1], g->rain_season[1]);
+		onto(cl.sea, g->sea_heat);
 		for (size_t i = 0; i < n; i++)
 			rain[i] = clamp(g->rain((int32_t)i), ratio(15, 100), toFix(3));
 	}
@@ -358,8 +377,8 @@ std::shared_ptr<Grid> build(const WorldCode &code)
 	// erode their beds; the sea stays put.
 	std::vector<fix> h = g->base;
 	for (int round = 0; round < EROSION_ROUNDS; round++) {
-		std::vector<fix> surface = fill(*g, h);
-		std::vector<int32_t> down = receivers(*g, surface);
+		std::vector<fix> surface = fill(h);
+		std::vector<int32_t> down = receivers(surface);
 		std::vector<int32_t> order = upstreamOrder(down);
 		std::vector<int64_t> area = accumulate(down, order, rain);
 		for (int32_t c : order) {
@@ -376,39 +395,41 @@ std::shared_ptr<Grid> build(const WorldCode &code)
 	g->eroded = h;
 
 	// The final water: fill, keep the basins that make real lakes, drain, accumulate.
-	g->filled = fill(*g, g->eroded);
+	g->filled = fill(g->eroded);
 	g->lake.resize(n);
 	g->lake_level.resize(n);
 	keepRealLakes(*g);
-	g->receiver = receivers(*g, g->filled);
+	g->receiver = receivers(g->filled);
 	g->drained = accumulate(g->receiver, upstreamOrder(g->receiver), rain);
 
 	// Rivers: the Rivers setting picks what share of the land carries one
 	// (0.4% to 4%), so every world gets its proportion, whatever its shape.
 	std::vector<int64_t> land_drained;
 	for (size_t i = 0; i < n; i++)
-		if (!g->polar[i] && g->base[i] >= 0)
+		if (g->base[i] >= 0)
 			land_drained.push_back(g->drained[i]);
 	std::sort(land_drained.begin(), land_drained.end());
 	fix share = ratio(4, 1000) + mul(code.rivers, ratio(36, 1000));
-	size_t at = land_drained.size() - 1 - std::min(land_drained.size() - 1, (size_t)(((int64_t)land_drained.size() * share) >> FRAC));
-	g->river_threshold = land_drained.empty() ? INT64_MAX : std::max<int64_t>(land_drained[at], toFix(8));
+	if (land_drained.empty()) {
+		g->river_threshold = INT64_MAX;
+	} else {
+		size_t at = land_drained.size() - 1 - std::min(land_drained.size() - 1, (size_t)(((int64_t)land_drained.size() * share) >> FRAC));
+		g->river_threshold = std::max<int64_t>(land_drained[at], toFix(8));
+	}
 
 	// geology on the finished land: volcanoes, which cells their slopes
 	// reach, then provinces (lava fields need the volcanoes)
 	g->volcanoes = volcanoes(code, *g);
 	{
-		int32_t cell = code.size / GRID, half = code.size / 2;
+		const fix radius = World::radiusOf(code), cell = World::cellBlocksOf(code);
 		std::vector<std::vector<uint16_t>> reach(n);
 		for (size_t k = 0; k < g->volcanoes.size(); k++) {
 			const Volcano &v = g->volcanoes[k];
-			int32_t vcx = (v.x + half) / cell, vcz = (half - v.z) / cell, r = v.radius / cell + 2;
-			for (int32_t dz = -r; dz <= r; dz++)
-				for (int32_t dx = -r; dx <= r; dx++) {
-					int32_t cz = vcz + dz;
-					if (cz >= 0 && cz < GRID)
-						reach[Grid::index(((vcx + dx) % GRID + GRID) % GRID, cz)].push_back((uint16_t)k);
-				}
+			// the cells within its slopes and two cells more, out from its vent's
+			const int64_t within = (int64_t)v.radius * ONE + 2 * (int64_t)cell;
+			for (int32_t c : sphere.around(sphere.cell(v.at), [&](int32_t c) {
+					return (int64_t)mul(chord(sphere.centre(c), v.at), radius) <= within; }))
+				reach[c].push_back((uint16_t)k);
 		}
 		g->volcano_start.assign(n + 1, 0);
 		for (size_t i = 0; i < n; i++) {

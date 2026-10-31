@@ -73,7 +73,6 @@ export function mockPreview(config: WorldConfig, date: number | null, resolution
         biomes: [...BIOMES],
         // the JS stand-in has no water simulation: no lakes, no rivers
         lake: b64(new Uint8Array(n)),
-        grid: 256,
         rivers: "",
         // nor any geology: one plate, all shield, no volcanoes
         province: b64(new Uint8Array(n)),

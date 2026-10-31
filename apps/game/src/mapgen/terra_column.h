@@ -38,15 +38,15 @@ struct Blocks
 
 struct Column
 {
-	bool beyond;    // past the polar edge: ice to the build limit
-	bool space;     // past the polar wall (World::spaceFrom): nothing at all
+	bool space;     // no place (seam between tiles): nothing at all
+	terragen::Dir at; // its place on the planet (not space)
 	terragen::Biome biome;
-	terragen::Ground ground; // terragen's column (not beyond): for what grows here
+	terragen::Ground ground; // terragen's column (not space): for what grows here
 	s32 height;     // the top solid block, absolute y
 	s32 water;      // the water (or lava) surface; == height when dry
 	bool lava;      // the surface liquid is lava
 	bool water_above; // under a sea, lake or river (not lava)
-	std::optional<terragen::Strata> strata; // not beyond
+	std::optional<terragen::Strata> strata; // not space
 	s32 soil;       // soil depth: rock begins this far under the surface
 	u8 soil_point;  // what the soil is made of here (terragen::soilPoint), for Blocks::soil's param2
 
@@ -59,57 +59,38 @@ struct Column
 	s32 ice_end;
 };
 
-// The world model's block at a latitude and longitude (radians): its map is
-// equirectangular, x longitude from 0, z latitude, poles at ±size/2.
-std::array<int32_t, 2> equirect(double latitude, double longitude, int32_t size);
-
 class Columns
 {
 public:
-	// `atlas`: the world's planet, if it's one (src/planet/atlas.h), and
-	// which of its bodies `world` is. Then a column of the map is the world
-	// model's column at its latitude and longitude on the body: the whole
-	// world, poles and all, on the sphere. A column of another body's tile
-	// throws.
+	// The columns of one body of a planet (`atlas`, src/planet/atlas.h): each
+	// the world model's column at its place on the body, poles and all. A
+	// column of another body's tile throws.
 	Columns(const terragen::World &world, const Blocks &blocks, s16 water_level,
-			const planet::Atlas *atlas, int body);
+			const planet::Atlas &atlas, int body);
 	int body() const { return m_body; }
 
 	const Blocks &blocks() const { return m_blocks; }
 	s16 waterLevel() const { return m_water_level; }
 
-	// `sun`: World::sunlight for the column's row (it depends only on z); 0
-	// beyond the polar edge. On a planet it's found from where the column is.
-	Column at(s16 x, s16 z, terragen::fix sun) const;
-	// The column at a latitude and longitude (radians): an atlas's nodes are
-	// built from their place (planet::Atlas::place), node by node.
-	Column atPlace(double latitude, double longitude) const;
-	terragen::fix sunlight(int32_t z) const;
+	// A storage column's column: the one at its place (nothing for seam).
+	Column at(s16 x, s16 z) const;
+	// The column at a place: an atlas's nodes are built from their place
+	// (planet::Atlas::place), node by node.
+	Column atPlace(const terragen::Dir &place) const;
 
-	// The world model's block for a column of the map: itself, or on a planet
-	// the one at its latitude and longitude (the world model's map is
-	// equirectangular: x longitude, z latitude, poles at ±size/2).
-	std::array<int32_t, 2> onWorld(s16 x, s16 z) const;
-	// The world model's block at a latitude and longitude (radians).
-	std::array<int32_t, 2> onWorldAt(double latitude, double longitude) const;
-
-	// The block the generator leaves at (x, y, z) of column `c`: rock, ore
+	// The block the generator leaves at height y of column `c`: rock, ore
 	// and caves below the soil, the soil painted over it, water (frozen at
 	// the top of a cold sea) and air above. Before decorations, dust and the
-	// game's own planting.
-	// x, z: the column's place for what varies node to node (on a planet, its
-	// spot: planet::Atlas::spot).
-	MapNode node(const Column &c, s32 x, s32 y, s32 z) const;
+	// game's own planting. What varies block to block is read at the block's
+	// point in the planet (terragen::World::solid).
+	MapNode node(const Column &c, s32 y) const;
 
 private:
-	Column column(int32_t x, int32_t z, terragen::fix sun) const;
 	Column nothing() const; // a column of no world: air, for storage that isn't a place
 
 	const terragen::World &m_world;
-	const planet::Atlas *m_atlas;
+	const planet::Atlas &m_atlas;
 	int m_body;
-	// a storage column's place on the body (none: seam); throws for another body's
-	std::optional<std::array<double, 2>> placeOf(s16 x, s16 z) const;
 	Blocks m_blocks;
 	s16 m_water_level;
 };

@@ -34,10 +34,6 @@ public:
 	void runTests(IGameDef *gamedef);
 
 	void testPacketRoundTrip();
-	void testTileMatchesColumns();
-	void testCoarseCellsSampleCentres();
-	void testPolarWall();
-	void testWholeMap();
 	void testTilingIsTheAtlas();
 	void testTileIsTheAtlasLand();
 	void testABodysOwnLand();
@@ -49,10 +45,6 @@ static TestFar g_test_instance;
 void TestFar::runTests(IGameDef *gamedef)
 {
 	TEST(testPacketRoundTrip);
-	TEST(testTileMatchesColumns);
-	TEST(testCoarseCellsSampleCentres);
-	TEST(testPolarWall);
-	TEST(testWholeMap);
 	TEST(testTilingIsTheAtlas);
 	TEST(testTileIsTheAtlasLand);
 	TEST(testABodysOwnLand);
@@ -63,7 +55,7 @@ void TestFar::runTests(IGameDef *gamedef)
 static Horizon horizon()
 {
 	Horizon h;
-	h.code = "TF5.dGVycmE";
+	h.code = "TF6.dGVycmE";
 	h.water_level = 1;
 	terra::Blocks &b = h.content.blocks;
 	content_t next = 100;
@@ -106,58 +98,6 @@ void TestFar::testPacketRoundTrip()
 	UASSERT(r.content.species[0].niche.heat[0] == h.content.species[0].niche.heat[0]);
 	UASSERT(r.content.species[0].shape.rules_a == h.content.species[0].shape.rules_a);
 	UASSERT(r.content.species[0].on == h.content.species[0].on);
-}
-
-void TestFar::testTileMatchesColumns()
-{
-	Horizon h = horizon();
-	Generator gen(h);
-	Tile t = gen.build({ 0, 10, -5 });
-	for (s32 j = -1; j <= TILE; j++)
-		for (s32 i = -1; i <= TILE; i++) {
-			Cell c = gen.column(10 * TILE + i, -5 * TILE + j);
-			const Cell &got = t.at(i, j);
-			UASSERT(got.ground == c.ground && got.top == c.top && got.water == c.water);
-			// trees only stand on dry ground, above it
-			if (!got.canopy.empty())
-				UASSERT(got.canopy.low > got.ground && got.canopy.node.getContent() == 21 ||
-						got.canopy.node.getContent() == 20);
-		}
-}
-
-void TestFar::testCoarseCellsSampleCentres()
-{
-	Horizon h = horizon();
-	Generator gen(h);
-	Tile t = gen.build({ 3, 1, 2 }); // cells 8 blocks wide
-	const s32 cell = 8, x0 = 1 * TILE * cell, z0 = 2 * TILE * cell;
-	for (s32 j = 0; j < TILE; j += 7)
-		for (s32 i = 0; i < TILE; i += 5)
-			UASSERT(t.at(i, j).ground == gen.column(x0 + i * cell + cell / 2, z0 + j * cell + cell / 2).ground);
-}
-
-void TestFar::testPolarWall()
-{
-	Horizon h = horizon();
-	Generator gen(h);
-	Cell c = gen.column(0, gen.world().code().size / 2 + 10); // just past the pole
-	UASSERTEQ(s32, c.ground, 1 + POLAR_WALL);
-	UASSERT(c.top.getContent() == h.content.blocks.ice);
-	UASSERT(!c.space);
-	// past the wall, space: nothing to draw
-	UASSERT(gen.column(0, gen.world().spaceFrom()).space);
-}
-
-// From high up the far view reaches the whole map, past both poles and
-// into space: every tile builds.
-void TestFar::testWholeMap()
-{
-	Horizon h = horizon();
-	Generator gen(h);
-	const s32 level = 6, span = TILE << level, size = gen.world().code().size;
-	for (s32 z = -size / span - 1; z <= size / span + 1; z++)
-		for (s32 x = -size / span / 2; x < size / span / 2; x += 3)
-			gen.build({ level, x, z });
 }
 
 // An atlas planet as Terra Firma's worlds are: its far view tiles its regions.

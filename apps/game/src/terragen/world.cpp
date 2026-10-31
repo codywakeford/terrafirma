@@ -16,18 +16,53 @@ const char *const BIOME_NAMES[(int)Biome::Count] = {
 	"forest", "jungle", "taiga", "tundra", "rock", "snow", "monsoon", "mediterranean",
 };
 
-World::World(const WorldCode &code) : m_code(code), m_map(code.size, home().radius), m_grid(gridFor(code))
+World::World(const WorldCode &code) :
+	m_code(code), m_map(code.size, home().radius), m_grid(gridFor(code)), m_radius(radiusOf(code)),
+	m_cell_blocks(cellBlocksOf(code))
 {
 }
 
-fix World::latitude(fix v)
+fix World::radiusOf(const WorldCode &code)
 {
-	return mul(HALF - v, PI);
+	return div(toFix(code.size), TWO_PI);
 }
 
-fix World::sunlight(fix v, std::optional<fix> date) const
+fix World::cellBlocksOf(const WorldCode &code)
 {
-	return terragen::sunlight(m_code, v, date);
+	return mul(gridSphere().spacing(), radiusOf(code));
+}
+
+Dir World::place(fix u, fix v)
+{
+	return dirAt(mul(HALF - v, PI), mul(u - HALF, TWO_PI));
+}
+
+fix World::u(const Dir &d)
+{
+	fix u = div(longitudeOf(d), TWO_PI) + HALF;
+	return u >= ONE ? u - ONE : u < 0 ? u + ONE : u;
+}
+
+fix World::v(const Dir &d)
+{
+	return HALF - div(latitudeOf(d), PI);
+}
+
+int32_t World::blocksBetween(const Dir &a, const Dir &b) const
+{
+	return floorInt(mul(chord(a, b), m_radius));
+}
+
+std::array<int32_t, 3> World::solid(const Dir &d, int32_t y) const
+{
+	const int64_t r = (int64_t)m_radius + toFix(y); // blocks from the centre, fixed
+	auto at = [&](fix c) { return (int32_t)(((int64_t)c * r + ((int64_t)1 << 31)) >> 32); };
+	return { at(d.x), at(d.y), at(d.z) };
+}
+
+fix World::sunlight(const Dir &d, std::optional<fix> date) const
+{
+	return terragen::sunlight(m_code, v(d), date);
 }
 
 /*
@@ -74,58 +109,29 @@ static Biome classify(fix e, fix heat, fix wet, fix season)
 	return Biome::Grassland; // the last niche takes everything
 }
 
-// The grid position of (u, v) between cell centres: cell indices and fractions.
-struct GridPoint
+void World::tectonic(const Dir &d, fix &belt, fix &relief) const
 {
-	int32_t cx0, cx1, cz0, cz1;
-	fix tx, tz;
-};
-
-static GridPoint gridPoint(fix u, fix v)
-{
-	fix gx = u * GRID - HALF, gz = v * GRID - HALF;
-	int32_t ix = floorInt(gx), iz = floorInt(gz);
-	GridPoint p;
-	p.cx0 = (ix + GRID) % GRID;
-	p.cx1 = (ix + 1 + GRID) % GRID;
-	p.cz0 = std::clamp(iz, 0, GRID - 1);
-	p.cz1 = std::clamp(iz + 1, 0, GRID - 1);
-	p.tx = fraction(gx);
-	p.tz = fraction(gz);
-	return p;
+	belt = between(m_grid->tectonics.belt, d);
+	relief = between(m_grid->tectonics.relief, d);
 }
 
-void World::tectonic(fix u, fix v, fix &belt, fix &relief) const
+int32_t World::cell(const Dir &d) const
 {
-	const Tectonics &t = m_grid->tectonics;
-	GridPoint p = gridPoint(u, v);
-	int32_t a = Grid::index(p.cx0, p.cz0), b = Grid::index(p.cx1, p.cz0), c = Grid::index(p.cx0, p.cz1), d = Grid::index(p.cx1, p.cz1);
-	belt = lerp(lerp(t.belt[a], t.belt[b], p.tx), lerp(t.belt[c], t.belt[d], p.tx), p.tz);
-	relief = lerp(lerp(t.relief[a], t.relief[b], p.tx), lerp(t.relief[c], t.relief[d], p.tx), p.tz);
+	return gridSphere().cell(d);
 }
 
-int32_t World::cell(fix u, fix v) const
-{
-	int32_t cx = std::clamp(floorInt(u * GRID), 0, GRID - 1), cz = std::clamp(floorInt(v * GRID), 0, GRID - 1);
-	return Grid::index(cx, cz);
-}
-
-void World::volcanic(int32_t x, int32_t z, int32_t &raise, int32_t &lava, int32_t &floor) const
+void World::volcanic(const Dir &at, int32_t &raise, int32_t &lava, int32_t &floor) const
 {
 	const Grid &g = *m_grid;
 	raise = 0;
 	lava = INT32_MIN;
 	floor = INT32_MIN;
-	int32_t i = cell(u(x), v(z));
+	int32_t i = cell(at);
 	for (uint32_t k = g.volcano_start[i]; k < g.volcano_start[i + 1]; k++) {
 		const Volcano &vo = g.volcanoes[g.volcano_list[k]];
-		int32_t dx = x - vo.x;
-		dx = ((dx + m_code.size / 2) % m_code.size + m_code.size) % m_code.size - m_code.size / 2; // east–west wrap
-		int32_t dz = z - vo.z;
-		int64_t d2 = (int64_t)dx * dx + (int64_t)dz * dz;
-		if (d2 >= (int64_t)vo.radius * vo.radius)
+		fix d = mul(chord(at, vo.at), m_radius); // blocks, fixed
+		if (d >= toFix(vo.radius))
 			continue;
-		fix d = sqrtWide64(d2 << FRAC); // blocks, fixed
 		// the cone: (1 − d/r)^1.5, steeper near the top
 		fix t = ONE - d / vo.radius;
 		int32_t cone = floorInt(mul(toFix(vo.height), mul(t, sqrt(t))));
@@ -145,36 +151,27 @@ void World::volcanic(int32_t x, int32_t z, int32_t &raise, int32_t &lava, int32_
 	}
 }
 
-fix World::between(const std::vector<fix> &f, fix u, fix v) const
+fix World::between(const std::vector<fix> &f, const Dir &d) const
 {
-	GridPoint p = gridPoint(u, v);
-	return lerp(lerp(f[Grid::index(p.cx0, p.cz0)], f[Grid::index(p.cx1, p.cz0)], p.tx),
-			lerp(f[Grid::index(p.cx0, p.cz1)], f[Grid::index(p.cx1, p.cz1)], p.tx), p.tz);
+	const Sphere::Spot spot = gridSphere().spot(d);
+	int64_t sum = 0;
+	for (int k = 0; k < 3; k++)
+		sum += (int64_t)f[spot.cells[k]] * spot.weights[k];
+	return (fix)(sum >> FRAC);
 }
 
-fix World::erosion(fix u, fix v) const
-{
-	const Grid &g = *m_grid;
-	GridPoint p = gridPoint(u, v);
-	auto worn = [&](int32_t cx, int32_t cz) {
-		int32_t i = Grid::index(cx, cz);
-		return g.eroded[i] - g.base[i];
-	};
-	return lerp(lerp(worn(p.cx0, p.cz0), worn(p.cx1, p.cz0), p.tx),
-			lerp(worn(p.cx0, p.cz1), worn(p.cx1, p.cz1), p.tx), p.tz);
-}
-
-Column World::column(fix u, fix v, fix sun) const
+Column World::column(const Dir &d, fix sun) const
 {
 	const WorldCode &c = m_code;
+	const fix u = this->u(d), v = this->v(d);
 	fix belt, relief;
-	tectonic(u, v, belt, relief);
-	fix e = elevation(c, u, v, m_grid->sea_offset, belt, relief);
+	tectonic(d, belt, relief);
+	fix e = elevation(c, d, m_grid->sea_offset, belt, relief);
 	if (e >= 0) // only the land wears down; the sea floor stays as made
-		e = std::max<fix>(e + erosion(u, v), 0);
-	fix heat = heatAt(c, u, v, sun, e) + between(m_grid->sea_heat, u, v);
+		e = std::max<fix>(e + between(m_grid->eroded, d) - between(m_grid->base, d), 0);
+	fix heat = heatAt(c, u, v, sun, e) + between(m_grid->sea_heat, d);
 	// the climate's rain here, in each season; the hemisphere decides which is summer
-	fix north = between(m_grid->rain_season[0], u, v), south = between(m_grid->rain_season[1], u, v);
+	fix north = between(m_grid->rain_season[0], d), south = between(m_grid->rain_season[1], d);
 	fix rain = (north + south) / 2;
 	fix summer = v < HALF ? north : south, winter = v < HALF ? south : north;
 	fix season = div(summer - winter, summer + winter);
@@ -183,8 +180,7 @@ Column World::column(fix u, fix v, fix sun) const
 	// gets (−1) either way
 	fix wet = clamp(log2(maxx(rain, ratio(1, 100))) / 2, -ONE, ONE);
 
-	bool polar = v < POLAR_EDGE || v > ONE - POLAR_EDGE;
-	Biome biome = polar ? (e < 0 ? Biome::SeaIce : Biome::Snow) : classify(e, heat, wet, season);
+	Biome biome = classify(e, heat, wet, season);
 	// a barren body: one bare biome over all of it, sea floor and poles too
 	switch (c.surface) {
 	case Surface::Living: break;
@@ -192,7 +188,7 @@ Column World::column(fix u, fix v, fix sun) const
 	case Surface::Sand: biome = Biome::Desert; break;
 	case Surface::Ice: biome = Biome::Snow; break;
 	}
-	return { e, heat, wet, rain, season, biome, polar };
+	return { e, heat, wet, rain, season, biome };
 }
 
 // °C for a heat, fitted to the biome thresholds in classify(): snow below
@@ -210,34 +206,18 @@ static fix dailySwing(const Column &c)
 	return c.elevation < 0 ? swing / 2 : swing;
 }
 
-fix World::temperature(int32_t x, int32_t z, fix date, fix hour) const
+fix World::temperature(const Dir &d, fix date, fix hour) const
 {
-	fix u = this->u(x), v = this->v(z);
-	Column c = column(u, v, sunlight(v, date));
+	Column c = column(d, sunlight(d, date));
 	// warmest at 15:00, coldest at 03:00
 	fix daily = mul(dailySwing(c), cos(mul(TWO_PI, hour - ratio(5, 8))));
 	return celsius(c.heat) + daily;
 }
 
-fix World::u(int32_t x) const
-{
-	int32_t half = m_code.size / 2;
-	int32_t i = (x + half) % m_code.size;
-	if (i < 0)
-		i += m_code.size;
-	return ratio(i, m_code.size);
-}
-
-fix World::v(int32_t z) const
-{
-	// +z is north; north is v = 0
-	return (fix)(((int64_t)(m_code.size / 2 - z) * ONE) / m_code.size);
-}
-
-int32_t World::surface(fix e, fix u, fix v) const
+int32_t World::surface(fix e, const Dir &d) const
 {
 	fix scale = e >= 0 ? toFix(LAND_SCALE) : toFix(SEA_SCALE);
-	fix detail = fbm(u, v, m_code.seed_hash + DETAIL, m_code.size / 64, 3, HALF);
+	fix detail = fbm(d, m_code.seed_hash + DETAIL, m_code.size / 64, 3, HALF);
 	fix amplitude = e >= 0 ? toFix(5) : toFix(2);
 	return floorInt(mul(e, scale) + mul(detail, amplitude));
 }
@@ -253,15 +233,15 @@ static int32_t waterBlocks(fix filled)
 static const int32_t BANK = 6;   // blocks beside the channel kept above the water
 static const fix MAX_WIDTH = toFix(24);
 
-Ground World::ground(int32_t x, int32_t z, fix sun) const
+Ground World::ground(const Dir &at, fix sun) const
 {
 	const Grid &g = *m_grid;
-	fix u = this->u(x), v = this->v(z);
-	Column c = column(u, v, sun);
-	Ground out{ surface(c.elevation, u, v), 0, Water::None, c };
+	const Sphere &sphere = gridSphere();
+	Column c = column(at, sun);
+	Ground out{ surface(c.elevation, at), 0, Water::None, c };
 	// volcanoes stand on the land (or rise from the sea floor to islands)
 	int32_t raise, lava, floor;
-	volcanic(x, z, raise, lava, floor);
+	volcanic(at, raise, lava, floor);
 	if (raise > 0)
 		out.terrain += raise;
 	if (floor != INT32_MIN) {
@@ -281,16 +261,13 @@ Ground World::ground(int32_t x, int32_t z, fix sun) const
 
 	// Lakes: the grid's lake mask, between cell centres. Inside the outline the
 	// floor drops under the lake's level; on the rim the ground holds it in.
-	GridPoint p = gridPoint(u, v);
-	int32_t corners[4] = {
-		Grid::index(p.cx0, p.cz0), Grid::index(p.cx1, p.cz0),
-		Grid::index(p.cx0, p.cz1), Grid::index(p.cx1, p.cz1),
-	};
-	fix mask = lerp(lerp(toFix(g.lake[corners[0]]), toFix(g.lake[corners[1]]), p.tx),
-			lerp(toFix(g.lake[corners[2]]), toFix(g.lake[corners[3]]), p.tx), p.tz);
+	const Sphere::Spot spot = sphere.spot(at);
+	fix mask = 0;
+	for (int k = 0; k < 3; k++)
+		mask += g.lake[spot.cells[k]] ? spot.weights[k] : 0;
 	if (mask > 0) {
 		int32_t level = 0;
-		for (int32_t i : corners)
+		for (int32_t i : spot.cells)
 			if (g.lake[i])
 				level = std::max(level, waterBlocks(g.lake_level[i]));
 		if (mask >= HALF) {
@@ -303,53 +280,41 @@ Ground World::ground(int32_t x, int32_t z, fix sun) const
 		}
 	}
 
-	// Rivers: the nearest river segment within reach of this column.
-	int32_t cell = m_code.size / GRID;
-	int32_t half_size = m_code.size / 2;
-	int32_t ix = std::clamp(floorInt(v * GRID), 0, GRID - 1);
-	int32_t jx = floorInt(u * GRID);
+	// Rivers: the nearest river segment within reach of this column, from
+	// the cells within three spacings of it. Positions are blocks from this
+	// column, straight through the planet (this near, the same as along it).
+	const int64_t reach = 3 * (int64_t)m_cell_blocks + toFix(4);
+	const auto offset = [&](const Dir &d) {
+		return std::array<int64_t, 3>{ mul(d.x - at.x, m_radius), mul(d.y - at.y, m_radius), mul(d.z - at.z, m_radius) };
+	};
 	fix best_gap = toFix(1 << 14);
 	int32_t best_level = 0;
 	fix best_half = 0, best_dist = 0;
-	for (int32_t dz = -2; dz <= 2; dz++) {
-		int32_t cz = ix + dz;
-		if (cz < 0 || cz >= GRID)
+	for (int32_t i : sphere.around(cell(at), [&](int32_t k) {
+			return (int64_t)mul(chord(sphere.centre(k), at), m_radius) <= reach; })) {
+		int32_t r = g.receiver[i];
+		if (!g.river(i) || r < 0)
 			continue;
-		for (int32_t dx = -2; dx <= 2; dx++) {
-			int32_t cx = (jx + dx + GRID) % GRID;
-			int32_t i = Grid::index(cx, cz);
-			int32_t r = g.receiver[i];
-			if (!g.river(i) || r < 0)
-				continue;
-			// segment ends in block coordinates, relative to this column
-			auto centre = [&](int32_t k, int32_t &bx, int32_t &bz) {
-				int32_t kx = k % GRID, kz = k / GRID;
-				bx = -half_size + kx * cell + cell / 2 - x;
-				bz = half_size - (kz * cell + cell / 2) - z;
-				bx = ((bx + half_size) % m_code.size + m_code.size) % m_code.size - half_size; // east–west wrap
-			};
-			int32_t ax, az, bx, bz;
-			centre(i, ax, az);
-			centre(r, bx, bz);
-			int64_t sx = bx - ax, sz = bz - az;
-			int64_t len2 = sx * sx + sz * sz;
-			if (len2 == 0)
-				continue;
-			// closest point on the segment to the origin (this column)
-			fix t = (fix)std::clamp<int64_t>(((-ax * sx - az * sz) << FRAC) / len2, 0, ONE);
-			int64_t px = ((int64_t)ax << FRAC) + sx * t, pz = ((int64_t)az << FRAC) + sz * t; // fixed blocks
-			fix dist = sqrtWide64(px * px + pz * pz);
-			// wider as more water passes: 3 blocks at the threshold, √ of the flow beyond it
-			fix width = std::min(toFix(3) + 2 * sqrtWide64((g.drained[i] << FRAC) / g.river_threshold), MAX_WIDTH);
-			fix half = width / 2;
-			if (dist - half < best_gap) {
-				best_gap = dist - half;
-				best_half = half;
-				best_dist = dist;
-				int32_t from = waterBlocks(g.filled[i]) - 1;
-				int32_t to = g.base[r] < 0 ? 0 : waterBlocks(g.filled[r]) - 1;
-				best_level = std::max<int32_t>(0, floorInt(lerp(toFix(from), toFix(to), t)));
-			}
+		const std::array<int64_t, 3> a = offset(sphere.centre(i)), b = offset(sphere.centre(r));
+		const int64_t sx = b[0] - a[0], sy = b[1] - a[1], sz = b[2] - a[2];
+		const int64_t len2 = (sx * sx + sy * sy + sz * sz) >> FRAC; // fixed
+		if (len2 == 0)
+			continue;
+		// closest point on the segment to the origin (this column)
+		const int64_t along = -((a[0] * sx + a[1] * sy + a[2] * sz) >> FRAC);
+		fix t = (fix)std::clamp<int64_t>((along << FRAC) / len2, 0, ONE);
+		const int64_t px = a[0] + ((sx * t) >> FRAC), py = a[1] + ((sy * t) >> FRAC), pz = a[2] + ((sz * t) >> FRAC);
+		fix dist = (fix)isqrt((uint64_t)(px * px + py * py + pz * pz));
+		// wider as more water passes: 3 blocks at the threshold, √ of the flow beyond it
+		fix width = std::min(toFix(3) + 2 * sqrtWide64((g.drained[i] << FRAC) / g.river_threshold), MAX_WIDTH);
+		fix half = width / 2;
+		if (dist - half < best_gap) {
+			best_gap = dist - half;
+			best_half = half;
+			best_dist = dist;
+			int32_t from = waterBlocks(g.filled[i]) - 1;
+			int32_t to = g.base[r] < 0 ? 0 : waterBlocks(g.filled[r]) - 1;
+			best_level = std::max<int32_t>(0, floorInt(lerp(toFix(from), toFix(to), t)));
 		}
 	}
 	if (best_gap < toFix(BANK)) {
@@ -365,6 +330,9 @@ Ground World::ground(int32_t x, int32_t z, fix sun) const
 			out.terrain = best_level + 1; // the bank holds the river in
 		}
 	}
+	// a bank or a lake's rim raised over the sea's level: dry ground, not sea
+	if (out.kind == Water::Sea && out.terrain >= out.water)
+		out.kind = Water::None;
 	return out;
 }
 

@@ -40,11 +40,11 @@ public:
 		const Column *column(planet::Atlas::Node n);
 
 	private:
-		const Column &columnAt(const std::array<double, 2> &place);
+		const Column &columnAt(const terragen::Dir &place);
 
 		const AtlasLand &m_land;
 		std::optional<Column> m_column; // the last one, and its place
-		std::array<double, 2> m_place{};
+		terragen::Dir m_place{};
 	};
 
 private:

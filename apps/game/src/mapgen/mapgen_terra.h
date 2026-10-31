@@ -26,7 +26,7 @@ terra::Blocks terraBlocks(const BiomeManager *bmgr, const NodeDefManager *ndef);
 
 struct MapgenTerraParams : public MapgenParams
 {
-	// The world code (TF5.…): everything terragen needs. Written into the
+	// The world code (TF6.…): everything terragen needs. Written into the
 	// world's map_meta.txt when the world is created.
 	std::string code;
 
@@ -63,13 +63,11 @@ private:
 	// Fills the biome map (the engine's passes read it). The soil is painted
 	// as the terrain is filled: terra::Columns::node.
 	void paintSurface();
-	// The finished column at (x, z), or false beyond the polar edge.
+	// The finished column at storage column (x, z), or false for seam.
 	bool groundAt(s16 x, s16 z, terragen::Ground &ground) const;
-	// the world model's block
-	static bool groundOnWorld(const terragen::World &world, std::array<int32_t, 2> w, terragen::Ground &ground);
 
 	terragen::World m_world;
-	std::optional<planet::Atlas> m_atlas;   // the world's, if it's a planet (planet_atlas)
+	planet::Atlas m_atlas;                  // the world's (planet_atlas)
 	content_t c_seam = CONTENT_IGNORE;      // an atlas's storage that is no cell
 	MapNode atlasNode(s16 x, s16 y, s16 z);
 	// The debug sphere's block for a cell: what it is, painted.
@@ -82,7 +80,7 @@ private:
 	{
 		content_t segmentA, segmentB, cap, core, segmentSeam, capEdge, cut, coreEdge, line;
 	} m_paint{};
-	terra::Columns m_columns; // what goes in each column of a flat world (shared with the far view)
+	terra::Blocks m_blocks;
 	// An atlas's bodies, each a world of its own (terragen/worlds.h): its
 	// columns, its cells (shared with the far view) and this generator's
 	// reading of them. Built when a chunk first needs them.
@@ -94,7 +92,7 @@ private:
 		terra::AtlasLand::Reader reader;
 		BodyLand(const terragen::WorldCode &code, const terra::Blocks &blocks, s16 water_level,
 				const planet::Atlas &atlas, int body) :
-			world(code), columns(world, blocks, water_level, &atlas, body), land(columns, atlas), reader(land)
+			world(code), columns(world, blocks, water_level, atlas, body), land(columns, atlas), reader(land)
 		{
 		}
 	};
@@ -106,7 +104,6 @@ private:
 	BodyLand &bodyLand(int body) const;
 	// The land a storage column is of: its body's (seam's is seam in any)
 	BodyLand &landAt(s16 x, s16 z) const;
-	const terra::Columns &columnsAt(s16 x, s16 z) const { return m_atlas ? landAt(x, z).columns : m_columns; }
 	Biome *m_biomes[(int)terragen::Biome::Count];
 
 	// per column of the current chunk (z outer, x inner)

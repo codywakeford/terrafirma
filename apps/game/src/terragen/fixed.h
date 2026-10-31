@@ -46,6 +46,7 @@ inline fix fraction(fix v) { return v & (ONE - 1); }
 inline int32_t roundInt(fix v) { return (v + HALF) >> FRAC; }
 
 fix sqrt(fix v);                     // v ≥ 0
+uint64_t isqrt(uint64_t n);          // ⌊√n⌋ of a plain integer
 fix sqrtWide64(int64_t v);           // √v for a fixed value held in 64 bits, v ≥ 0
 void sincos(fix angle, fix &s, fix &c); // any angle, radians
 fix sin(fix angle);

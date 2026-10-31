@@ -5,6 +5,7 @@
 #include "grid.h"
 #include "noise.h"
 #include "sun.h"
+#include "world.h"
 #include <algorithm>
 #include <cmath>
 
@@ -79,7 +80,7 @@ Flow flow(const Circulation &c, fix lat, fix itcz)
 fix heatAt(const WorldCode &c, fix u, fix v, fix sun, fix e)
 {
 	return mul(sun - ratio(55, 100), ratio(22, 10)) + c.star->warmth + mul(c.temperature, ratio(6, 10))
-			+ mul(fbm(u, v, c.seed_hash + HEAT, 3, 3, HALF), ratio(2, 10)) - mul(maxx(0, e), ratio(9, 10));
+			+ mul(fbm(World::place(u, v), c.seed_hash + HEAT, 3, 3, HALF), ratio(2, 10)) - mul(maxx(0, e), ratio(9, 10));
 }
 
 // ---- the climate --------------------------------------------------------------

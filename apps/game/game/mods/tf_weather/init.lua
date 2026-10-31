@@ -13,11 +13,11 @@ end
 
 local PERIOD = 2.0 -- seconds between readings
 
-local space = core.terra.world().space -- north of it, the map is space (tf_flight's bubbles): no weather
+local space = core.terra.world().boundary -- this high above the sea, space: no weather
 
 local function update(player)
 	local pos = player:get_pos()
-	if pos.z >= space then
+	if pos.y >= space then
 		player:set_ui("weather", nil)
 		return
 	end

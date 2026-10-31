@@ -5,12 +5,13 @@
 
 #include "code.h"
 #include "fixed.h"
+#include "sphere.h"
 #include <cstdint>
 #include <vector>
 
 /*
-	Geology: what the ground is made of, and why. Plates drift on the coarse
-	grid; where they meet, mountains rise and volcanoes stand; every column
+	Geology: what the ground is made of, and why. Plates turn on the sphere,
+	each about its own pole; where they meet, mountains rise and volcanoes stand; every column
 	gets a province (shield, orogen, arc, rift, basin, volcanic field, ocean
 	floor) and from it a stack of rock; ores sit where real processes put
 	them; caves follow the rock. Fixed point and pure like the rest of
@@ -39,8 +40,11 @@ extern const char *const ORE_NAMES[(int)Ore::Count];
 
 struct Plate
 {
-	fix u, v;    // its centre
-	fix du, dv;  // its drift
+	Dir centre;
+	// how it moves: turning about this pole (a plate's motion on a sphere is
+	// always a turn), its speed at 90° from the pole ~0.5..1
+	Dir pole;
+	fix spin;
 	bool oceanic;
 };
 
@@ -48,7 +52,7 @@ enum class VolcanoKind : uint8_t { Arc, Rift, Hotspot };
 
 struct Volcano
 {
-	int32_t x, z;          // block coordinates of the vent
+	Dir at;                // the vent
 	int32_t radius;        // blocks: where its slopes meet the land
 	int32_t height;        // blocks above the land around it
 	int32_t crater;        // crater radius, blocks
@@ -88,6 +92,7 @@ std::vector<Volcano> volcanoes(const WorldCode &code, const Grid &g);
 */
 struct Strata
 {
+	Dir at;             // the column's place
 	Province province;
 	int32_t sediment;   // blocks of sedimentary cover over the basement
 	int32_t fold;       // how far beds wander up and down (blocks)

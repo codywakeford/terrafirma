@@ -377,21 +377,31 @@ Atlas::Node Atlas::node(const Cell &c) const
 	return n;
 }
 
-std::optional<std::array<double, 2>> Atlas::place(Node node) const
+std::optional<terragen::Dir> Atlas::place(Node node) const
+{
+	const std::optional<terragen::Atlas::Vec> p = surface(node);
+	return p ? std::optional<terragen::Dir>(direction(*p)) : std::nullopt;
+}
+
+std::optional<terragen::Atlas::Vec> Atlas::surface(Node node) const
 {
 	const Tile *r = tileAt(node);
 	if (!r || r->kind == Kind::Core)
 		return std::nullopt;
-	return place(Cell(r->body, { r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 }));
+	const Cell c(r->body, { r->kind, r->index, r->i0 + (node.x - r->rect.x), r->j0 + (node.z - r->rect.z), 0 });
+	return shapeOf(c).centre({ c.region, c.index, c.i, c.j, 0 });
 }
 
-std::array<double, 2> Atlas::place(const Cell &cell) const
+terragen::Dir Atlas::place(const Cell &cell) const
 {
 	if (cell.region == Kind::Core)
 		throw std::invalid_argument("planet::Atlas: the core has no place on the ground");
-	const terragen::Atlas::Vec p = shapeOf(cell).centre({ cell.region, cell.index, cell.i, cell.j, 0 });
-	const double l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-	return { std::asin(p.y / l), std::atan2(p.z, p.x) };
+	return direction(shapeOf(cell).centre({ cell.region, cell.index, cell.i, cell.j, 0 }));
+}
+
+terragen::Dir Atlas::direction(const terragen::Atlas::Vec &p)
+{
+	return terragen::normalise(std::llround(p.x * 1024), std::llround(p.y * 1024), std::llround(p.z * 1024));
 }
 
 int Atlas::tileIndex(Node node) const

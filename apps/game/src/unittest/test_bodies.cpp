@@ -49,7 +49,7 @@ namespace {
 
 using planet::Atlas;
 
-const terragen::WorldCode HOME_CODE = terragen::WorldCode::decode("TF5.dGVycmE");
+const terragen::WorldCode HOME_CODE = terragen::WorldCode::decode("TF6.dGVycmE");
 
 std::vector<terragen::BodyWorld> worldsAt(double radius)
 {
@@ -194,11 +194,12 @@ void TestBodies::testABodysLandIsItsKind()
 		const terragen::World world(code);
 		water = grows = 0;
 		for (int i = 0; i < 400; i++) {
-			const int32_t x = (int32_t)((int64_t)code.size * (i % 20) / 20) - code.size / 2;
-			const int32_t z = (int32_t)((int64_t)code.size * (i / 20) / 60) - code.size / 6; // within ±30°
-			const terragen::Ground g = world.ground(x, z, world.sunlight(world.v(z), std::nullopt));
+			// within ±30°
+			const terragen::Dir at = terragen::World::place(terragen::ratio(i % 20, 20),
+					terragen::HALF + terragen::ratio(1, 6) - terragen::ratio(i / 20, 60));
+			const terragen::Ground g = world.ground(at, world.sunlight(at, std::nullopt));
 			water += g.kind != terragen::Water::None && g.kind != terragen::Water::Lava;
-			grows += world.cover(x, z, g).density > 0;
+			grows += world.cover(at, g).density > 0;
 			biomes.insert((int)g.column.biome);
 		}
 	};

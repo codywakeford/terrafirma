@@ -4,6 +4,7 @@
 #pragma once
 
 #include "terragen/atlas.h"
+#include "terragen/sphere.h"
 #include <array>
 #include <atomic>
 #include <deque>
@@ -415,12 +416,19 @@ public:
 	// A node that is always seam (above the atlas): what lies past the top.
 	Node seam() const;
 
-	// Where a node of a segment or a cap is on the planet: latitude and
-	// longitude (radians) of its column (its cell at the surface layer).
-	// What the generator builds the column from. None in seam and the core.
-	std::optional<std::array<double, 2>> place(Node node) const;
+	// Where a node of a segment or a cap is on the planet: the direction of
+	// its column (its cell at the surface layer) from the centre, as the
+	// world model takes it. What the generator builds the column from. None
+	// in seam and the core.
+	std::optional<terragen::Dir> place(Node node) const;
+	// The point place() is the direction of: its column's cell centre at the
+	// surface layer, blocks from the planet's centre.
+	std::optional<terragen::Atlas::Vec> surface(Node node) const;
 	// The same for a cell of a segment or a cap (throws for the core's).
-	std::array<double, 2> place(const Cell &cell) const;
+	terragen::Dir place(const Cell &cell) const;
+	// A point's direction from the centre, in the world model's fixed point
+	// (to 1/1024 of a block first, so it's the same wherever it's asked).
+	static terragen::Dir direction(const terragen::Atlas::Vec &point);
 
 private:
 	struct Layout;

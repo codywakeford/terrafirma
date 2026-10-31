@@ -188,18 +188,25 @@ void TestPlanetarium::testCentreIsAhead()
 // And its cost per vertex, for the tile budget.
 void TestPlanetarium::testOverlaySharpUpClose()
 {
-	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF5.dGVycmE"));
+	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF6.dGVycmE"));
 	planetarium::Painter painter({ world, planetarium::Overlay::Elevation, nullptr, std::nullopt, std::nullopt, 0 });
 	const video::SColor land(255, 200, 200, 200);
-	std::set<u32> seen;
-	const double lat = 0.3, from = 0.1, pixel = 2 * M_PI / 256;
-	for (int i = 0; i < 64; i++) {
-		const double lon = from + pixel * i / 64;
-		const far::Tiling::Vec at{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
-		seen.insert(painter.colour(land, at).color);
-	}
-	infostream << "TestPlanetarium: " << seen.size() << " colours across a pixel" << std::endl;
-	UASSERT(seen.size() > 4);
+	// a few places, the best of them: one may lie on an even slope or a
+	// flat sea floor, where there's little to show at any sharpness
+	const double pixel = 2 * M_PI / 256;
+	size_t most = 0;
+	for (const double lat : { 0.3, -0.5, 0.9 })
+		for (const double from : { 0.1, 2.0, -2.5 }) {
+			std::set<u32> seen;
+			for (int i = 0; i < 64; i++) {
+				const double lon = from + pixel * i / 64;
+				const far::Tiling::Vec at{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
+				seen.insert(painter.colour(land, at).color);
+			}
+			most = std::max(most, seen.size());
+		}
+	infostream << "TestPlanetarium: " << most << " colours across a pixel" << std::endl;
+	UASSERT(most > 4);
 
 	const auto start = std::chrono::steady_clock::now();
 	const int n = 20000;
@@ -216,14 +223,15 @@ void TestPlanetarium::testOverlaySharpUpClose()
 // water overlays; the climate ones paint over it.
 void TestPlanetarium::testOverlayKeepsWater()
 {
-	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF5.dGVycmE"));
+	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF6.dGVycmE"));
 	const video::SColor river(0, 40, 120, 215);
 	// a place on land
 	for (int i = 0; i < 4096; i++) {
 		const double lon = 2 * M_PI * i / 4096, lat = 0.4 * std::sin(i * 0.11);
 		const far::Tiling::Vec at{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
 		const terragen::fix u = (terragen::fix)((lon / (2 * M_PI) + 0.5) * terragen::ONE), v = (terragen::fix)((0.5 - lat / M_PI) * terragen::ONE);
-		if (world->column(u, v, world->sunlight(v, std::nullopt)).elevation <= terragen::ONE / 20)
+		const terragen::Dir place = terragen::World::place(u, v);
+		if (world->column(place, world->sunlight(place, std::nullopt)).elevation <= terragen::ONE / 20)
 			continue;
 		planetarium::Painter biomes({ world, planetarium::Overlay::Biomes, nullptr, std::nullopt, std::nullopt, 0 });
 		planetarium::Painter heat({ world, planetarium::Overlay::Temperature, nullptr, std::nullopt, std::nullopt, 0 });

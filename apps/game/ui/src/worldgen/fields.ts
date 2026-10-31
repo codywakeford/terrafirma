@@ -13,8 +13,7 @@ export type Fields = {
     biome: Uint8Array       // index into `biomes`
     biomes: string[]        // the engine's biome names, in index order
     lake: Uint8Array        // 1 where a lake stands
-    rivers: River[]         // on the coarse grid
-    grid: number            // the coarse grid's size
+    rivers: River[]         // between the coarse grid's cells
     province: Uint8Array    // index into PROVINCES
     plate: Uint8Array       // which plate
     boundary: Uint8Array    // 0, or the kind of plate edge running through: 1 converging, 2 spreading, 3 sliding
@@ -27,8 +26,8 @@ export type Volcano = { u: number; v: number; active: boolean }
 /** The engine's geological provinces, in index order (src/terragen/geology.cpp: PROVINCE_NAMES). */
 export const PROVINCES = ["shield", "orogen", "arc", "rift", "basin", "volcanic", "ocean floor"] as const
 
-/** A river segment: from a grid cell to the one it drains into; strength 1..255 (√flow over threshold ×16). */
-export type River = { cx: number; cz: number; dx: number; dz: number; strength: number }
+/** A river segment: from a grid cell's centre to the one it drains into, as shares of the map across (u) and down (v); strength 1..255 (√flow over threshold ×16). */
+export type River = { u0: number; v0: number; u1: number; v1: number; strength: number }
 
 /** What worldgen.preview sends: the same fields, quantized, as base64. */
 export type PreviewWire = {
@@ -42,8 +41,7 @@ export type PreviewWire = {
     biome: string     // uint8
     biomes: string[]
     lake: string      // uint8
-    grid: number
-    rivers: string    // 5 bytes per segment: cx, cz, dx (int8), dz (int8), strength
+    rivers: string    // 9 bytes per segment: u0, v0, u1, v1 (uint16 LE), strength
     province: string  // uint8
     plate: string     // uint8
     boundary: string  // uint8
@@ -67,13 +65,13 @@ export function decodePreview(wire: PreviewWire): Fields {
     const province = bytesOf(wire.province), plate = bytesOf(wire.plate), boundary = bytesOf(wire.boundary)
     const volcanoBytes = bytesOf(wire.volcanoes)
     if (elevation.length !== n || heat.length !== n || wet.length !== n || season.length !== n || fertility.length !== n || current.length !== n ||
-        biome.length !== n || lake.length !== n || riverBytes.length % 5 ||
+        biome.length !== n || lake.length !== n || riverBytes.length % 9 ||
         province.length !== n || plate.length !== n || boundary.length !== n || volcanoBytes.length % 5)
         throw new Error(`preview fields don't match resolution ${wire.resolution}`)
-    const signed = (b: number) => (b > 127 ? b - 256 : b)
+    const share = (b: Uint8Array, i: number) => (b[i]! | (b[i + 1]! << 8)) / 65535
     const rivers: River[] = []
-    for (let i = 0; i < riverBytes.length; i += 5)
-        rivers.push({ cx: riverBytes[i]!, cz: riverBytes[i + 1]!, dx: signed(riverBytes[i + 2]!), dz: signed(riverBytes[i + 3]!), strength: riverBytes[i + 4]! })
+    for (let i = 0; i < riverBytes.length; i += 9)
+        rivers.push({ u0: share(riverBytes, i), v0: share(riverBytes, i + 2), u1: share(riverBytes, i + 4), v1: share(riverBytes, i + 6), strength: riverBytes[i + 8]! })
     const volcanoes: Volcano[] = []
     for (let i = 0; i < volcanoBytes.length; i += 5)
         volcanoes.push({ u: (volcanoBytes[i]! | (volcanoBytes[i + 1]! << 8)) / 65535, v: (volcanoBytes[i + 2]! | (volcanoBytes[i + 3]! << 8)) / 65535,
@@ -90,7 +88,6 @@ export function decodePreview(wire: PreviewWire): Fields {
         biomes: wire.biomes,
         lake: lake,
         rivers: rivers,
-        grid: wire.grid,
         province: province,
         plate: plate,
         boundary: boundary,
@@ -254,10 +251,13 @@ function paintWater(fields: Fields, image: ImageData) {
     for (let i = 0; i < r * r; i++) if (fields.lake[i]) set(i % r, Math.floor(i / r), LAKE)
 
     // rivers: lines between cell centres, deeper blue and wider as flow grows
-    const scale = r / fields.grid
     for (const river of fields.rivers) {
-        const x0 = (river.cx + 0.5) * scale, y0 = (river.cz + 0.5) * scale
-        const x1 = x0 + river.dx * scale, y1 = y0 + river.dz * scale
+        const x0 = river.u0 * r, y0 = river.v0 * r
+        // across the east–west seam, the short way round (set() wraps x)
+        let x1 = river.u1 * r
+        if (x1 - x0 > r / 2) x1 -= r
+        if (x0 - x1 > r / 2) x1 += r
+        const y1 = river.v1 * r
         const s = Math.min(1, river.strength / 96)
         const color: Rgb = [40 - 20 * s, 120 + 20 * s, 215]
         const wide = river.strength >= 48

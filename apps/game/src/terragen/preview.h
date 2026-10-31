@@ -15,9 +15,10 @@ namespace terragen {
 	edge), quantized for the page: elevation × 10000 (int16), heat, wetness
 	(log₂ of the year's rain, halved) and season (when the rain falls: 1
 	summer .. −1 winter) × 100 (int8, clamped), fertility × 255 (uint8), the ocean currents' heat × 100 (int8), the
-	biome index (see BIOME_NAMES), and a lake flag. Rivers come as segments on the coarse grid, 5 bytes each:
-	cell x, cell z (0..GRID−1), the step to the cell it drains into (dx, dz in
-	−1..1, int8), and strength (1..255: √ of flow over the river threshold, ×16).
+	biome index (see BIOME_NAMES), and a lake flag. Rivers come as segments
+	between the coarse grid's cells, 9 bytes each: where it runs from and to
+	(u, v each, uint16 little-endian, 0..65535 across the map) and strength
+	(1..255: √ of flow over the river threshold, ×16).
 */
 struct Preview
 {
@@ -30,8 +31,7 @@ struct Preview
 	std::vector<int8_t> current; // what the ocean currents add to the heat × 100
 	std::vector<uint8_t> biome;
 	std::vector<uint8_t> lake;
-	int32_t grid;                 // the coarse grid's size, for the river cells
-	std::vector<uint8_t> rivers;  // 5 bytes per segment, as above
+	std::vector<uint8_t> rivers;  // 9 bytes per segment, as above
 	// geology, per pixel: the province (PROVINCE_NAMES), the plate, and the
 	// boundary kind where a plate edge runs through (0 none, 1 converging,
 	// 2 spreading, 3 sliding); volcanoes as 5 bytes each: u and v (uint16,

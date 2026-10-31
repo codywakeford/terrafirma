@@ -44,7 +44,8 @@ public:
 	// ever. Throws for a value that isn't one.
 	std::optional<int64_t> lastOpened(const WorldSpec &world) const;
 	// The world code of the world opened last, if any was (the menu shows
-	// its system). Lab worlds aren't listed, so never this.
+	// its system), of those this build can still make (an older build's code
+	// is passed over). Lab worlds aren't listed, so never this.
 	std::optional<std::string> lastVisited() const;
 
 private:

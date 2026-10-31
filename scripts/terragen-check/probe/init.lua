@@ -1,11 +1,12 @@
--- Emerges the columns listed in the world's points.txt, logs each column's
--- (looking past small plants and cactus, which stand on the ground)
--- water surface and solid surface and what core.terra says there (with the
--- clock it read), then stops the server.
+-- Emerges the surface node at each place listed in the world's points.txt
+-- (a direction per line, the world model's fixed point), logs each column's
+-- (looking past small plants and cactus, which stand on the ground) water
+-- surface and solid surface and what core.terra says there (with the clock
+-- it read), then stops the server. Lines are keyed by the place's number.
 local points = {}
 for line in io.lines(core.get_worldpath() .. "/points.txt") do
-	local x, z = line:match("(-?%d+) (-?%d+)")
-	points[#points + 1] = { x = tonumber(x), z = tonumber(z) }
+	local x, y, z = line:match("(-?%d+) (-?%d+) (-?%d+)")
+	points[#points + 1] = { x = tonumber(x), y = tonumber(y), z = tonumber(z) }
 end
 local remaining = #points
 
@@ -28,42 +29,40 @@ local function column(p)
 	return nil, "none", water
 end
 
--- On a planet the world model's column (x, z) is somewhere on the sphere:
--- the surface node at its latitude and longitude (core.planet.atlas_node).
--- Toward the poles the world's columns stretch over several nodes and not
--- every column is some node's, so what's probed is the column that node
--- actually is (core.terra.world_column): logged as MAP, and the prediction
--- is made for it (predict --columns).
-local function onMap(p)
-	local size = core.terra.world().size
-	local n = core.planet.atlas_node(p.z / size * math.pi, p.x / size * 2 * math.pi, 0)
-		or error("terragen check: no surface node at world column " .. p.x .. " " .. p.z)
-	local c = core.terra.world_column(n)
-	return { x = n.x, z = n.z, wx = c.x, wz = c.z }
+-- The surface node at a place (core.planet.atlas_node). Its column's own
+-- place is near it, not on it (a node is a block across): that's what's
+-- logged as MAP (core.terra.place), and the prediction is made for it
+-- (predict --columns).
+local function onMap(d)
+	local lat, lon = math.atan2(d.y, math.sqrt(d.x * d.x + d.z * d.z)), math.atan2(d.z, d.x)
+	local n = core.planet.atlas_node(lat, lon, 0)
+		or error(string.format("terragen check: no surface node at %.4f %.4f", lat, lon))
+	local at = core.terra.place(n)
+	return { x = n.x, z = n.z, place = at }
 end
 
 core.register_on_mods_loaded(function()
 	core.after(1, function()
-		for _, wp in ipairs(points) do
+		for id, wp in ipairs(points) do
 			local p = onMap(wp)
-			core.log("action", string.format("MAP %d %d %d %d", p.wx, p.wz, p.x, p.z))
+			core.log("action", string.format("MAP %d %d %d %d", id, p.place.x, p.place.y, p.place.z))
 			core.emerge_area({ x = p.x, y = -160, z = p.z }, { x = p.x, y = 260, z = p.z }, function(_, _, left)
 				if left > 0 then return end
 				local y, name, water = column(p)
 				-- and the block 20 below the surface: rock, ore or cave
 				local deep = y and core.get_node({ x = p.x, y = y - 20, z = p.z }).name or "none"
-				core.log("action", string.format("PROBE %d %d %s %s %d %s", p.wx, p.wz, tostring(y), name, water, deep))
+				core.log("action", string.format("PROBE %d %s %s %d %s", id, tostring(y), name, water, deep))
 				local pos = { x = p.x, y = 0, z = p.z }
 				local sun, climate = core.terra.sun(pos), core.terra.climate(pos)
 				local calendar = core.terra.calendar()
 				local geology = core.terra.geology(pos)
-				core.log("action", string.format("TERRA %d %d %d %.17g %d %d %.6f %.6f %.6f %.6f %.6f %s %s %.6f %s",
-					p.wx, p.wz, core.get_day_count(), core.get_timeofday(), calendar.year, calendar.day, calendar.date,
+				core.log("action", string.format("TERRA %d %d %.17g %d %d %.6f %.6f %.6f %.6f %.6f %s %s %.6f %s",
+					id, core.get_day_count(), core.get_timeofday(), calendar.year, calendar.day, calendar.date,
 					sun.latitude, sun.declination, sun.elevation, sun.daylight, sun.season,
 					climate.biome, climate.temperature, geology.province:gsub(" ", "_")))
 				local w = core.terra.weather({ x = p.x, y = math.max(y or 0, 1), z = p.z }) -- at the ground, where the climate is
-				core.log("action", string.format("WEATHER %d %d %.4f %.4f %.4f %.4f %.4f %d %d %.4f",
-					p.wx, p.wz, w.temperature, climate.temperature, w.precipitation, w.pressure, w.cloud, #w.events, core.get_day_count(), core.get_timeofday()))
+				core.log("action", string.format("WEATHER %d %.4f %.4f %.4f %.4f %.4f %d %d %.4f",
+					id, w.temperature, climate.temperature, w.precipitation, w.pressure, w.cloud, #w.events, core.get_day_count(), core.get_timeofday()))
 				-- and what that weather does to the top of the column (snow, ice), applied
 				local top = water ~= -9999 and { x = p.x, y = water, z = p.z } or (y and { x = p.x, y = y, z = p.z })
 				if top then
@@ -71,7 +70,7 @@ core.register_on_mods_loaded(function()
 					local here = core.terra.weather(top)
 					local action = tf_weather.act(top, node) or "none"
 					local now = core.get_node(action == "snow" and vector.offset(top, 0, 1, 0) or top).name
-					core.log("action", string.format("ACT %d %d %s %s %s %.3f %s %.4f", p.wx, p.wz, node.name, action, now,
+					core.log("action", string.format("ACT %d %s %s %s %.3f %s %.4f", id, node.name, action, now,
 						here.temperature, tostring(here.snow), here.precipitation))
 				end
 				remaining = remaining - 1

@@ -49,8 +49,8 @@ public:
 	// back, or more than a year ahead, starts the weather over (settled).
 	void advance(double now);
 
-	// The weather at block (x, y, z) at `now` (which advance() has reached).
-	fluid::Sample sample(int32_t x, int32_t y, int32_t z, double now) const;
+	// The weather at height y over a place at `now` (which advance() has reached).
+	fluid::Sample sample(const terragen::Dir &at, int32_t y, double now) const;
 
 	const fluid::Layer &layer() const { return *m_layer; }
 	double now() const { return m_start + m_layer->time(); }

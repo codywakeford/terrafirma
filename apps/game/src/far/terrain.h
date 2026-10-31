@@ -47,10 +47,6 @@ struct Horizon
 };
 
 
-// The polar edge is ice to the build limit; the far view draws it this high
-// above the sea.
-constexpr s32 POLAR_WALL = 512;
-
 // A vertical run of one block, low to high inclusive.
 struct Run
 {
@@ -62,7 +58,7 @@ struct Run
 // What a column (or cell of columns) shows from afar.
 struct Cell
 {
-	bool space;      // past the polar wall, where the map is space: nothing to draw
+	bool space;      // no cell of the planet here: nothing to draw
 	s32 ground;      // the top solid block
 	MapNode top;     // that block
 	// a cliff shows `top` down to top_end, `filler` down to filler_end, then `rock`
@@ -95,18 +91,13 @@ struct Tile
 };
 
 /*
-	Builds tiles. Const and thread-safe: workers share one.
-	Level 0 is the world column for column, trees and all: each tree the
-	world grows is grown again (treegen, seeded by its position as the
-	world's are), clipped to the chunk it was planted in. Coarser levels
-	sample each cell's centre column and stand its species' crown wherever
-	the forest is dense enough.
+	Builds tiles of one body of a planet. Const and thread-safe: workers
+	share one. Each cell is the column of the atlas cell it stands for, with
+	its species' typical crown wherever the forest is dense enough.
 */
 class Generator
 {
 public:
-	// A flat world's (the Lab's): columns are the world model's, block for block
-	explicit Generator(const Horizon &horizon);
 	// One body of an atlas world: its tiles are its regions' (far/tiling.h),
 	// each cell the column the generator builds in the atlas cell it stands for
 	Generator(const Horizon &horizon, const planet::Atlas &atlas, int body);
@@ -117,10 +108,10 @@ public:
 
 	Tile build(const TileKey &key) const;
 
-	// The column at (x, z) without its trees: what level 0 starts from.
+	// The storage column at (x, z) without its trees (throws for seam).
 	Cell column(s32 x, s32 z) const;
-	// An atlas planet's cells as the generator fills them; throws on a flat world.
-	const terra::AtlasLand &land() const;
+	// The planet's cells as the generator fills them.
+	const terra::AtlasLand &land() const { return *m_land; }
 
 private:
 	struct Crown
@@ -129,21 +120,15 @@ private:
 	};
 
 	void growCrowns();
-	Tile buildOnAtlas(const TileKey &key) const;
 	void plant(const terra::Species &s, const terragen::Cover &cover, const terra::Column &c, Cell &out) const;
-	void growExact(Tile &tile) const;
-	void growCoarse(Tile &tile) const;
-	const terra::Species *speciesAt(const terra::Column &c, s32 x, s32 z) const;
 
 	Horizon m_horizon;
-	terragen::Cover coverAt(s32 x, s32 z, const terragen::Ground &ground) const;
-
 	std::unique_ptr<terragen::World> m_world;
-	std::optional<planet::Atlas> m_atlas;
-	int m_body = planet::Atlas::HOME; // the atlas's body drawn (a flat world has one)
-	std::unique_ptr<Tiling> m_tiling; // an atlas's tiles
+	planet::Atlas m_atlas;
+	int m_body; // the atlas's body drawn
+	std::unique_ptr<Tiling> m_tiling;
 	std::unique_ptr<terra::Columns> m_columns;
-	std::unique_ptr<terra::AtlasLand> m_land; // an atlas's
+	std::unique_ptr<terra::AtlasLand> m_land;
 	std::vector<Crown> m_crowns; // per species
 };
 

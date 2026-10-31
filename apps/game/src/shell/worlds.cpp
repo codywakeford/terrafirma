@@ -226,6 +226,11 @@ std::optional<std::string> Worlds::lastVisited() const
 		Settings meta("[end_of_params]");
 		if (!meta.readConfigFile((w.path + DIR_DELIM "map_meta.txt").c_str()) || !meta.exists("mgterra_code"))
 			continue; // not a terra world (no system to show)
+		try {
+			terragen::WorldCode::decode(meta.get("mgterra_code"));
+		} catch (const terragen::CodeError &) {
+			continue; // an older build's code (TF5): this build can't make its system
+		}
 		latest = *t;
 		code = meta.get("mgterra_code");
 	}

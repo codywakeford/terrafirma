@@ -97,13 +97,14 @@ int ModApiPlanet::l_atlas_place(lua_State *L)
 	NO_MAP_LOCK_REQUIRED;
 	const planet::Atlas *a = getServer(L)->atlas();
 	const v3s16 p = check_v3s16(L, 1);
-	const auto at = a ? a->place({ p.X, p.Y, p.Z }) : std::nullopt;
+	const auto at = a ? a->surface({ p.X, p.Y, p.Z }) : std::nullopt;
 	if (!at) {
 		lua_pushnil(L);
 		return 1;
 	}
-	lua_pushnumber(L, (*at)[0]);
-	lua_pushnumber(L, (*at)[1]);
+	const double x = at->x, y = at->y, z = at->z;
+	lua_pushnumber(L, std::atan2(y, std::hypot(x, z)));
+	lua_pushnumber(L, std::atan2(z, x));
 	return 2;
 }
 

@@ -79,12 +79,12 @@ bun check:matter        # a clay fire pit lit on a live server: the world's matt
 bun check:far           # the far view against the world: generated chunks vs core.terra.surface, column by column
 bun palette             # export the game's baked palette (apps/game/game/palette.json) after changing blocks, textures or species
 bun check:palette       # fails if the committed palette is out of date with the game's content
-.output/bin/luanti --planetarium TF5.dGVycmE   # the planet viewer alone, on a world code (in game: F7)
+.output/bin/luanti --planetarium TF6.dGVycmE   # the planet viewer alone, on a world code (in game: F7)
 arc gate release        # what a release needs, locally: build, tests, UI, a headless world (repo.config.ts)
 arc deploy release      # package.json "version" → tag v<version> → CI builds and attaches the Linux package (.github/workflows/release.yml)
 bun package:linux <version>  # the portable Linux folder + .tar.zst from the current build (scripts/release)
 # tuning by eye: render a code's grid (relief, lakes, rivers) to a PNG and look at it
-g++ -std=c++17 -O2 -Iapps/game/src apps/game/src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
+g++ -std=c++17 -O2 -Iapps/game/src apps/game/src/terragen/*.cpp scripts/terragen-check/render.cpp -o /tmp/render && /tmp/render TF6.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 ```
 
 **How agents verify:** build the engine, typecheck and build the UI, boot the

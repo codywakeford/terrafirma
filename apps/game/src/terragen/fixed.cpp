@@ -13,7 +13,7 @@ static const fix ATAN[16] = {
 };
 static const fix CORDIC_GAIN = 39797; // 0.60725
 
-static uint64_t isqrt(uint64_t n)
+uint64_t isqrt(uint64_t n)
 {
 	uint64_t r = 0, bit = (uint64_t)1 << 62;
 	while (bit > n)

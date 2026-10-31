@@ -24,7 +24,8 @@ local function kind(name)
 	local g = def.groups or {}
 	if (g.tree or 0) > 0 or (g.leaves or 0) > 0 then return "tree" end
 	if def.drawtype == "plantlike" or def.drawtype == "nodebox" then return "plant" end -- planted after: tufts, cacti
-	if def.liquidtype ~= "none" or name == "tf_world:ice" then return "liquid" end -- a frozen sea's top is its water
+	-- (the world's water is the matter's since sprint 80: group liquid, no Luanti liquidtype)
+	if def.liquidtype ~= "none" or (g.liquid or 0) > 0 or name == "tf_world:ice" then return "liquid" end -- a frozen sea's top is its water
 	return "solid"
 end
 

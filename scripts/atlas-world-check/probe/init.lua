@@ -33,7 +33,9 @@ for _, r in ipairs(atlas.tiles) do
 end
 assert(inner, "atlas_probe: no core")
 local capLat = 90 - 5 -- the cap's edge at the default 85°: a box straddling it
-local equator = at(0, 3, 0)
+-- on the equator at a coast of TF6.dGVycmE's (129° east), so ground and air
+-- both meet the box at sea level
+local equator = at(0, 129, 0)
 local boxes = {
 	around(equator, "the equator, its surface and below", { terrain = true,
 		min = { x = equator.x - 16, y = -24, z = equator.z - 16 }, max = { x = equator.x + 15, y = 24, z = equator.z + 15 } }),

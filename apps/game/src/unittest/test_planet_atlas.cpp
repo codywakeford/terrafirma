@@ -230,8 +230,8 @@ void TestPlanetAtlas::testEveryCellIsStored()
 	}
 }
 
-// A node's column is built from where it is: place() is the latitude and
-// longitude of its column's cell at the surface.
+// A node's column is built from where it is: place() is the direction of
+// its column's cell at the surface.
 void TestPlanetAtlas::testPlaceIsTheCell()
 {
 	std::mt19937_64 rng(6);
@@ -241,12 +241,15 @@ void TestPlanetAtlas::testPlaceIsTheCell()
 			const Atlas::Cell c(Atlas::HOME, a.body(planet::Atlas::HOME).locate(randomPoint(a.body(planet::Atlas::HOME), rng)));
 			if (c.region == Kind::Core)
 				continue;
-			const std::optional<std::array<double, 2>> at = a.place(a.node(c));
+			const std::optional<terragen::Dir> at = a.place(a.node(c));
 			UASSERT(at.has_value());
 			const terragen::Atlas::Vec m = a.body(planet::Atlas::HOME).centre({ c.region, c.index, c.i, c.j, 0 });
 			const double R = std::sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
-			UASSERT(std::abs((*at)[0] - std::asin(m.y / R)) < 1e-12);
-			UASSERT(std::abs(std::remainder((*at)[1] - std::atan2(m.z, m.x), 2 * M_PI)) < 1e-12);
+			// to the world model's fixed point: a couple of its units either way
+			const double unit = 2.0 / terragen::ONE;
+			UASSERT(std::abs(at->x / (double)terragen::ONE - m.x / R) < unit);
+			UASSERT(std::abs(at->y / (double)terragen::ONE - m.y / R) < unit);
+			UASSERT(std::abs(at->z / (double)terragen::ONE - m.z / R) < unit);
 		}
 	}
 }

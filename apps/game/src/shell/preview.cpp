@@ -45,7 +45,6 @@ Json::Value previewJson(const Json::Value &intent, const std::optional<terragen:
 	out["current"] = bytes(p.current.data(), p.current.size());
 	out["biome"] = bytes(p.biome.data(), p.biome.size());
 	out["lake"] = bytes(p.lake.data(), p.lake.size());
-	out["grid"] = p.grid;
 	out["rivers"] = bytes(p.rivers.data(), p.rivers.size());
 	out["province"] = bytes(p.province.data(), p.province.size());
 	out["plate"] = bytes(p.plate.data(), p.plate.size());

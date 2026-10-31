@@ -77,7 +77,7 @@ Soil soilPoint(uint8_t index)
 	return { ratio(sand, 10), ratio(10 - sand - clay, 10), ratio(clay, 10), ORGANIC_LEVELS[level] };
 }
 
-Soil World::soil(int32_t x, int32_t z, const Ground &ground, const Strata &strata) const
+Soil World::soil(const Dir &at, const Ground &ground, const Strata &strata) const
 {
 	const Column &c = ground.column;
 	Texture t = PARENT[(int)strata.province];
@@ -92,7 +92,7 @@ Soil World::soil(int32_t x, int32_t z, const Ground &ground, const Strata &strat
 	clay -= mul(dry, ratio(15, 100));
 
 	// floodplains: rivers and lakes lay silt and clay beside them on low ground
-	Cover cover = this->cover(x, z, ground);
+	Cover cover = this->cover(at, ground);
 	if (cover.bank && c.elevation < ratio(15, 100)) {
 		silt += ratio(30, 100);
 		clay += ratio(10, 100);
@@ -103,7 +103,7 @@ Soil World::soil(int32_t x, int32_t z, const Ground &ground, const Strata &strat
 	clay -= mul(steep, ratio(20, 100));
 
 	// a little variety from place to place
-	fix wobble = mul(value(u(x), v(z), m_code.seed_hash + SOIL_NOISE, m_code.size / 48), ratio(8, 100));
+	fix wobble = mul(noise(at, m_code.seed_hash + SOIL_NOISE, m_code.size / 48), ratio(8, 100));
 	sand += wobble;
 	clay -= wobble;
 
@@ -116,11 +116,11 @@ Soil World::soil(int32_t x, int32_t z, const Ground &ground, const Strata &strat
 	return { sand, silt, clay, clamp(organic, 0, ratio(60, 100)) };
 }
 
-uint8_t World::blend(int32_t x, int32_t y, int32_t z) const
+uint8_t World::blend(const Dir &d, int32_t y) const
 {
 	// smooth patches a few dozen blocks across, through depth too
-	int32_t wx = ((x % m_code.size) + m_code.size) % m_code.size;
-	fix n = value3(wx, y, z, m_code.seed_hash + BLEND, 24, m_code.size); // −1..1
+	const std::array<int32_t, 3> p = solid(d, y);
+	fix n = value3(p[0], p[1], p[2], m_code.seed_hash + BLEND, 24); // −1..1
 	return (uint8_t)std::clamp(floorInt(mul(n + ONE, toFix(8))), 0, ROCK_BLENDS - 1);
 }
 

@@ -1,0 +1,113 @@
+// Terra Firma
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#pragma once
+
+#include "fixed.h"
+#include <array>
+#include <cstdint>
+#include <unordered_set>
+#include <vector>
+
+namespace terragen {
+
+// A direction from a planet's centre, a unit vector in fixed point.
+struct Dir
+{
+	fix x, y, z;
+};
+
+/*
+	The world model's grid on the sphere (planning/sprint-86-sphere.md): a
+	subdivided icosahedron, its vertices the cells (hexagons, and twelve
+	pentagons at the icosahedron's corners), all about one size, so no
+	place on the planet is special. Built from integers and fixed point
+	alone: the same cells, in the same order, on every machine.
+
+	`frequency` n cuts each icosahedron edge into n; the sphere has
+	10n² + 2 cells.
+*/
+class Sphere
+{
+public:
+	explicit Sphere(int32_t frequency);
+
+	int32_t frequency() const { return m_n; }
+	int32_t size() const { return (int32_t)m_centre.size(); }
+
+	const Dir &centre(int32_t cell) const { return m_centre[cell]; }
+	// A cell's neighbours, 5 or 6, in turn round it.
+	const int32_t *neighboursBegin(int32_t cell) const { return &m_neighbours[m_start[cell]]; }
+	const int32_t *neighboursEnd(int32_t cell) const { return &m_neighbours[m_start[cell + 1]]; }
+	int32_t neighbourCount(int32_t cell) const { return m_start[cell + 1] - m_start[cell]; }
+	// A cell's area against the mean cell's (1: the mean), for what sums over
+	// area (rain gathered as it drains).
+	fix area(int32_t cell) const { return m_area[cell]; }
+	// How far each neighbour's centre is (straight through, on the unit
+	// sphere), alongside neighboursBegin.
+	const fix *distancesBegin(int32_t cell) const { return &m_distance[m_start[cell]]; }
+	// The mean distance between neighbours' centres, on the unit sphere.
+	fix spacing() const { return m_spacing; }
+
+	// The cells reached from `start` by neighbours while `keep(cell)` holds
+	// (start first, then outward): a patch of the sphere round a place.
+	template <typename Keep>
+	std::vector<int32_t> around(int32_t start, Keep keep) const
+	{
+		std::vector<int32_t> out{ start };
+		std::unordered_set<int32_t> seen{ start };
+		for (size_t head = 0; head < out.size(); head++)
+			for (const int32_t *p = neighboursBegin(out[head]); p != neighboursEnd(out[head]); p++) {
+				if (!seen.insert(*p).second)
+					continue;
+				if (keep(*p))
+					out.push_back(*p);
+			}
+		return out;
+	}
+
+	// The cell whose centre is nearest a direction (a unit one, as Dir is).
+	int32_t cell(const Dir &d) const;
+
+	// A direction as the three cells round it and how much each counts
+	// (summing to ONE): a field read between cell centres, continuous
+	// everywhere, across the icosahedron's edges too.
+	struct Spot
+	{
+		std::array<int32_t, 3> cells;
+		std::array<fix, 3> weights;
+	};
+	Spot spot(const Dir &d) const;
+
+private:
+	// Where a direction falls on the icosahedron: its face and its place in
+	// the face's lattice (fixed: i, j toward its second and third corner).
+	struct Onface
+	{
+		int32_t face;
+		fix i, j;
+	};
+	Onface onFace(const Dir &d) const;
+	int32_t lattice(int32_t face, int32_t i, int32_t j) const;
+
+	int32_t m_n;
+	std::vector<Dir> m_centre;
+	std::vector<int32_t> m_start, m_neighbours;
+	std::vector<fix> m_area;
+	std::vector<fix> m_distance; // per neighbour slot
+	fix m_spacing = 0;
+	std::vector<int32_t> m_lattice; // per face, its lattice points' cells, row by row (j), i along
+	std::array<std::array<std::array<int64_t, 3>, 3>, 20> m_cross; // per face: B×C, C×A, A×B of its corners
+};
+
+// A direction from latitude and longitude (radians): +y north, longitude 0
+// toward +x, east toward +z.
+Dir dirAt(fix latitude, fix longitude);
+fix latitudeOf(const Dir &d);  // −π/2 .. π/2
+fix longitudeOf(const Dir &d); // (−π, π]
+// Straight-line distance between two directions on the unit sphere.
+fix chord(const Dir &a, const Dir &b);
+// A vector made unit, any length but zero (fixed components).
+Dir normalise(int64_t x, int64_t y, int64_t z);
+
+} // namespace terragen

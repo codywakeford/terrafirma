@@ -38,25 +38,27 @@ void TestScale::testEverySize()
 	using Clock = std::chrono::steady_clock;
 	const auto ms = [](Clock::time_point a) { return std::chrono::duration<double, std::milli>(Clock::now() - a).count(); };
 	for (double radius : { 2607.0, 10000.0, 50000.0, 250000.0, 1000000.0, 6371000.0 }) {
-		terragen::WorldCode code = terragen::WorldCode::decode("TF5.dGVycmE");
+		terragen::WorldCode code = terragen::WorldCode::decode("TF6.dGVycmE");
 		code.size = (int32_t)std::lround(2 * M_PI * radius);
 
 		Clock::time_point t = Clock::now();
 		const terragen::World world(code);
 		const double built = ms(t);
 
-		// a walk east along 40° north, block by block, in 64 stretches round the world
-		const terragen::fix sun = world.sunlight(world.v((int32_t)(code.size / 2 - code.size * 0.39)), std::nullopt);
-		const int32_t z = (int32_t)(code.size / 2 - code.size * 0.39);
+		// a walk east along 40° north, a block of longitude at a time (cos 40°
+		// of a block along the ground), in 64 stretches round the world
+		const terragen::fix v = terragen::ratio(5, 18);
+		const auto at = [&](int32_t x) { return terragen::World::place(terragen::ratio(((x % code.size) + code.size) % code.size, code.size), v); };
+		const terragen::fix sun = world.sunlight(at(0), std::nullopt);
 		int32_t low = INT32_MAX, high = INT32_MIN;
 		double steps = 0, steep = 0;
 		size_t asked = 0;
 		t = Clock::now();
 		for (int s = 0; s < 64; s++) {
-			const int32_t x0 = (int32_t)((int64_t)code.size * s / 64) - code.size / 2;
-			int32_t was = world.ground(x0, z, sun).terrain;
+			const int32_t x0 = (int32_t)((int64_t)code.size * s / 64);
+			int32_t was = world.ground(at(x0), sun).terrain;
 			for (int32_t x = x0 + 1; x < x0 + 256; x++) {
-				const int32_t h = world.ground(x, z, sun).terrain;
+				const int32_t h = world.ground(at(x), sun).terrain;
 				low = std::min(low, h);
 				high = std::max(high, h);
 				steps += std::abs(h - was);

@@ -2,8 +2,9 @@
 // shaded relief, lakes, rivers by flow — and prints how long the grid took and
 // what share is land. For tuning generation by eye:
 //   g++ -std=c++17 -O2 -I src src/terragen/*.cpp scripts/terragen-check/render.cpp -o render
-//   ./render TF5.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
+//   ./render TF6.dGVycmE out.png [scale] [relief|plates|provinces|rain|season|biomes|fertility|currents]
 #include "terragen/world.h"
+#include "terragen/sphere.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -75,32 +76,37 @@ int main(int argc, char **argv)
 	World world(code);
 	double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-	int land = 0, open = 0, lakes = 0, rivers = 0;
-	for (int i = 0; i < GRID * GRID; i++) {
-		if (g->polar[i]) continue;
-		open++;
-		land += g->base[i] >= 0;
+	const Sphere &sphere = gridSphere();
+	double land = 0, all = 0;
+	int lakes = 0, rivers = 0;
+	for (int i = 0; i < g->size(); i++) {
+		all += sphere.area(i);
+		land += g->base[i] >= 0 ? sphere.area(i) : 0;
 		lakes += g->lake[i];
 		rivers += g->river(i);
 	}
 	std::printf("grid %.0f ms · land %.1f%% (asked %.0f%%) · lakes %d cells · rivers %d cells\n",
-		ms, 100.0 * land / open, 100.0 * code.land / ONE, lakes, rivers);
+		ms, 100.0 * land / all, 100.0 * code.land / ONE, lakes, rivers);
 
-	int W = GRID * scale;
+	// the map, equirectangular: each pixel the cell at its place
+	const int MAP = 256;
+	int W = MAP * scale;
 	std::vector<unsigned char> rgb((size_t)W * W * 3);
 	for (int y = 0; y < W; y++)
 		for (int x = 0; x < W; x++) {
-			int cx = x / scale, cz = y / scale, i = Grid::index(cx, cz);
+			int cx = x / scale, cz = y / scale;
+			const fix pu = ratio(2 * cx + 1, 2 * MAP), pv = ratio(2 * cz + 1, 2 * MAP);
+			const Dir at = World::place(pu, pv);
+			int i = world.cell(at);
 			double e = g->eroded[i] / 65536.0;
-			int ie = Grid::index((cx + GRID - 1) % GRID, cz > 0 ? cz - 1 : cz);
+			int ie = world.cell(World::place(pu < ratio(1, MAP) ? pu + ONE - ratio(1, MAP) : pu - ratio(1, MAP), std::max<fix>(pv - ratio(1, MAP), ratio(1, 2 * MAP))));
 			double shade = 1 + (g->eroded[ie] - g->eroded[i]) / 65536.0 * 18;
 			double r, gg, b;
-			if (g->polar[i]) { r = 220; gg = 230; b = 240; }
-			else if (e < 0) { double d = std::max(0.0, 1 + e * 1.4); r = 20 * d; gg = 50 + 50 * d; b = 110 + 70 * d; }
+			if (e < 0) { double d = std::max(0.0, 1 + e * 1.4); r = 20 * d; gg = 50 + 50 * d; b = 110 + 70 * d; }
 			else if (e < 0.15) { r = 90 + 200 * e; gg = 150 + 100 * e; b = 70; }
 			else if (e < 0.45) { r = 120 + 100 * (e - 0.15); gg = 160 - 120 * (e - 0.15); b = 80; }
 			else { double s = std::min(1.0, (e - 0.45) * 2); r = 140 + 100 * s; gg = 125 + 115 * s; b = 115 + 125 * s; }
-			if (e >= 0 && !g->polar[i]) { r *= shade; gg *= shade; b *= shade; }
+			if (e >= 0) { r *= shade; gg *= shade; b *= shade; }
 			if (mode == "plates") {
 				// each plate its own tint; boundaries red (converging), cyan (spreading), yellow (sliding)
 				const Tectonics &t = g->tectonics;
@@ -124,8 +130,7 @@ int main(int argc, char **argv)
 				r *= shade; gg *= shade; b *= shade;
 			} else if (mode == "season") {
 				// when it rains: red summer, blue winter, grey even; darker where dry
-				fix u = ratio(2 * cx + 1, 2 * GRID), v = ratio(2 * cz + 1, 2 * GRID);
-				Column c = world.column(u, v, world.sunlight(v, std::nullopt));
+				Column c = world.column(at, world.sunlight(at, std::nullopt));
 				double s = c.season / 65536.0, amount = std::clamp(0.4 + c.wet / 65536.0 * 0.6, 0.2, 1.0);
 				r = (140 + 110 * std::max(0.0, s) - 100 * std::max(0.0, -s)) * amount;
 				gg = (140 - 70 * std::fabs(s)) * amount;
@@ -134,8 +139,7 @@ int main(int argc, char **argv)
 				static const unsigned char BC[(int)Biome::Count][3] = { { 18, 52, 96 }, { 30, 84, 140 }, { 200, 220, 235 },
 					{ 214, 200, 140 }, { 222, 190, 118 }, { 176, 170, 84 }, { 104, 160, 72 }, { 52, 116, 56 }, { 28, 120, 60 },
 					{ 60, 100, 80 }, { 150, 160, 140 }, { 120, 116, 110 }, { 236, 240, 244 }, { 96, 140, 40 }, { 160, 150, 96 } };
-				fix u = ratio(2 * cx + 1, 2 * GRID), v = ratio(2 * cz + 1, 2 * GRID);
-				const unsigned char *bc = BC[(int)world.column(u, v, world.sunlight(v, std::nullopt)).biome];
+				const unsigned char *bc = BC[(int)world.column(at, world.sunlight(at, std::nullopt)).biome];
 				r = bc[0] * shade; gg = bc[1] * shade; b = bc[2] * shade;
 			} else if (mode == "currents") {
 				// what the currents do to the heat: red warmer than the latitude, blue colder
@@ -162,9 +166,8 @@ int main(int argc, char **argv)
 		}
 	// volcanoes: white (active) and grey rings
 	if (mode == "plates" || mode == "provinces") {
-		int32_t cell = code.size / GRID, half = code.size / 2;
 		for (const Volcano &v : g->volcanoes) {
-			int cx = (v.x + half) / cell, cz = (half - v.z) / cell;
+			int cx = (int)(((int64_t)World::u(v.at) * MAP) >> FRAC), cz = (int)(((int64_t)World::v(v.at) * MAP) >> FRAC);
 			for (int dy = -2; dy <= 2; dy++)
 				for (int dx = -2; dx <= 2; dx++) {
 					int px = cx * scale + dx, py = cz * scale + dy;

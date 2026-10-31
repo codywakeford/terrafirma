@@ -56,65 +56,71 @@ fix falloff(int32_t d, int32_t reach)
 	return sq(ONE - ratio(d, reach));
 }
 
-const int DX4[4] = { 1, -1, 0, 0 };
-const int DZ4[4] = { 0, 0, 1, -1 };
-
-int32_t step(int32_t i, int dx, int dz)
+// A direction from three hashes: a point in a cube, made unit (not quite
+// even over the sphere; enough for scattering a few centres).
+Dir scattered(uint32_t a, uint32_t b, uint32_t c)
 {
-	int32_t cx = i % GRID + dx, cz = i / GRID + dz;
-	if (cz < 0 || cz >= GRID)
-		return -1;
-	return Grid::index((cx + GRID) % GRID, cz);
+	return normalise((int64_t)(a & 0xFFFF) - 0x8000, (int64_t)(b & 0xFFFF) - 0x8000, (int64_t)(c & 0xFFFF) - 0x7FFF);
+}
+
+int64_t dot(const Dir &a, const Dir &b)
+{
+	return (int64_t)a.x * b.x + (int64_t)a.y * b.y + (int64_t)a.z * b.z;
+}
+
+// a × b, fixed
+Dir cross(const Dir &a, const Dir &b)
+{
+	return { mul(a.y, b.z) - mul(a.z, b.y), mul(a.z, b.x) - mul(a.x, b.z), mul(a.x, b.y) - mul(a.y, b.x) };
+}
+
+// How a plate moves at a place: its spin about its pole, ω × p.
+Dir velocity(const Plate &p, const Dir &at)
+{
+	Dir v = cross(p.pole, at);
+	return { mul(v.x, p.spin), mul(v.y, p.spin), mul(v.z, p.spin) };
 }
 
 } // namespace
 
 Tectonics tectonics(const WorldCode &c, const std::vector<fix> &mass, fix sea_offset)
 {
+	const Sphere &sphere = gridSphere();
 	Tectonics t;
-	size_t n = (size_t)GRID * GRID;
+	size_t n = (size_t)sphere.size();
 	uint32_t seed = c.seed_hash + PLATE;
 
 	int count = 6 + c.continents;
 	for (int k = 0; k < count; k++) {
 		Plate p;
-		p.u = unit(mix(k, 1, seed));
-		p.v = ratio(12, 100) + mul(unit(mix(k, 2, seed)), ratio(76, 100));
-		fix s, co;
-		sincos(mul(unit(mix(k, 3, seed)), TWO_PI), s, co);
-		fix speed = HALF + unit(mix(k, 4, seed)) / 2;
-		p.du = mul(speed, co);
-		p.dv = mul(speed, s);
-		int32_t cx = std::min(GRID - 1, floorInt(p.u * GRID)), cz = std::min(GRID - 1, floorInt(p.v * GRID));
-		p.oceanic = mass[Grid::index(cx, cz)] < sea_offset;
+		p.centre = scattered(mix(k, 1, seed), mix(k, 2, seed), mix(k, 3, seed));
+		p.pole = scattered(mix(k, 4, seed), mix(k, 5, seed), mix(k, 6, seed));
+		p.spin = HALF + unit(mix(k, 7, seed)) / 2;
+		p.oceanic = mass[sphere.cell(p.centre)] < sea_offset;
 		t.plates.push_back(p);
 	}
 
 	// each cell to its nearest plate centre, through a warp so the edges wander
 	t.plate.resize(n);
-	for (int32_t cz = 0; cz < GRID; cz++) {
-		fix v = ratio(2 * cz + 1, 2 * GRID);
-		for (int32_t cx = 0; cx < GRID; cx++) {
-			fix u = ratio(2 * cx + 1, 2 * GRID);
-			fix wu = u + mul(fbm(u, v, c.seed_hash + PLATE_WARP, 4, 3, HALF), ratio(6, 100));
-			fix wv = v + mul(fbm(u, v, c.seed_hash + PLATE_WARP + 1, 4, 3, HALF), ratio(6, 100));
-			int64_t best = INT64_MAX;
-			for (int k = 0; k < count; k++) {
-				fix du = fabsx(fraction(wu - t.plates[k].u));
-				du = std::min<fix>(du, ONE - du);
-				fix dv = wv - t.plates[k].v;
-				int64_t d = (int64_t)du * du + (int64_t)dv * dv;
-				if (d < best) {
-					best = d;
-					t.plate[Grid::index(cx, cz)] = (uint8_t)k;
-				}
+	const fix WARP = ratio(20, 100);
+	for (size_t i = 0; i < n; i++) {
+		const Dir &d = sphere.centre((int32_t)i);
+		const Dir w = normalise((int64_t)d.x + mul(fbm(d, c.seed_hash + PLATE_WARP, 4, 3, HALF), WARP),
+				(int64_t)d.y + mul(fbm(d, c.seed_hash + PLATE_WARP + 1, 4, 3, HALF), WARP),
+				(int64_t)d.z + mul(fbm(d, c.seed_hash + PLATE_WARP + 2, 4, 3, HALF), WARP));
+		int64_t best = INT64_MIN;
+		for (int k = 0; k < count; k++) {
+			const int64_t near = dot(w, t.plates[k].centre);
+			if (near > best) {
+				best = near;
+				t.plate[i] = (uint8_t)k;
 			}
 		}
 	}
 
 	// boundaries: how each pair of plates moves across the line between their
-	// centres. Classified per pair, so a whole boundary has one kind (per
-	// cell edge, a diagonal boundary flickered between kinds)
+	// centres, at its middle. Classified per pair, so a whole boundary has one
+	// kind (per cell edge, a wandering boundary flickered between kinds)
 	std::vector<Boundary> pair_kind((size_t)count * count, Boundary::None);
 	std::vector<Side> pair_side((size_t)count * count, Side::None);
 	for (int a = 0; a < count; a++)
@@ -122,14 +128,18 @@ Tectonics tectonics(const WorldCode &c, const std::vector<fix> &mass, fix sea_of
 			if (a == b)
 				continue;
 			const Plate &pa = t.plates[a], &pb = t.plates[b];
-			fix nu = pb.u - pa.u;
-			if (nu > HALF)
-				nu -= ONE;
-			if (nu < -HALF)
-				nu += ONE;
-			fix nv = pb.v - pa.v;
-			fix len = std::max<fix>(sqrt(mul(nu, nu) + mul(nv, nv)), 1);
-			fix closing = mul(pa.du - pb.du, div(nu, len)) + mul(pa.dv - pb.dv, div(nv, len));
+			const Dir &ca = pa.centre, &cb = pb.centre;
+			if (dot(ca, cb) < -(int64_t)ONE * ONE * 99 / 100)
+				continue; // opposite sides of the planet: they never meet
+			const Dir m = normalise((int64_t)ca.x + cb.x, (int64_t)ca.y + cb.y, (int64_t)ca.z + cb.z);
+			// from a toward b, along the ground at the middle
+			const fix along = (fix)((dot(Dir{ cb.x - ca.x, cb.y - ca.y, cb.z - ca.z }, m)) >> FRAC);
+			const Dir across{ cb.x - ca.x - mul(along, m.x), cb.y - ca.y - mul(along, m.y), cb.z - ca.z - mul(along, m.z) };
+			if (across.x == 0 && across.y == 0 && across.z == 0)
+				continue;
+			const Dir towards = normalise(across.x, across.y, across.z);
+			const Dir va = velocity(pa, m), vb = velocity(pb, m);
+			const fix closing = (fix)(dot(Dir{ va.x - vb.x, va.y - vb.y, va.z - vb.z }, towards) >> FRAC);
 			Boundary kind = closing > ratio(3, 10) ? Boundary::Convergent
 					: closing < -ratio(3, 10) ? Boundary::Divergent : Boundary::Transform;
 			pair_kind[(size_t)a * count + b] = kind;
@@ -143,9 +153,9 @@ Tectonics tectonics(const WorldCode &c, const std::vector<fix> &mass, fix sea_of
 	t.distance.assign(n, 255);
 	std::queue<int32_t> frontier;
 	for (int32_t i = 0; i < (int32_t)n; i++) {
-		for (int k = 0; k < 4; k++) {
-			int32_t j = step(i, DX4[k], DZ4[k]);
-			if (j < 0 || t.plate[j] == t.plate[i])
+		for (const int32_t *p = sphere.neighboursBegin(i); p != sphere.neighboursEnd(i); p++) {
+			int32_t j = *p;
+			if (t.plate[j] == t.plate[i])
 				continue;
 			size_t pair = (size_t)t.plate[i] * count + t.plate[j];
 			Boundary kind = pair_kind[pair];
@@ -166,16 +176,15 @@ Tectonics tectonics(const WorldCode &c, const std::vector<fix> &mass, fix sea_of
 		frontier.pop();
 		if (t.distance[i] >= 40)
 			continue;
-		for (int dz = -1; dz <= 1; dz++)
-			for (int dx = -1; dx <= 1; dx++) {
-				int32_t j = step(i, dx, dz);
-				if (j < 0 || t.plate[j] != t.plate[i] || t.distance[j] <= t.distance[i] + 1)
-					continue;
-				t.distance[j] = t.distance[i] + 1;
-				t.boundary[j] = t.boundary[i];
-				t.side[j] = t.side[i];
-				frontier.push(j);
-			}
+		for (const int32_t *p = sphere.neighboursBegin(i); p != sphere.neighboursEnd(i); p++) {
+			int32_t j = *p;
+			if (t.plate[j] != t.plate[i] || t.distance[j] <= t.distance[i] + 1)
+				continue;
+			t.distance[j] = t.distance[i] + 1;
+			t.boundary[j] = t.boundary[i];
+			t.side[j] = t.side[i];
+			frontier.push(j);
+		}
 	}
 
 	// what each boundary does to the land
@@ -210,18 +219,21 @@ Tectonics tectonics(const WorldCode &c, const std::vector<fix> &mass, fix sea_of
 
 std::vector<Volcano> volcanoes(const WorldCode &c, const Grid &g)
 {
+	const Sphere &sphere = gridSphere();
 	const Tectonics &t = g.tectonics;
 	std::vector<Volcano> out;
-	int32_t cell = c.size / GRID, half = c.size / 2;
+	// a cell across, in blocks: the old grid's sizes are kept in cells
+	const int32_t cell = std::max(1, roundInt(World::cellBlocksOf(c)));
+	const fix spacing = sphere.spacing();
 	uint32_t seed = c.seed_hash + VOLCANO;
-	auto place = [&](int32_t i, VolcanoKind kind, int age, uint32_t h) {
+	auto place = [&](const Dir &at, VolcanoKind kind, int age, uint32_t h) {
 		if (out.size() >= 250)
 			return;
-		int32_t cx = i % GRID, cz = i / GRID;
 		Volcano v;
 		v.kind = kind;
-		v.x = -half + cx * cell + (int32_t)(h % (uint32_t)cell);
-		v.z = half - (cz * cell + (int32_t)((h >> 8) % (uint32_t)cell));
+		// somewhere in its cell, not at the centre
+		const fix dx = mul(unit(h) - HALF, spacing), dy = mul(unit(h >> 8) - HALF, spacing), dz = mul(unit(h >> 16) - HALF, spacing);
+		v.at = normalise((int64_t)at.x + dx, (int64_t)at.y + dy, (int64_t)at.z + dz);
 		uint32_t a = mix(h, 11, seed), b = mix(h, 13, seed);
 		switch (kind) {
 		case VolcanoKind::Arc: // steep cones
@@ -241,37 +253,36 @@ std::vector<Volcano> volcanoes(const WorldCode &c, const Grid &g)
 			break;
 		}
 		v.crater = std::max(5, v.radius / 7);
-		fix e = g.eroded[i];
+		fix e = g.eroded[sphere.cell(v.at)];
 		v.base = e >= 0 ? floorInt(e * LAND_SCALE) : floorInt(e * SEA_SCALE);
 		out.push_back(v);
 	};
 
-	for (int32_t i = 0; i < GRID * GRID; i++) {
-		int32_t cz = i / GRID;
-		if (cz < GRID / 12 || cz > GRID - GRID / 12)
-			continue;
+	for (int32_t i = 0; i < sphere.size(); i++) {
 		uint32_t h = mix(i, 1, seed);
 		bool land = g.eroded[i] >= 0;
 		if (t.boundary[i] == Boundary::Convergent && t.side[i] == Side::Overriding && t.distance[i] == 3 && h % 9 == 0)
-			place(i, VolcanoKind::Arc, 0, h);
+			place(sphere.centre(i), VolcanoKind::Arc, 0, h);
 		else if (t.boundary[i] == Boundary::Divergent && t.distance[i] == 0 && land && h % 16 == 0)
-			place(i, VolcanoKind::Rift, 0, h);
+			place(sphere.centre(i), VolcanoKind::Rift, 0, h);
 	}
 
 	// hot spots: plumes from deep down, leaving a chain behind as the plate drifts over them
 	int spots = 2 + (int)(c.seed_hash % 3);
 	for (int k = 0; k < spots; k++) {
-		fix u = unit(mix(k, 1, c.seed_hash + HOTSPOT));
-		fix v = ratio(15, 100) + mul(unit(mix(k, 2, c.seed_hash + HOTSPOT)), ratio(70, 100));
-		int32_t cx = std::min(GRID - 1, floorInt(u * GRID)), cz = std::min(GRID - 1, floorInt(v * GRID));
-		const Plate &p = t.plates[t.plate[Grid::index(cx, cz)]];
-		fix len = std::max<fix>(sqrt(sq(p.du) + sq(p.dv)), ratio(1, 10));
+		uint32_t hs = c.seed_hash + HOTSPOT;
+		const Dir spot = scattered(mix(k, 1, hs), mix(k, 2, hs), mix(k, 3, hs));
+		const Plate &p = t.plates[t.plate[sphere.cell(spot)]];
+		const Dir drift = velocity(p, spot);
+		if (drift.x == 0 && drift.y == 0 && drift.z == 0)
+			continue; // at its plate's pole: it doesn't move over it
+		const Dir ahead = normalise(drift.x, drift.y, drift.z);
 		for (int age = 0; age < 4; age++) {
-			int32_t ox = roundInt(div(-p.du, len) * 4 * age), oz = roundInt(div(-p.dv, len) * 4 * age);
-			int32_t z = cz + oz;
-			if (z < GRID / 12 || z > GRID - GRID / 12)
-				break;
-			place(Grid::index(((cx + ox) % GRID + GRID) % GRID, z), VolcanoKind::Hotspot, age, mix(k, 7 + age, c.seed_hash + HOTSPOT));
+			// four cells back along where the plate came from, per age
+			const fix back = spacing * 4 * age;
+			const Dir at = normalise((int64_t)spot.x - mul(ahead.x, back), (int64_t)spot.y - mul(ahead.y, back),
+					(int64_t)spot.z - mul(ahead.z, back));
+			place(at, VolcanoKind::Hotspot, age, mix(k, 7 + age, hs));
 		}
 	}
 	return out;
@@ -279,8 +290,9 @@ std::vector<Volcano> volcanoes(const WorldCode &c, const Grid &g)
 
 std::vector<Province> provinces(const WorldCode &c, const Grid &g)
 {
+	const Sphere &sphere = gridSphere();
 	const Tectonics &t = g.tectonics;
-	size_t n = (size_t)GRID * GRID;
+	size_t n = (size_t)sphere.size();
 	std::vector<Province> out(n);
 	for (size_t i = 0; i < n; i++) {
 		int32_t d = t.distance[i];
@@ -289,30 +301,24 @@ std::vector<Province> provinces(const WorldCode &c, const Grid &g)
 			out[i] = t.boundary[i] == Boundary::Divergent && d <= 2 ? Province::Rift : Province::OceanFloor;
 			continue;
 		}
-		fix u = ratio(2 * (int32_t)(i % GRID) + 1, 2 * GRID), v = ratio(2 * (int32_t)(i / GRID) + 1, 2 * GRID);
 		if (t.boundary[i] == Boundary::Convergent && d <= 4)
 			out[i] = t.side[i] == Side::Overriding ? Province::Arc : Province::Orogen;
 		else if (t.boundary[i] == Boundary::Divergent && d <= 3)
 			out[i] = Province::Rift;
 		else if (e < ratio(12, 100) || (e < ratio(22, 100) && g.rain((int32_t)i) > ONE) ||
 				// broad sagging basins inside plates, where old seas and swamps laid down their beds
-				(t.distance[i] > 8 && value(u, v, c.seed_hash + INLAND_BASIN, 4) > ratio(30, 100)))
+				(t.distance[i] > 8 && noise(sphere.centre((int32_t)i), c.seed_hash + INLAND_BASIN, 4) > ratio(30, 100)))
 			out[i] = Province::Basin;
 		else
 			out[i] = Province::Shield;
 	}
 	// lava fields around every volcano
-	int32_t cell = c.size / GRID, half = c.size / 2;
+	const fix radius = World::radiusOf(c);
 	for (const Volcano &v : g.volcanoes) {
-		int32_t vcx = (v.x + half) / cell, vcz = (half - v.z) / cell;
-		int32_t reach = (v.radius * 3 / 2) / cell + 1;
-		for (int32_t dz = -reach; dz <= reach; dz++)
-			for (int32_t dx = -reach; dx <= reach; dx++) {
-				int32_t cz = vcz + dz;
-				if (cz < 0 || cz >= GRID || dx * dx + dz * dz > reach * reach)
-					continue;
-				out[Grid::index(((vcx + dx) % GRID + GRID) % GRID, cz)] = Province::Volcanic;
-			}
+		const int64_t reach = (int64_t)v.radius * 3 / 2 * ONE;
+		for (int32_t cell : sphere.around(sphere.cell(v.at), [&](int32_t k) {
+				return (int64_t)mul(chord(sphere.centre(k), v.at), radius) <= reach; }))
+			out[cell] = Province::Volcanic;
 	}
 	return out;
 }
@@ -335,16 +341,16 @@ int32_t bed(int32_t depth, int32_t phase)
 
 } // namespace
 
-Strata World::strata(int32_t x, int32_t z, const Ground &ground) const
+Strata World::strata(const Dir &at, const Ground &ground) const
 {
 	const Grid &g = *m_grid;
 	const Tectonics &t = g.tectonics;
-	fix u = this->u(x), v = this->v(z);
-	int32_t i = cell(u, v);
+	int32_t i = cell(at);
 	Strata s;
+	s.at = at;
 	s.province = g.province[i];
 	int32_t size = m_code.size;
-	fix lumpy = value(u, v, m_code.seed_hash + SEDIMENT, size / 300); // −1..1
+	fix lumpy = noise(at, m_code.seed_hash + SEDIMENT, size / 300); // −1..1
 	fix e = ground.column.elevation;
 
 	switch (s.province) {
@@ -363,10 +369,10 @@ Strata World::strata(int32_t x, int32_t z, const Ground &ground) const
 	default: s.sediment = std::max(0, floorInt(mul(toFix(5), lumpy))); s.fold = 6; break;
 	}
 	// beds rise and fall across the land: the folds, broad and gentle away from mountains
-	s.tilt = floorInt(mul(toFix(s.fold), value(u, v, m_code.seed_hash + FOLD, std::max(8, size / 400))));
-	s.phase = (int32_t)((m_code.seed_hash >> 4) % 36) + floorInt(mul(toFix(10), value(u, v, m_code.seed_hash + PHASE, 6)));
+	s.tilt = floorInt(mul(toFix(s.fold), noise(at, m_code.seed_hash + FOLD, std::max(8, size / 400))));
+	s.phase = (int32_t)((m_code.seed_hash >> 4) % 36) + floorInt(mul(toFix(10), noise(at, m_code.seed_hash + PHASE, 6)));
 	s.pluton = (s.province == Province::Orogen || s.province == Province::Arc || s.province == Province::Shield) &&
-			value(u, v, m_code.seed_hash + PLUTON, std::max(8, size / 700)) > ratio(35, 100);
+			noise(at, m_code.seed_hash + PLUTON, std::max(8, size / 700)) > ratio(35, 100);
 	s.humid = ground.column.wet > ratio(15, 100);
 	s.arid = ground.column.wet < -ratio(20, 100);
 	s.placer = s.province == Province::Orogen || s.province == Province::Arc ||
@@ -379,23 +385,21 @@ Strata World::strata(int32_t x, int32_t z, const Ground &ground) const
 		const Volcano &vo = g.volcanoes[g.volcano_list[k]];
 		if (!vo.active)
 			continue;
-		int32_t dx = x - vo.x;
-		dx = ((dx + size / 2) % size + size) % size - size / 2;
-		int32_t dz = z - vo.z;
-		int32_t d = floorInt(sqrtWide64(((int64_t)dx * dx + (int64_t)dz * dz) << FRAC));
+		int32_t d = floorInt(mul(chord(at, vo.at), m_radius));
 		s.crater = std::min(s.crater, std::abs(d - vo.crater));
 	}
 	return s;
 }
 
-Rock World::rock(const Strata &s, int32_t depth, int32_t x, int32_t y, int32_t z) const
+Rock World::rock(const Strata &s, int32_t depth, int32_t y) const
 {
 	if (s.crater < 8 && depth < 6)
 		return Rock::Obsidian; // glass where lava met the air at an active rim
 	int32_t d = depth + s.tilt;
-	if (s.province == Province::Orogen) // crumpled: beds folded on themselves
-		d += floorInt(mul(toFix(6), value3(((x % m_code.size) + m_code.size) % m_code.size, y, z,
-				m_code.seed_hash + FOLD, 24, m_code.size)));
+	if (s.province == Province::Orogen) { // crumpled: beds folded on themselves
+		const std::array<int32_t, 3> p = solid(s.at, y);
+		d += floorInt(mul(toFix(6), value3(p[0], p[1], p[2], m_code.seed_hash + FOLD, 24)));
+	}
 	if (d < s.sediment) {
 		int32_t b = bed(d, s.phase);
 		if (s.arid) // deserts lay down sand
@@ -417,22 +421,23 @@ Rock World::rock(const Strata &s, int32_t depth, int32_t x, int32_t y, int32_t z
 	}
 }
 
-Ore World::ore(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, int32_t z) const
+Ore World::ore(const Strata &s, Rock rock, int32_t depth, int32_t y) const
 {
 	if (depth < 3)
 		return Ore::None;
-	int32_t size = m_code.size, wx = ((x % size) + size) % size;
+	int32_t size = m_code.size;
+	const std::array<int32_t, 3> p = solid(s.at, y);
 	fix scale = HALF + m_code.ores; // the Ore richness setting: half to one and a half
 
 	// sulfur crystals around an active vent
-	if (s.crater < 12 && depth < 5 && blockHash(x, y, z, m_code.seed_hash + SULFUR) % 5 == 0)
+	if (s.crater < 12 && depth < 5 && blockHash(p[0], p[1], p[2], m_code.seed_hash + SULFUR) % 5 == 0)
 		return Ore::Sulfur;
 
 	// hydrothermal veins: hot water from the granite below left metals in cracks
 	if ((s.province == Province::Orogen || s.province == Province::Arc || s.pluton) && depth > 5) {
-		fix n = value3(wx, y, z, m_code.seed_hash + VEIN, 28, size);
+		fix n = value3(p[0], p[1], p[2], m_code.seed_hash + VEIN, 28);
 		if (fabsx(n) < mul(ratio(3, 100), scale)) {
-			fix r = value(u(x), v(z), m_code.seed_hash + METAL, std::max(8, size / 300));
+			fix r = noise(s.at, m_code.seed_hash + METAL, std::max(8, size / 300));
 			if (r < -ratio(35, 100))
 				return rock == Rock::Granite ? Ore::Tin : Ore::Copper;
 			if (r < ratio(25, 100))
@@ -443,11 +448,11 @@ Ore World::ore(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, 
 		}
 	}
 	// magnetite pods in basalt
-	if (rock == Rock::Basalt && value3(wx, y, z, m_code.seed_hash + MAGNETITE, 10, size) > ONE - mul(ratio(16, 100), scale))
+	if (rock == Rock::Basalt && value3(p[0], p[1], p[2], m_code.seed_hash + MAGNETITE, 10) > ONE - mul(ratio(16, 100), scale))
 		return Ore::Magnetite;
 	// banded iron: old sea floors in the shields, rusted by life's first oxygen
 	if (s.province == Province::Shield && depth >= 8 && depth < 22 && (depth + s.phase) % 4 < 2 &&
-			value3(wx, y, z, m_code.seed_hash + BANDED, 48, size) > ratio(5, 100))
+			value3(p[0], p[1], p[2], m_code.seed_hash + BANDED, 48) > ratio(5, 100))
 		return Ore::Iron;
 	bool sedimentary = rock == Rock::Sandstone || rock == Rock::Shale || rock == Rock::Limestone;
 	if (sedimentary) {
@@ -462,28 +467,32 @@ Ore World::ore(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, 
 	return Ore::None;
 }
 
-Cave World::cave(const Strata &s, Rock rock, int32_t depth, int32_t x, int32_t y, int32_t z, bool water_above) const
+Cave World::cave(const Strata &s, Rock rock, int32_t depth, int32_t y, bool water_above) const
 {
 	fix amount = m_code.caves;
 	if (amount < ratio(1, 64) || depth < 4 || (water_above && depth < 14))
 		return Cave::None;
-	int32_t size = m_code.size, wx = ((x % size) + size) % size;
+	const std::array<int32_t, 3> p = solid(s.at, y);
 	fix scale = HALF + amount;
 
 	// tunnels where two noise sheets cross; water dissolves limestone into networks
 	fix width = mul(rock == Rock::Limestone ? ratio(7, 100) : ratio(28, 1000), scale);
-	fix a = value3(wx, y, z, m_code.seed_hash + CAVE_A, 20, size);
-	if (fabsx(a) < width && fabsx(value3(wx, y, z, m_code.seed_hash + CAVE_B, 20, size)) < width)
+	fix a = value3(p[0], p[1], p[2], m_code.seed_hash + CAVE_A, 20);
+	if (fabsx(a) < width && fabsx(value3(p[0], p[1], p[2], m_code.seed_hash + CAVE_B, 20)) < width)
 		return Cave::Air;
 
 	// lava tubes: flat tunnels just under basalt flows near volcanoes
 	if (rock == Rock::Basalt && depth < 16 && (s.province == Province::Volcanic || s.province == Province::Rift) &&
-			fabsx(value3(wx, y * 3, z, m_code.seed_hash + TUBE, 24, size)) < ratio(5, 100) &&
-			fabsx(value3(wx, y * 2, z, m_code.seed_hash + TUBE + 1, 30, size)) < ratio(12, 100))
+			[&] {
+				// squashed in height (a block's place with its height stretched): flat tunnels
+				const std::array<int32_t, 3> a = solid(s.at, y * 3), b = solid(s.at, y * 2);
+				return fabsx(value3(a[0], a[1], a[2], m_code.seed_hash + TUBE, 24)) < ratio(5, 100) &&
+						fabsx(value3(b[0], b[1], b[2], m_code.seed_hash + TUBE + 1, 30)) < ratio(12, 100);
+			}())
 		return Cave::Air;
 
 	// deep caverns, their floors flooded: water, or lava under volcanic ground
-	if (depth > 60 && value3(wx, y, z, m_code.seed_hash + CAVERN, 56, size) > ratio(86, 100) - mul(amount, ratio(8, 100))) {
+	if (depth > 60 && value3(p[0], p[1], p[2], m_code.seed_hash + CAVERN, 56) > ratio(86, 100) - mul(amount, ratio(8, 100))) {
 		if (s.lava_province && y < -90)
 			return Cave::Lava;
 		return y < -50 ? Cave::Water : Cave::Air;
