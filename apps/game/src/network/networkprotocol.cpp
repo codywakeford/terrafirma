@@ -176,11 +176,14 @@
 		The liquid layer (sprint 81): map format 31 (fills); TOCLIENT_FILL
 	PROTOCOL VERSION 87 (Terra Firma)
 		Fine water (sprint 82): TOCLIENT_STREAM, liquid poured
-		Only 87 is accepted on either side.
+	PROTOCOL VERSION 88 (Terra Firma)
+		Ground (sprints 84-85): TOCLIENT_SHAPE's shape is kept as sent, a
+		whole one too (frozen ground); its flag is the node uncut
+		Only 88 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 87;
+const u16 LATEST_PROTOCOL_VERSION = 88;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

@@ -37,6 +37,7 @@
 #define CLIENT_CHAT_MESSAGE_LIMIT_PER_10S 10.0f
 
 class Body;
+namespace pile { class Piles; }
 class Camera;
 class ClientMediaDownloader;
 class ISoundManager;
@@ -570,6 +571,25 @@ private:
 	std::vector<liquids::Stream> m_streams; // Terra Firma: liquid poured since the last frame (sprint 82)
 	workshop::Materials m_materials; // Terra Firma
 	std::unique_ptr<Body> m_body; // Terra Firma: made when it's first asked for
+	// Terra Firma (sprint 84): loose ground this client's own wheels and
+	// feet press, predicted here as the server runs it; its word replaces
+	// it as it arrives
+	std::unique_ptr<pile::Piles> m_piles;
+	void pressGround(float dtime);
+	// Terra Firma (sprint 85): each block's mesh detail as made, and where
+	// the camera was when they were last weighed (moved a node: again)
+	std::unordered_map<v3s16, u8> m_detail;
+	v3s16 m_detail_camera{ S16_MIN, S16_MIN, S16_MIN };
+	void meshDetail(v3s16 camera);
+	std::vector<v3s16> m_detail_pending; // made again a few a frame, not all at once
+	// Terra Firma (sprint 85): nodes whose ground changed this frame (piles,
+	// the server's shapes): each block they reach is made again once
+	std::unordered_set<v3s16> m_ground_nodes;
+	std::unordered_set<v3s16> m_ground_blocks; // ... and the blocks they relit
+	void flushGround();
+	std::unordered_set<v3s16> m_body_ground; // ... and the physics' ground, a few times a second
+	float m_body_ground_wait = 0;
+	void flushBodyGround(float dtime);
 	std::optional<std::pair<u16, workshop::Handed>> m_held; // Terra Firma
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 

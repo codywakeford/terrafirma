@@ -7,6 +7,7 @@
 #include "irr_v3d.h"
 #include "map.h"
 class LuaEntitySAO;
+namespace pile { class Piles; }
 namespace workshop { class Workshop; class Materials; }
 namespace orbit { class Field; }
 #include "hud_element.h" // HudElementStat
@@ -190,6 +191,8 @@ class Server : public con::PeerHandler, public MapEventReceiver,
 {
 public:
 	void sendStream(v3f from, v3f to, video::SColor colour, u16 cups); // Terra Firma (sprint 82)
+	// Terra Firma (sprint 85): a node dug or built where it was `was`: the loose ground round it
+	void groundChanged(v3s16 p, MapNode was);
 	/*
 		NOTE: Every public method should be thread-safe
 	*/
@@ -816,6 +819,9 @@ private:
 	// Terra Firma: what pulls on things (sprint 59); before the workshop, which pulls by it
 	std::unique_ptr<orbit::Field> m_field;
 	std::unique_ptr<workshop::Workshop> m_workshop;
+	// Terra Firma: loose ground that moves under wheels and feet (sprint 84)
+	std::unique_ptr<pile::Piles> m_piles;
+	void pressGround(float dtime);
 	// Terra Firma: what blocks weigh, declared as mods load (core.physics.material)
 	std::unique_ptr<workshop::Materials> m_materials;
 

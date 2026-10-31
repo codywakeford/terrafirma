@@ -141,6 +141,14 @@ public:
 	// For core.physics: nothing if it isn't a machine physics moves.
 	std::optional<v3f> velocity(u16 object) const; // BS/s
 	std::optional<float> mass(u16 object) const;   // kg
+	// Every rolling machine's wheels on the ground (sprint 84: they press
+	// loose ground), by object; contact points in nodes.
+	struct WheelOn
+	{
+		u16 object;
+		physics::World::Contact contact;
+	};
+	std::vector<WheelOn> wheelsOn() const;
 	// kg·BS/s, from where its giver stands (BS) if it's given; throws on
 	// what isn't one
 	void impulse(u16 object, v3f impulse, std::optional<v3f> from = std::nullopt);

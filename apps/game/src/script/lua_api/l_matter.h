@@ -44,6 +44,7 @@ private:
 	static int l_set_fill(lua_State *L);
 	static int l_stream(lua_State *L);
 	static int l_open(lua_State *L);
+	static int l_ground_changed(lua_State *L);
 	static int l_get_fill(lua_State *L);
 	static int l_inspect(lua_State *L);
 	static int l_blow(lua_State *L);

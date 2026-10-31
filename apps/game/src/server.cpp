@@ -7,6 +7,7 @@
 #include "orbit/field.h"
 #include "terragen/planet.h"
 #include "server/luaentity_sao.h"
+#include "pile/piles.h"
 
 #include "activeobject.h"
 #include "chat_interface.h"
@@ -438,6 +439,7 @@ Server::~Server()
 		m_env->saveMeta();
 
 		// Delete classes that depend on the environment
+		m_piles.reset();
 		m_workshop.reset();
 		m_inventory_mgr.reset();
 		m_script.reset();
@@ -650,6 +652,14 @@ void Server::init()
 	m_field = m_atlas ? std::make_unique<orbit::Field>(*m_atlas) : std::make_unique<orbit::Field>(terragen::home());
 	m_workshop = std::make_unique<workshop::Workshop>(workshop::Workshop::Opts{ *m_env, this, m_path_world, *m_materials, *m_field,
 		[this](const std::string &player) { return checkPriv(player, "creative"); } });
+	m_piles = std::make_unique<pile::Piles>(m_env->getMap(), *m_nodedef, nullptr, false,
+		[this](const std::vector<v3s16> &nodes) {
+			// each loose node's shape, as the server has it (a client skips what it has)
+			Map &map = m_env->getMap();
+			for (v3s16 p : nodes)
+				if (map.getShape(p) || m_nodedef->get(map.getNode(p)).loose)
+					sendShape(p, nullptr, 30);
+		});
 
 	m_inventory_mgr->setEnv(m_env);
 	m_clients.setEnv(m_env);
@@ -850,6 +860,9 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 		// Terra Firma: machines move by physics, then the environment steps (sprint 57)
 		if (m_workshop)
 			m_workshop->step(dtime);
+		// Terra Firma: what that pressed into loose ground, and how it slides (sprint 84)
+		if (m_piles)
+			pressGround(dtime);
 
 		// Step environment
 		m_env->step(dtime);
@@ -4920,6 +4933,38 @@ planet::Atlas::Node Server::planetNode(const planet::Atlas::Cell &cell)
 	if (!m_pager)
 		throw ServerError("this world isn't a planet");
 	return m_pager->node(cell, getUptime());
+}
+
+// Terra Firma (sprint 84): wheels and feet press loose ground. A wheel's
+// patch is its tyre's width across, carrying its load; a foot's, a
+// person's weight on a sole. The piles keep each pressing once per
+// sixteenth it moves, and ignore what's off the ground.
+void Server::pressGround(float dtime)
+{
+	constexpr float FOOT = 0.12f;      // nodes: a sole's patch, as a circle
+	constexpr float PERSON = 800.f;    // N
+	constexpr float PI = 3.14159265f;
+	if (m_workshop)
+		for (const workshop::Motion::WheelOn &w : m_workshop->motion().wheelsOn()) {
+			const float r = w.contact.width / 2;
+			const v3f at(w.contact.at.X, w.contact.at.Y, w.contact.at.Z);
+			m_piles->press((u64(w.object) << 8) | w.contact.wheel, at, r, w.contact.load / (PI * r * r) / 1000);
+		}
+	for (RemotePlayer *player : m_env->getPlayers()) {
+		PlayerSAO *sao = player->getPlayerSAO();
+		if (!sao || sao->isGone() || sao->getParent())
+			continue;
+		m_piles->press((u64(1) << 40) | sao->getId(), sao->getBasePosition() / BS, FOOT,
+				PERSON / (PI * FOOT * FOOT) / 1000);
+	}
+	m_piles->step(dtime);
+	g_profiler->avg("Server: piles awake", m_piles->awake());
+}
+
+void Server::groundChanged(v3s16 p, MapNode was)
+{
+	if (m_piles)
+		m_piles->changed(p, was);
 }
 
 void Server::keepPlanetWindow()

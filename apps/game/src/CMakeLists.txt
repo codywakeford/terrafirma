@@ -459,6 +459,7 @@ add_subdirectory(far)
 add_subdirectory(ground)
 add_subdirectory(shape)
 add_subdirectory(fill)
+add_subdirectory(pile)
 add_subdirectory(sculpt)
 add_subdirectory(piece)
 add_subdirectory(workshop)
@@ -575,6 +576,7 @@ set(common_SRCS
 	${ground_SRCS}
 	${shape_SRCS}
 	${fill_SRCS}
+	${pile_SRCS}
 	${sculpt_SRCS}
 	${piece_SRCS}
 	${workshop_SRCS}

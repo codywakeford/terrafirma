@@ -86,6 +86,7 @@ public:
 	{
 		bool known = false;   // looked at once: its water's been set from the server's
 		bool scanned = false; // its ground and water looked at since they last changed
+		bool stale = false;   // its ground changed while it was dry: looked at when water comes
 		bool awake = false;
 		bool drawn = false;   // its texels are as its water is
 		bool sea = false;     // some of it is the sea's: held at its level, not to an amount

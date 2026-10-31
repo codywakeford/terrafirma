@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "lua_api/l_matter.h"
+#include "common/c_content.h"
 #include "common/c_converter.h"
 #include "filesys.h"
 #include "lua_api/l_internal.h"
@@ -503,6 +504,19 @@ int ModApiMatter::l_open(lua_State *L)
 	});
 }
 
+// core.matter.ground_changed(pos, oldnode) (sprint 85): a node was dug or
+// built there; the loose ground round it keeps its shape and slides as it can
+int ModApiMatter::l_ground_changed(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "ground_changed", [&] {
+		const v3s16 p = check_v3s16(L, 1);
+		const MapNode was = readnode(L, 2);
+		getServer(L)->groundChanged(p, was);
+		return 0;
+	});
+}
+
 // core.matter.get_fill(pos): the liquid lying in a node's open space,
 // { id, share } (of its open space), or nil (sprint 81)
 int ModApiMatter::l_get_fill(lua_State *L)
@@ -692,6 +706,7 @@ void ModApiMatter::Initialize(lua_State *L, int top)
 		{ "set_fill", l_set_fill },
 		{ "stream", l_stream },
 		{ "open", l_open },
+		{ "ground_changed", l_ground_changed },
 		{ "get_fill", l_get_fill },
 		{ "step", l_step },
 		{ "ambient", l_ambient },

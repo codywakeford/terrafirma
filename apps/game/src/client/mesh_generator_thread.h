@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "mapnode.h"
 #include "shape/shape.h"
 #include <ctime>
@@ -177,6 +179,15 @@ private:
 	bool m_cache_smooth_lighting;
 	bool m_cache_enable_water_reflections;
 	bool m_cache_enable_waving_water;
+	// Terra Firma (sprint 85): where the camera is (nodes), for each mesh's
+	// detail, and the rings it changes at (ground_detail_near / _far)
+	std::atomic<s16> m_cam_x{ 0 }, m_cam_y{ 0 }, m_cam_z{ 0 };
+	float m_detail_near, m_detail_far;
+public:
+	void setCamera(v3s16 node) { m_cam_x = node.X; m_cam_y = node.Y; m_cam_z = node.Z; }
+	// The detail a mesh at block p is made at now (MeshMakeData::m_detail)
+	u8 detailAt(v3s16 p) const;
+private:
 
 	void fillDataFromMapBlocks(QueuedMeshUpdate *q);
 	void noteReads(const QueuedMeshUpdate &q);
@@ -191,6 +202,7 @@ struct MeshUpdateResult
 	std::vector<MapBlock*> map_blocks;
 	u16 epoch = U16_MAX;
 	bool urgent = false;
+	u8 detail = 1; // Terra Firma: the detail it was made at (MeshMakeData::m_detail)
 
 	MeshUpdateResult() = default;
 
@@ -251,6 +263,10 @@ public:
 	std::vector<v3s16> readersOf(v3s16 block) { return m_queue_in.readersOf(block); }
 	// Terra Firma, an atlas: queues the blocks whose geometry is found (each frame)
 	void takePrepared(Map *map);
+	// Terra Firma (sprint 85): where the camera is, and the detail a block's
+	// mesh is made at from there
+	void setCamera(v3s16 node) { m_queue_in.setCamera(node); }
+	u8 detailAt(v3s16 p) const { return m_queue_in.detailAt(p); }
 
 	void start();
 	void stop();

@@ -545,6 +545,16 @@ std::optional<u16> Body::standingOn() const
 	return std::nullopt;
 }
 
+std::vector<physics::World::Contact> Body::drivenWheels() const
+{
+	if (!m_driving || !m_world)
+		return {};
+	auto it = m_mirrors.find(*m_driving);
+	if (it == m_mirrors.end())
+		return {};
+	return m_world->contacts(it->second.id);
+}
+
 std::optional<std::pair<v3f, v3f>> Body::grabbed(u16 object) const
 {
 	if (m_grabbing != object && m_driving != object && !m_coasting.count(object))

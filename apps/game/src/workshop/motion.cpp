@@ -402,12 +402,33 @@ bool groundBoxes(Map &map, const NodeDefManager *ndef, v3s16 block, std::vector<
 		return false;
 	std::vector<aabb3f> nb;
 	const v3s16 base = block * MAP_BLOCKSIZE;
-	// a plain whole block: inside the ground, it's left out
+	// a plain whole block: inside the ground, it's left out. Asked of each
+	// node and its six neighbours, so each is weighed once (sprint 85: a
+	// loose node's smoothing read the columns round it, seven times a node,
+	// and a block of sand or soil took tens of ms each time it changed)
+	constexpr int SPAN = MAP_BLOCKSIZE + 2;
+	std::array<s8, SPAN * SPAN * SPAN> known;
+	known.fill(-1);
 	auto whole = [&](v3s16 rel) {
-		const MapNode n = b->getNodeNoCheck(rel);
+		s8 &k = known[((rel.Z + 1) * SPAN + rel.Y + 1) * SPAN + rel.X + 1];
+		if (k >= 0)
+			return k == 1;
+		const v3s16 p = base + rel;
+		const MapNode n = map.getNode(p);
 		const ContentFeatures &f = ndef->get(n);
-		std::vector<aabb3f> shaped;
-		return f.walkable && f.drawtype == NDT_NORMAL && !map.getShapedBoxes(base + rel, shaped);
+		bool is = f.walkable && f.drawtype == NDT_NORMAL && !map.getShape(p);
+		// loose ground is smoothed only at its surface: under something
+		// walkable (not cut) it's whole, no columns to read
+		if (is && f.loose) {
+			const v3s16 up = p + v3s16(0, 1, 0);
+			const ContentFeatures &over = ndef->get(map.getNode(up));
+			if (!(over.walkable && !map.getShape(up))) {
+				std::vector<aabb3f> shaped;
+				is = !map.getShapedBoxes(p, shaped);
+			}
+		}
+		k = is ? 1 : 0;
+		return is;
 	};
 	for (s16 x = 0; x < MAP_BLOCKSIZE; x++)
 		for (s16 y = 0; y < MAP_BLOCKSIZE; y++)
@@ -426,7 +447,9 @@ bool groundBoxes(Map &map, const NodeDefManager *ndef, v3s16 block, std::vector<
 					continue;
 				const v3s16 p = base + rel;
 				nb.clear();
-				if (!map.getShapedBoxes(p, nb))
+				if (whole(rel))
+					nb.push_back(aabb3f(v3f(-0.5f * BS), v3f(0.5f * BS))); // buried, at the block's edge: no columns read
+				else if (!map.getShapedBoxes(p, nb))
 					n.getCollisionBoxes(ndef, &nb, n.getNeighbors(p, &map));
 				for (aabb3f box : nb) {
 					box.MinEdge = box.MinEdge / BS + v3f::from(rel);
@@ -447,6 +470,15 @@ Motion::Tracked *Motion::tracked(u16 object)
 {
 	auto it = m_tracked.find(object);
 	return it == m_tracked.end() ? nullptr : &it->second;
+}
+
+std::vector<Motion::WheelOn> Motion::wheelsOn() const
+{
+	std::vector<WheelOn> out;
+	for (const auto &[object, t] : m_tracked)
+		for (const physics::World::Contact &c : m_world->contacts(t.id))
+			out.push_back({ object, c });
+	return out;
 }
 
 void Motion::step(float dtime)

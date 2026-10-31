@@ -203,6 +203,18 @@ MeshUpdateQueue::MeshUpdateQueue(Client *client):
 	m_cache_smooth_lighting = g_settings->getBool("smooth_lighting");
 	m_cache_enable_water_reflections = g_settings->getBool("enable_water_reflections");
 	m_cache_enable_waving_water = g_settings->getBool("enable_waving_water");
+	m_detail_near = g_settings->getFloat("ground_detail_near");
+	m_detail_far = g_settings->getFloat("ground_detail_far");
+}
+
+u8 MeshUpdateQueue::detailAt(v3s16 p) const
+{
+	// from the camera to the middle of the mesh's area, nodes
+	const MeshGrid grid = m_client->getMeshGrid();
+	const float side = MAP_BLOCKSIZE * grid.cell_size;
+	const v3f mid = intToFloat(grid.getMeshPos(p) * MAP_BLOCKSIZE, 1) + v3f(side / 2 - 0.5f);
+	const float d = mid.getDistanceFrom(v3f(m_cam_x, m_cam_y, m_cam_z)) - side / 2;
+	return d < m_detail_near ? 1 : d < m_detail_far ? 4 : 16;
 }
 
 MeshUpdateQueue::~MeshUpdateQueue()
@@ -479,6 +491,7 @@ void MeshUpdateQueue::fillDataFromMapBlocks(QueuedMeshUpdate *q)
 
 	data->m_generate_minimap = !!m_client->getMinimap();
 	data->m_smooth_lighting = m_cache_smooth_lighting;
+	data->m_detail = detailAt(q->p);
 	data->m_enable_water_reflections = m_cache_enable_water_reflections;
 	data->m_enable_waving_water = m_cache_enable_waving_water;
 }
@@ -524,6 +537,7 @@ void MeshUpdateWorkerThread::doUpdate()
 		r.map_blocks = std::move(q->map_blocks);
 		r.epoch = q->epoch;
 		r.urgent = q->urgent;
+		r.detail = q->data->m_detail;
 
 		m_manager->putResult(std::move(r));
 		m_queue_in->done(q->p);

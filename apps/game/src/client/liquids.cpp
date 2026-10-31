@@ -575,8 +575,17 @@ void Layer::update(const std::unordered_set<v3s16> &changed, const std::unordere
 						continue;
 					for (int tx = 0; tx < g->tiles; tx++) {
 						const int x0 = g->origin.X + tx * per;
-						if (x0 + per > bp.X * MAP_BLOCKSIZE && x0 < (bp.X + 1) * MAP_BLOCKSIZE)
-							g->tile[tz * g->tiles + tx].scanned = false;
+						if (x0 + per > bp.X * MAP_BLOCKSIZE && x0 < (bp.X + 1) * MAP_BLOCKSIZE) {
+							// a dry tile's ground is only needed when water comes (sprint 85:
+							// ground churned by piles rescanned every dry tile round it)
+							Tile &k = g->tile[tz * g->tiles + tx];
+							const bool dry = !k.wet && !k.sea && !k.awake && k.volume <= 0 && k.target <= 0
+									&& !changed.count(bp);
+							if (dry && k.known)
+								k.stale = true;
+							else
+								k.scanned = false;
+						}
 					}
 				}
 			int scans = 0;
@@ -883,8 +892,9 @@ void Layer::scan(Grid &g, int t, ClientMap &map)
 					if (floor == NONE && top)
 						floor = lo * 16; // deep water: as far down as it looks is its bottom
 					moved = moved || floor != g.floor[c];
-					// the ground moved under it: its surface stays where it was
-					if (!fresh && floor != g.floor[c] && g.floor[c] != NONE && floor != NONE)
+					// the ground moved under water: its surface stays where it was (only
+					// under water: a dry rut dug got water as deep as it, sprint 84)
+					if (!fresh && floor != g.floor[c] && g.floor[c] != NONE && floor != NONE && g.depth[c] > FILM)
 						g.depth[c] = std::max(0.0f, g.depth[c] + (g.floor[c] - floor) / 16.0f);
 					g.floor[c] = floor;
 					g.sea[c] = is_sea && floor != NONE ? s32(surface) : NONE;
@@ -904,8 +914,8 @@ void Layer::scan(Grid &g, int t, ClientMap &map)
 						g.depth[c] = over; // first seen: as the server has it
 				}
 		}
-	// first seen beside the sea, its ground under the sea's level starts full to it, as the
-	// sea would fill it (else it starts dry and is seen filling: the shallows animating)
+	// first seen beside the sea, its ground under the sea's level where the server has
+	// water starts full to it, as the sea would fill it (else it starts dry and is seen filling: the shallows animating)
 	if (fresh && g.sea_level != INT32_MIN) {
 		bool beside = sea;
 		for (int s = 0; s < 4 && !beside; s++) {
@@ -915,7 +925,7 @@ void Layer::scan(Grid &g, int t, ClientMap &map)
 		for (int cz = 0; cz < 16 && beside; cz++)
 			for (int cx = 0; cx < 16; cx++) {
 				const int c = (tz * 16 + cz) * g.cols + tx * 16 + cx;
-				if (g.floor[c] != NONE && g.floor[c] < g.sea_level)
+				if (g.floor[c] != NONE && g.want[c] != NONE && g.floor[c] < g.sea_level)
 					g.depth[c] = std::max(g.depth[c], (g.sea_level - g.floor[c]) / 16.0f);
 			}
 	}
@@ -931,7 +941,8 @@ void Layer::scan(Grid &g, int t, ClientMap &map)
 			for (int cz = 0; cz < 16; cz++)
 				for (int cx = 0; cx < 16; cx++) {
 					const int c = (nz * 16 + cz) * g.cols + nx * 16 + cx;
-					if (g.floor[c] != NONE && g.floor[c] < g.sea_level && g.depth[c] < (g.sea_level - g.floor[c]) / 16.0f) {
+					if (g.floor[c] != NONE && g.want[c] != NONE && g.floor[c] < g.sea_level
+							&& g.depth[c] < (g.sea_level - g.floor[c]) / 16.0f) {
 						g.depth[c] = (g.sea_level - g.floor[c]) / 16.0f;
 						n.drawn = false;
 					}
@@ -978,8 +989,13 @@ bool Layer::uneven(Grid &g, int t)
 
 void Layer::wake(Grid &g, int t)
 {
-	g.tile[t].awake = true;
-	g.tile[t].quiet = 0;
+	Tile &k = g.tile[t];
+	k.awake = true;
+	k.quiet = 0;
+	if (k.stale) {
+		k.stale = false;
+		k.scanned = false;
+	}
 }
 
 // The pools: tiles with water joined side by side, each held to the server as one
@@ -1030,8 +1046,12 @@ void Layer::hold(Grid &g, float dtime)
 {
 	const float rate = std::min(1.0f, HOLD * dtime), sea_rate = std::min(1.0f, SEA_HOLD * dtime);
 	const float area = 1.0f / (g.res * g.res);
-	// a column's depth under the sea's level
-	auto under = [&](int c) { return std::max(0.0f, (g.sea_level - g.floor[c]) / 16.0f); };
+	// a column's depth under the sea's level, the sea's: only where the
+	// server has water (sprint 84: a rut dug under the sea's level on a beach
+	// isn't the sea's; held as the sea's, it flooded and never drained)
+	auto under = [&](int c) {
+		return g.want[c] == NONE ? 0.0f : std::max(0.0f, (g.sea_level - g.floor[c]) / 16.0f);
+	};
 	struct Sum
 	{
 		float target = 0, volume = 0;
@@ -1058,7 +1078,7 @@ void Layer::hold(Grid &g, float dtime)
 					} else {
 						// the land in a sea tile: what washed over it above the sea's level (and the
 						// server's water there) drains; under it, it's the sea's (it ran in from it)
-						const s32 cap = std::max(g.sea_level, g.want[c]);
+						const s32 cap = g.want[c] == NONE ? g.floor[c] : std::max(g.sea_level, g.want[c]);
 						const float most = std::max(0.0f, (cap - g.floor[c]) / 16.0f);
 						by = g.depth[c] > most ? (most - g.depth[c]) * sea_rate : 0;
 					}

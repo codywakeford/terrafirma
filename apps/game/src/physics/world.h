@@ -310,6 +310,17 @@ public:
 	// under it (built, and how many boxes) — one line of words.
 	std::string describe(Id id) const;
 
+	// Where its wheels touch the ground (sprint 84: they press loose ground
+	// into ruts): each touching wheel's index, contact point, the load on
+	// it (N) and its tyre's width and radius. None unless Live and rolling.
+	struct Contact
+	{
+		size_t wheel;
+		v3d at;
+		float load, width, radius;
+	};
+	std::vector<Contact> contacts(Id id) const;
+
 	// How many ground blocks are built (for tests: only round what's Live).
 	size_t groundBlocks() const;
 

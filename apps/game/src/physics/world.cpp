@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "world.h"
+#include "profiler.h"
 
 #include <Jolt/Jolt.h>
 #include <set>
+#include <string>
+#include <unordered_map>
 #include <sstream>
 
 #include <Jolt/Core/Factory.h>
@@ -820,9 +823,13 @@ struct World::Impl
 			it->second.unused = 0;
 			return true;
 		}
+		ScopeProfiler sp(g_profiler, "Physics: ground built", SPT_ADD, PRECISION_MICRO);
 		std::vector<aabb3f> boxes;
-		if (!opts.ground(block, boxes))
-			return false;
+		{
+			ScopeProfiler read(g_profiler, "Physics: ground read", SPT_ADD, PRECISION_MICRO);
+			if (!opts.ground(block, boxes))
+				return false;
+		}
 		ground[key(block)] = { makeGround(block, boxes), 0 };
 		return true;
 	}
@@ -831,8 +838,15 @@ struct World::Impl
 	// sixteenth slices: a staircase a wheel hops down. A node of slices
 	// whose hull is near enough what they fill is the hull (the slope that's
 	// drawn), and its slices are taken out; a node cut hollow keeps them.
-	static void slopes(std::vector<aabb3f> &boxes, std::vector<std::pair<Vec3, Ref<ShapeSettings>>> &parts)
+	// Each node's hull by its slices (sprint 85: a block's ground was built
+	// again with each change to it, a hull a sloped node, and smoothed sand
+	// is a few shapes many times): the hull, or none if its slices stay
+	std::unordered_map<std::string, Ref<ShapeSettings>> hulls;
+
+	void slopes(std::vector<aabb3f> &boxes, std::vector<std::pair<Vec3, Ref<ShapeSettings>>> &parts)
 	{
+		if (hulls.size() > 50000)
+			hulls.clear(); // a bound, not a policy: rebuilt as it's needed
 		// a 45° staircase of 16 steps overfills by 1/32 of a node
 		constexpr float OVERFILL = 0.06f;
 		std::map<std::tuple<int, int, int>, std::vector<size_t>> by_node;
@@ -845,6 +859,27 @@ struct World::Impl
 			if (in.size() < 3)
 				continue; // a block, a slab, a step: boxes are its shape
 			const Vec3 at((float)std::get<0>(n), (float)std::get<1>(n), (float)std::get<2>(n));
+			// its slices from its centre, in 32nds (a sixteenth's half: box centres)
+			std::string key;
+			key.reserve(in.size() * 12);
+			for (size_t i : in) {
+				const aabb3f &b = boxes[i];
+				for (float v : { b.MinEdge.X - at.GetX(), b.MinEdge.Y - at.GetY(), b.MinEdge.Z - at.GetZ(),
+						b.MaxEdge.X - at.GetX(), b.MaxEdge.Y - at.GetY(), b.MaxEdge.Z - at.GetZ() })
+				{
+					const s16 q = s16(std::lround(v * 32)); // a box may run along a row of nodes
+					key.push_back(char(q & 0xff));
+					key.push_back(char(q >> 8));
+				}
+			}
+			if (auto hit = hulls.find(key); hit != hulls.end()) {
+				if (hit->second) {
+					parts.push_back({ at, hit->second });
+					for (size_t i : in)
+						gone[i] = true;
+				}
+				continue;
+			}
 			Array<Vec3> points;
 			float filled = 0;
 			for (size_t i : in) {
@@ -859,8 +894,11 @@ struct World::Impl
 			// one that fills its hull is a box (or boxes) already: merged
 			// with its neighbours, it has no seams to catch on
 			const float hull_volume = r.HasError() ? 0 : r.Get()->GetVolume();
-			if (r.HasError() || hull_volume < filled + 1e-4f || hull_volume > filled + OVERFILL)
+			if (r.HasError() || hull_volume < filled + 1e-4f || hull_volume > filled + OVERFILL) {
+				hulls[key] = nullptr;
 				continue;
+			}
+			hulls[key] = hull;
 			parts.push_back({ at, Ref<ShapeSettings>(hull) });
 			for (size_t i : in)
 				gone[i] = true;
@@ -1621,6 +1659,25 @@ void World::step(double dt)
 	}
 	if (steps == MOST_STEPS)
 		m->behind = 0; // too far behind: the time's dropped, not caught up
+}
+
+std::vector<World::Contact> World::contacts(Id id) const
+{
+	const Impl::Rec &r = m->rec(id);
+	std::vector<Contact> out;
+	if (r.tier != Tier::Live || !r.vehicle)
+		return out;
+	for (size_t i = 0; i < r.source.wheels.size(); i++) {
+		const JPH::Wheel &w = *r.vehicle->GetWheel((uint)i);
+		if (!w.HasContact())
+			continue;
+		const RVec3 at = w.GetContactPosition();
+		// the spring's push over the last step: the wheel's share of the weight
+		const float load = std::max(0.f, w.GetSuspensionLambda() / (float)STEP);
+		const Wheel &spec = r.source.wheels[i];
+		out.push_back({ i, v3d(at.GetX(), at.GetY(), at.GetZ()), load, 2 * spec.half_width, spec.radius });
+	}
+	return out;
 }
 
 Pose World::pose(Id id) const

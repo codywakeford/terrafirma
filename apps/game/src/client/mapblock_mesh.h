@@ -62,6 +62,9 @@ struct MeshMakeData
 	// Terra Firma: the cut nodes of the area and its margin, by node (absolute)
 	std::unordered_map<v3s16, shape::Shape> m_shapes;
 	float m_ao_gamma_inv = 0.0f;
+	// Terra Firma (sprint 85): how coarsely cut and smoothed ground is drawn
+	// far off: sixteenths a drawn step (1 near, 4 quarters, 16 whole nodes)
+	u8 m_detail = 1;
 	bool m_generate_minimap = false;
 	bool m_smooth_lighting = false;
 	bool m_enable_water_reflections = false;

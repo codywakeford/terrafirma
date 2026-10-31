@@ -248,6 +248,9 @@ public:
 	// Cuts the node at p to `s`: a whole shape is none. Not empty: that's
 	// the node removed (removeNodeAndUpdate). False if its block isn't here.
 	bool setShape(v3s16 p, const shape::Shape &s);
+	// Keeps `s` at p exactly, whole too: cut ground that's whole stays as it
+	// is, never smoothed by its neighbours (sprint 85: a dug hole's walls).
+	bool keepShape(v3s16 p, const shape::Shape &s);
 	// Terra Firma: the liquid in a node's open space (sprint 81: fill::Fill),
 	// nullptr: none. Setting it tells the clients (MEET_FILL), not the mesh;
 	// false where its block isn't loaded.
@@ -261,6 +264,8 @@ public:
 	bool getShapedBoxes(v3s16 p, std::vector<aabb3f> &out);
 	// The shape smoothed ground at p takes, if it's smoothed (not cut).
 	std::optional<ground::Top> groundTop(v3s16 p);
+	// ... as it was while the node at `at` was `was` (just before it changed)
+	std::optional<ground::Top> groundTopAs(v3s16 p, v3s16 at, MapNode was);
 	// Terra Firma (sprint 81): the sixteenths of the node at p that are
 	// solid, where it's partly there: cut, smoothed ground (its own cell),
 	// or the air a smoothed block below rises into. nullopt: whole (it's

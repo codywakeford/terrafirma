@@ -113,6 +113,7 @@ extern content_t t_CONTENT_WATER;
 extern content_t t_CONTENT_LAVA;
 extern content_t t_CONTENT_BRICK;
 extern content_t t_CONTENT_FACEDIR;
+extern content_t t_CONTENT_SAND;
 
 bool run_tests();
 bool run_tests(const std::string &module_name);

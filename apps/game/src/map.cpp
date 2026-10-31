@@ -694,6 +694,24 @@ bool Map::setShape(v3s16 p, const shape::Shape &s)
 	return true;
 }
 
+bool Map::keepShape(v3s16 p, const shape::Shape &s)
+{
+	const v3s16 bp = getNodeBlockPos(p);
+	MapBlock *block = getBlockNoCreateNoEx(bp);
+	if (!block)
+		return false;
+	if (s.empty())
+		throw BaseException("Map::keepShape: an empty shape is the node removed");
+	block->m_shapes.keep(p - bp * MAP_BLOCKSIZE, s);
+	block->raiseModified(MOD_STATE_WRITE_NEEDED, MOD_REASON_SET_NODE);
+	MapEditEvent event;
+	event.type = MEET_SHAPE;
+	event.p = p;
+	event.modified_blocks.push_back(bp);
+	dispatchEvent(event);
+	return true;
+}
+
 const fill::Fill *Map::getFill(v3s16 p)
 {
 	const v3s16 bp = getNodeBlockPos(p);
@@ -726,6 +744,15 @@ std::optional<ground::Top> Map::groundTop(v3s16 p)
 	if (getShape(p) || getShape(p + v3s16(0, 1, 0)))
 		return std::nullopt;
 	const auto get = [&](v3s16 q) { return ground::seen(getNode(q), getShape(q)); };
+	const auto cube = [&](v3s16 q) { return m_atlas && m_atlas->cut({ q.X, q.Y, q.Z }).has_value(); };
+	return ground::Ground(*m_nodedef).top(get, cube, p);
+}
+
+std::optional<ground::Top> Map::groundTopAs(v3s16 p, v3s16 at, MapNode was)
+{
+	if (getShape(p) || getShape(p + v3s16(0, 1, 0)))
+		return std::nullopt;
+	const auto get = [&](v3s16 q) { return q == at ? was : ground::seen(getNode(q), getShape(q)); };
 	const auto cube = [&](v3s16 q) { return m_atlas && m_atlas->cut({ q.X, q.Y, q.Z }).has_value(); };
 	return ground::Ground(*m_nodedef).top(get, cube, p);
 }

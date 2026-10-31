@@ -111,6 +111,9 @@ public:
 	void steer(u16 object, const physics::Drive &drive);
 	void getUp(u16 object);
 	std::optional<u16> driving() const { return m_driving; }
+	// The wheels of what's driven here on the ground (sprint 84: they press
+	// loose ground, predicted here); none if nothing's driven.
+	std::vector<physics::World::Contact> drivenWheels() const;
 
 private:
 	struct Mirror

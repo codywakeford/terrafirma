@@ -2015,10 +2015,15 @@ void Client::handleCommand_Shape(NetworkPacket *pkt)
 		if (s.empty())
 			throw SerializationError("TOCLIENT_SHAPE: an empty shape (the node's removed instead)");
 	}
-	if (!m_env.getMap().setShape(p, s))
+	// already so (this client predicted it: sprint 84): nothing to make again
+	const shape::Shape *had = m_env.getMap().getShape(p);
+	if (whole ? !had : had && *had == s)
+		return;
+	// as sent: a whole shape sent is kept whole (ground frozen, sprint 85);
+	// the flag is the node uncut
+	if (!(whole ? m_env.getMap().setShape(p, s) : m_env.getMap().keepShape(p, s)))
 		return; // its block isn't here: it comes with the shape when it is
-	m_liquid_ground.insert(getNodeBlockPos(p)); // Terra Firma: its open space changed
-	addUpdateMeshTaskForNode(p, false, true);
+	m_ground_nodes.insert(p); // made again once a frame, with the rest (Client::flushGround)
 }
 
 // Terra Firma: a node's liquid (sprint 81): kept in its block, drawn by the

@@ -23,6 +23,7 @@ content_t t_CONTENT_WATER;
 content_t t_CONTENT_LAVA;
 content_t t_CONTENT_BRICK;
 content_t t_CONTENT_FACEDIR;
+content_t t_CONTENT_SAND;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -103,6 +104,17 @@ void TestGameDef::defineSomeNodes()
 	f.is_ground_content = true;
 	idef->registerItem(itemdef);
 	t_CONTENT_GRASS = ndef->set(f.name, std::move(f));
+
+	// Terra Firma: sand, loose ground that moves when pressed (sprint 84)
+	itemdef = ItemDefinition();
+	itemdef.type = ITEM_NODE;
+	itemdef.name = "default:sand";
+	f = ContentFeatures();
+	f.name = itemdef.name;
+	f.groups = { { "loose", 1 }, { "pile_repose", 1 }, { "pile_yield", 0 }, { "pile_bearing", 12 }, { "pile_give", 4 } };
+	f.is_ground_content = true;
+	idef->registerItem(itemdef);
+	t_CONTENT_SAND = ndef->set(f.name, std::move(f));
 
 	//// Torch (minimal definition for lighting tests)
 	itemdef = ItemDefinition();

@@ -295,6 +295,10 @@ void set_default_settings()
 	settings->setDefault("leaves_style", "fancy");
 	settings->setDefault("connected_glass", "false");
 	settings->setDefault("smooth_lighting", "true");
+	// Terra Firma (sprint 85): cut and smoothed ground drawn in sixteenths
+	// within the first, quarters to the second, whole nodes past it (nodes)
+	settings->setDefault("ground_detail_near", "12");
+	settings->setDefault("ground_detail_far", "32");
 	settings->setDefault("performance_tradeoffs", "false");
 	settings->setDefault("array_texture_max", "65535");
 	settings->setDefault("lighting_alpha", "0.0");

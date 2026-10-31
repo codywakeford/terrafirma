@@ -24,10 +24,13 @@ core.register_node("tf_world:stone", {
 	_matter = { matter = "granite", share = 0.99 },
 })
 
+-- pile_* (sprint 84): how loose ground moves when pressed (src/pile): it
+-- rests at pile_repose sixteenths a column, holds pile_yield more before it
+-- gives, sinks a sixteenth per pile_bearing kPa, packs at most pile_give.
 core.register_node("tf_world:dirt", {
 	description = "Dirt",
 	tiles = { "tf_goodvibes_dirt.png" },
-	groups = { loose = 1, crumbly = 3 },
+	groups = { loose = 1, crumbly = 3, pile_repose = 1, pile_yield = 16, pile_bearing = 60, pile_give = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 })
 
@@ -35,7 +38,7 @@ core.register_node("tf_world:grass", {
 	description = "Grass",
 	tiles = { "tf_goodvibes_grass_block_top.png", "tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png" },
-	groups = { loose = 1, crumbly = 3 },
+	groups = { loose = 1, crumbly = 3, pile_repose = 1, pile_yield = 16, pile_bearing = 60, pile_give = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
@@ -43,7 +46,7 @@ core.register_node("tf_world:grass", {
 core.register_node("tf_world:sand", {
 	description = "Sand",
 	tiles = { "tf_goodvibes_sand.png" },
-	groups = { loose = 1, crumbly = 3, falling_node = 1 },
+	groups = { loose = 1, crumbly = 3, falling_node = 1, pile_repose = 1, pile_yield = 0, pile_bearing = 12, pile_give = 4 },
 	_matter = { matter = "silica", share = 0.6, form = true }, -- grains, air between them,
 })
 
@@ -141,3 +144,4 @@ core.register_craft({
 dofile(core.get_modpath("tf_world") .. "/lab.lua")
 dofile(core.get_modpath("tf_world") .. "/pieces.lua")
 dofile(core.get_modpath("tf_world") .. "/materials.lua")
+dofile(core.get_modpath("tf_world") .. "/ground.lua")

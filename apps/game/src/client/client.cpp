@@ -74,6 +74,8 @@
 
 #include <iostream>
 #include <algorithm>
+#include "pile/piles.h"
+#include "client/body.h"
 #include <sstream>
 #include <cmath>
 
@@ -364,6 +366,107 @@ bool Client::isShutdown()
 	return m_shutdown || !m_mesh_update_manager->isRunning();
 }
 
+void Client::meshDetail(v3s16 camera)
+{
+	ClientMap &map = m_env.getClientMap();
+	if (camera != m_detail_camera) {
+		m_detail_camera = camera;
+		m_mesh_update_manager->setCamera(camera);
+		// the meshes whose ring it crossed
+		m_detail_pending.clear();
+		for (auto it = m_detail.begin(); it != m_detail.end();) {
+			if (!map.getBlockNoCreateNoEx(it->first)) {
+				it = m_detail.erase(it);
+				continue;
+			}
+			if (m_mesh_update_manager->detailAt(it->first) != it->second)
+				m_detail_pending.push_back(it->first);
+			++it;
+		}
+		// nearest last: taken from the back first
+		const v3s16 at = getNodeBlockPos(camera);
+		std::sort(m_detail_pending.begin(), m_detail_pending.end(), [&](v3s16 a, v3s16 b) {
+			return (a - at).getLengthSQ() > (b - at).getLengthSQ();
+		});
+	}
+	// made again (not urgent, alone: their neighbours' detail is their own),
+	// a few a frame: a ring crossed all at once was a burst of meshes to swap in
+	constexpr int EACH_FRAME = 6;
+	for (int n = 0; n < EACH_FRAME && !m_detail_pending.empty(); n++) {
+		const v3s16 p = m_detail_pending.back();
+		m_detail_pending.pop_back();
+		auto it = m_detail.find(p);
+		if (it == m_detail.end() || !map.getBlockNoCreateNoEx(p))
+			continue;
+		it->second = m_mesh_update_manager->detailAt(p); // asked: not again till it changes again
+		m_mesh_update_manager->updateBlock(&map, p, false, false);
+	}
+}
+
+void Client::flushGround()
+{
+	if (m_ground_nodes.empty() && m_ground_blocks.empty())
+		return;
+	// every block a node's change reaches (as addUpdateMeshTaskForNode), once
+	const s16 up = ground::REACH + 1;
+	std::unordered_set<v3s16> blocks, bases;
+	blocks.swap(m_ground_blocks); // relit by a loose node's change
+	for (v3s16 p : m_ground_nodes) {
+		bases.insert(getNodeBlockPos(p));
+		const v3s16 low = getNodeBlockPos(p - v3s16(2, up, 2)), high = getNodeBlockPos(p + v3s16(1, up, 1));
+		for (s16 x = low.X; x <= high.X; x++)
+			for (s16 y = low.Y; y <= high.Y; y++)
+				for (s16 z = low.Z; z <= high.Z; z++)
+					blocks.insert(v3s16(x, y, z));
+	}
+	m_ground_nodes.clear();
+	for (v3s16 b : blocks)
+		addUpdateMeshTask(b, false, true);
+	for (v3s16 b : bases) {
+		m_liquid_ground.insert(b);
+		updateMeshReaders(b, true);
+		m_body_ground.insert(b);
+	}
+}
+
+void Client::flushBodyGround(float dtime)
+{
+	// the physics' ground built again at most a few times a second while
+	// ground churns: a block's ground is a hull per sloped node (dear), and
+	// a sixteenth's change a quarter second late isn't felt
+	constexpr float EVERY = 0.25f;
+	m_body_ground_wait -= dtime;
+	if (m_body_ground.empty() || m_body_ground_wait > 0)
+		return;
+	m_body_ground_wait = EVERY;
+	if (m_body)
+		for (v3s16 b : m_body_ground)
+			m_body->groundChanged(b);
+	m_body_ground.clear();
+}
+
+void Client::pressGround(float dtime)
+{
+	constexpr float FOOT = 0.12f;   // nodes, as the server's (Server::pressGround)
+	constexpr float PERSON = 800.f; // N
+	constexpr float PI = 3.14159265f;
+	if (!m_piles)
+		m_piles = std::make_unique<pile::Piles>(m_env.getMap(), *m_nodedef, [this](v3s16 p) {
+			m_ground_nodes.insert(p);
+		}, true);
+	ScopeProfiler sp(g_profiler, "Client: piles [us]", SPT_AVG, PRECISION_MICRO);
+	if (m_body && m_body->driving()) {
+		for (const physics::World::Contact &c : m_body->drivenWheels()) {
+			const float r = c.width / 2;
+			m_piles->press((u64(*m_body->driving()) << 8) | c.wheel, v3f(c.at.X, c.at.Y, c.at.Z), r,
+					c.load / (PI * r * r) / 1000);
+		}
+	} else if (LocalPlayer *me = m_env.getLocalPlayer()) {
+		m_piles->press(u64(1) << 40, me->getPosition() / BS, FOOT, PERSON / (PI * FOOT * FOOT) / 1000);
+	}
+	m_piles->step(dtime);
+}
+
 Client::~Client()
 {
 	m_shutdown = true;
@@ -441,6 +544,15 @@ void Client::step(float dtime)
 	m_animation_time = fmodf(m_animation_time + dtime, 60.0f);
 
 	ReceiveAll();
+
+	// Terra Firma: what this client's wheels and feet press, at once (sprint 84)
+	if (m_nodedef_received)
+		pressGround(dtime);
+	// Terra Firma: ground drawn coarser further off (sprint 85)
+	if (m_camera)
+		meshDetail(floatToInt(m_camera->getPosition(), BS));
+	flushGround();
+	flushBodyGround(dtime);
 
 	/*
 		Packet counter
@@ -656,6 +768,7 @@ void Client::step(float dtime)
 				block->mesh = nullptr;
 				block->solid_sides = r.solid_sides;
 
+				m_detail[r.p] = r.detail; // Terra Firma: made again when the camera's moved across its ring
 				if (r.mesh) {
 					minimap_mapblocks = r.mesh->moveMinimapMapblocks();
 					if (minimap_mapblocks.empty())
@@ -1766,7 +1879,14 @@ void Client::removeNode(v3s16 p)
 	std::map<v3s16, MapBlock*> modified_blocks;
 
 	try {
+		const bool loose = m_nodedef->get(m_env.getMap().getNode(p)).loose; // Terra Firma: as addNode
 		m_env.getMap().removeNodeAndUpdate(p, modified_blocks);
+		if (loose) {
+			m_ground_nodes.insert(p);
+			for (const auto &modified_block : modified_blocks)
+				m_ground_blocks.insert(modified_block.first);
+			return;
+		}
 	}
 	catch(InvalidPositionException &e) {
 	}
@@ -1829,7 +1949,17 @@ void Client::addNode(v3s16 p, MapNode n, bool remove_metadata)
 
 	try {
 		//TimeTaker timer3("Client::addNode(): addNodeAndUpdate");
+		// Terra Firma: loose ground's comes with its shape, sent after it: made
+		// again with it, once, at the frame's end (sprint 85: drawn between
+		// the two it was smoothed, the old ramp, for a frame)
+		const bool loose = m_nodedef->get(n).loose || m_nodedef->get(m_env.getMap().getNode(p)).loose;
 		m_env.getMap().addNodeAndUpdate(p, n, modified_blocks, remove_metadata);
+		if (loose) {
+			m_ground_nodes.insert(p);
+			for (const auto &modified_block : modified_blocks)
+				m_ground_blocks.insert(modified_block.first);
+			return;
+		}
 	}
 	catch(InvalidPositionException &e) {
 	}

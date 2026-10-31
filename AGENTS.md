@@ -128,7 +128,14 @@ runs it and shares screenshots. Say plainly what was and wasn't run.
   `server.cpp`/`serverpackethandler.cpp` admit by `AUTH_MECHANISM_TICKET`
   through `online::Gate`; `client.cpp` answers it and connects from a given
   socket; `network/mtp` hands datagrams that aren't the game's (STUN answers)
-  to `IConnection::setStrayHandler`.
+  to `IConnection::setStrayHandler`. Loose ground (sprints 84–85):
+  `server.cpp` steps `pile::Piles` with what presses the ground
+  (`pressGround`) and sends a settled region's shapes; `client.cpp`
+  predicts its own presses, gathers a frame's ground changes into one
+  remesh a block (`flushGround`), and remeshes blocks whose detail ring
+  the camera crossed (`meshDetail`); `mesh_generator_thread` gives each
+  mesh its detail; `content_mapblock` coarsens far ground and meshes
+  smoothed ground greedily; `map` keeps a whole cut (`keepShape`).
 - Upstream C++ keeps upstream style. Our C++ (`src/shell`, `src/terragen`)
   follows "Code standards" below within C++ idiom: one concern per class,
   pimpl to keep CEF out of engine headers, RAII.
@@ -632,6 +639,25 @@ Luanti's for online play, singleplayer needs no account. Built so far: sign-in
 hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
 gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 (protocol 58). No relay yet: pairs that can't be punched through are told so.
+
+**Built (sprint 85, `planning/sprint-85-ground-detail.md`):** ground
+detail and its costs. Cut and smoothed ground is meshed coarser far off
+(`ground_detail_near` / `_far`: sixteenths, quarters, whole-node steps;
+`MeshMakeData::m_detail`) and smoothed ground greedily (a flat node one
+quad, not 16 strips). The physics' ground weighs each node once and
+caches hulls by shape. A dug or placed node freezes the loose ground round
+it as it stood (`Map::keepShape`: a whole cut kept, never smoothed) and
+lets it slide (`core.matter.ground_changed`, `tf_world/ground.lua`):
+sand slumps in, soil holds its wall. Protocol 88.
+
+**Built (sprint 84, `planning/sprint-84-loose-ground.md`):** loose
+ground moves (`src/pile`). Wheels and feet press it into ruts with
+ridges, and what stands steeper than it rests at slides down, in
+sixteenth columns by integers (`pile::Field`), run by the server round
+what presses (`pile::Piles`, `Server::pressGround`) and written as cut
+shapes; the client predicts its own presses and is corrected. Materials
+are node groups (`pile_repose`, `pile_yield`, `pile_bearing`,
+`pile_give`).
 
 **Built (sprint 82, `planning/sprint-82-fine-water.md`):** fine water.
 Near the camera the client runs each wet node as 16×16 columns of shallow

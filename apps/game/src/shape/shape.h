@@ -56,7 +56,8 @@ private:
 /*
 	A map block's cut nodes, by position in the block. Whoever changes a
 	node's content drops its shape (Map::setNode, MapBlock::copyFrom); a
-	whole shape is never kept.
+	whole shape is only kept when asked (keep: ground frozen as it stood,
+	which smoothing would otherwise reshape).
 */
 class Shapes
 {
@@ -64,6 +65,8 @@ public:
 	const Shape *get(v3s16 rel) const;
 	// Keeps `s` for the node at rel; a whole one drops it.
 	void set(v3s16 rel, const Shape &s);
+	// Keeps `s` as it is, whole too (Map::keepShape)
+	void keep(v3s16 rel, const Shape &s) { m_shapes[key(rel)] = s; }
 	void erase(v3s16 rel) { m_shapes.erase(key(rel)); }
 	bool empty() const { return m_shapes.empty(); }
 

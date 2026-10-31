@@ -7,7 +7,7 @@
 core.register_node("tf_world:snow", {
 	description = "Snow",
 	tiles = { "tf_goodvibes_snow.png" },
-	groups = { loose = 1, crumbly = 3 },
+	groups = { loose = 1, crumbly = 3, pile_repose = 1, pile_yield = 1, pile_bearing = 4, pile_give = 8 },
 	_matter = { matter = "water", share = 0.15 } -- snow is mostly air,
 })
 
@@ -21,7 +21,7 @@ core.register_node("tf_world:ice", {
 core.register_node("tf_world:gravel", {
 	description = "Gravel",
 	tiles = { "tf_goodvibes_gravel.png" },
-	groups = { loose = 1, crumbly = 3, falling_node = 1 },
+	groups = { loose = 1, crumbly = 3, falling_node = 1, pile_repose = 1, pile_yield = 0, pile_bearing = 80, pile_give = 2 },
 	_matter = { matter = "gravel", share = 0.6 },
 })
 
@@ -30,7 +30,7 @@ core.register_node("tf_world:dry_grass", {
 	tiles = { "tf_goodvibes_grass_block_top.png^[colorize:#b49b5a:140",
 		"tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png^[colorize:#b49b5a:100" },
-	groups = { loose = 1, crumbly = 3 },
+	groups = { loose = 1, crumbly = 3, pile_repose = 1, pile_yield = 16, pile_bearing = 60, pile_give = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })
@@ -40,7 +40,7 @@ core.register_node("tf_world:tundra", {
 	tiles = { "tf_goodvibes_grass_block_top.png^[colorize:#879a83:140",
 		"tf_goodvibes_dirt.png",
 		"tf_goodvibes_grass_block_side.png^[colorize:#879a83:100" },
-	groups = { loose = 1, crumbly = 3 },
+	groups = { loose = 1, crumbly = 3, pile_repose = 1, pile_yield = 16, pile_bearing = 60, pile_give = 3 },
 	_matter = { matter = "silica", share = 0.55 }, -- TEMP(2026-10-23): soil as its mineral part, quartz sand, until soils are modelled,
 	drop = "tf_world:dirt",
 })

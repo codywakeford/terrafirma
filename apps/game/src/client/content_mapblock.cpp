@@ -335,6 +335,54 @@ static LightPair getFaceLight(MapNode n, MapNode n2, const NodeDefManager *ndef)
 }
 
 /*
+	Terra Firma (sprint 85): far off, ground in coarser steps. A drawn mesh's
+	quads merge runs of one height or one fill, so ground in steps of `g`
+	sixteenths is far fewer quads than in sixteenths, and looks the same
+	from there.
+*/
+// Each g³ of sixteenths filled where at least half of it is.
+static shape::Shape coarsen(const shape::Shape &s, int g)
+{
+	using shape::STEPS;
+	shape::Shape out;
+	for (s16 y = 0; y < STEPS; y += g)
+		for (s16 z = 0; z < STEPS; z += g)
+			for (s16 x = 0; x < STEPS; x += g) {
+				int n = 0;
+				for (s16 a = 0; a < g; a++)
+					for (s16 b = 0; b < g; b++)
+						for (s16 c = 0; c < g; c++)
+							n += s.has(v3s16(x + a, y + b, z + c));
+				if (2 * n < g * g * g)
+					continue;
+				for (s16 a = 0; a < g; a++)
+					for (s16 b = 0; b < g; b++)
+						for (s16 c = 0; c < g; c++)
+							out.set(v3s16(x + a, y + b, z + c), true);
+			}
+	return out;
+}
+
+// Each g² of columns at their mean height, to the nearest g sixteenths.
+static ground::Top coarsen(const ground::Top &t, int g)
+{
+	using ground::STEPS;
+	ground::Top out = t;
+	for (int x = 0; x < STEPS; x += g)
+		for (int z = 0; z < STEPS; z += g) {
+			int sum = 0;
+			for (int a = 0; a < g; a++)
+				for (int b = 0; b < g; b++)
+					sum += t.cells[x + a][z + b];
+			const int h = std::clamp((sum + g * g * g / 2) / (g * g * g) * g, 0, 2 * STEPS);
+			for (int a = 0; a < g; a++)
+				for (int b = 0; b < g; b++)
+					out.cells[x + a][z + b] = u8(h);
+		}
+	return out;
+}
+
+/*
 	Calculate smooth lighting at the XYZ- corner of p.
 	Both light banks
 */
@@ -384,6 +432,14 @@ static LightPair getSmoothLightCorner(const v3s16 &p,
 			while (data->m_shapes.count(q));
 			if (n.getContent() == CONTENT_IGNORE)
 				return true;
+		}
+		// smoothed ground too (loose, open over it: drawn lower than its
+		// cell): counted solid, sand pushed up beside a rut shaded its
+		// floor half dark
+		if (ndef->get(n).loose) {
+			const MapNode over = data->m_vmanip.getNodeNoExNoEmerge(q + v3s16(0, 1, 0));
+			if (over.getContent() != CONTENT_IGNORE && !ndef->get(over).walkable)
+				n = over;
 		}
 		const ContentFeatures &f = ndef->get(n);
 
@@ -716,7 +772,7 @@ void MapblockMeshGenerator::drawSolidNode()
 		add_face(face, neighbor, backface_culling);
 	}
 	if (shape)
-		drawGround(*shape);
+		drawGround(data->m_detail > 1 ? coarsen(*shape, data->m_detail) : *shape);
 	if (!faces)
 		return;
 	u8 mask = faces ^ 0b0011'1111; // k-th bit is set if k-th face is to be *omitted*, as expected by cuboid drawing functions.
@@ -2033,7 +2089,7 @@ void MapblockMeshGenerator::drawNode()
 	// Solid nodes don't need the usual setup
 	if (cur_node.f->drawtype == NDT_NORMAL) {
 		if (const shape::Shape *cut = cutShape(blockpos_nodes + cur_node.p))
-			drawShape(*cut);
+			drawShape(data->m_detail > 1 ? coarsen(*cut, data->m_detail) : *cut);
 		else
 			drawSolidNode<false>();
 		drawCutFace();
@@ -2108,8 +2164,12 @@ void MapblockMeshGenerator::drawGround(const ground::Top &top)
 	if (data->m_smooth_lighting)
 		getSmoothLightFrame();
 	const v3s16 p = blockpos_nodes + cur_node.p;
+	// the air over it, past any cut node there (a ridge pushed up onto it)
+	v3s16 over = p + v3s16(0, 1, 0);
+	while (cutShape(over))
+		over += v3s16(0, 1, 0);
 	const video::SColor flat = encode_light(getFaceLight(cur_node.n,
-			data->m_vmanip.getNodeNoExNoEmerge(p + v3s16(0, 1, 0)), nodedef),
+			data->m_vmanip.getNodeNoExNoEmerge(over), nodedef),
 			cur_node.f->light_source);
 	TileSpec tiles[6];
 	for (int face = 0; face < 6; face++) {
@@ -2139,30 +2199,52 @@ void MapblockMeshGenerator::drawGround(const ground::Top &top)
 		});
 	};
 
-	// the tops, in runs along x
+	// the tops: rectangles of one height, grown along x then z (sprint 85: a
+	// run along x a row, a flat node was 16 quads and most of a block's
+	// vertices were its ground)
+	bool done[STEPS][STEPS] = {};
 	for (int z = 0; z < STEPS; z++)
-		for (int x = 0; x < STEPS;) {
+		for (int x = 0; x < STEPS; x++) {
+			if (done[x][z])
+				continue;
 			const int h = top.cells[x][z];
-			int end = x + 1;
-			while (end < STEPS && top.cells[end][z] == h)
-				end++;
-			quad(0, { at(x, h, z), at(end, h, z), at(end, h, z + 1), at(x, h, z + 1) }, top_uv);
-			x = end;
+			int x1 = x + 1;
+			while (x1 < STEPS && !done[x1][z] && top.cells[x1][z] == h)
+				x1++;
+			int z1 = z + 1;
+			for (bool grows = true; z1 < STEPS && grows; z1 += grows) {
+				for (int i = x; i < x1 && grows; i++)
+					grows = !done[i][z1] && top.cells[i][z1] == h;
+			}
+			for (int i = x; i < x1; i++)
+				for (int j = z; j < z1; j++)
+					done[i][j] = true;
+			quad(0, { at(x, h, z), at(x1, h, z), at(x1, h, z1), at(x, h, z1) }, top_uv);
 		}
 
-	// risers between columns
-	for (int x = 0; x < STEPS; x++)
-		for (int z = 0; z < STEPS; z++) {
-			const int h = top.cells[x][z];
-			if (x + 1 < STEPS && top.cells[x + 1][z] != h) {
-				const int other = top.cells[x + 1][z];
-				// facing the lower side: +x if this one's higher
-				riser(h > other ? 2 : 3, x + 1, z, x + 1, z + 1, std::min(h, other), std::max(h, other));
-			}
-			if (z + 1 < STEPS && top.cells[x][z + 1] != h) {
-				const int other = top.cells[x][z + 1];
-				riser(h > other ? 4 : 5, x, z + 1, x + 1, z + 1, std::min(h, other), std::max(h, other));
-			}
+	// risers between columns, runs of one step along the edge between them
+	for (int x = 0; x + 1 < STEPS; x++)
+		for (int z = 0; z < STEPS;) {
+			const int a = top.cells[x][z], b = top.cells[x + 1][z];
+			int z1 = z + 1;
+			if (a != b)
+				while (z1 < STEPS && top.cells[x][z1] == a && top.cells[x + 1][z1] == b)
+					z1++;
+			// facing the lower side: +x if this one's higher
+			if (a != b)
+				riser(a > b ? 2 : 3, x + 1, z, x + 1, z1, std::min(a, b), std::max(a, b));
+			z = z1;
+		}
+	for (int z = 0; z + 1 < STEPS; z++)
+		for (int x = 0; x < STEPS;) {
+			const int a = top.cells[x][z], b = top.cells[x][z + 1];
+			int x1 = x + 1;
+			if (a != b)
+				while (x1 < STEPS && top.cells[x1][z] == a && top.cells[x1][z + 1] == b)
+					x1++;
+			if (a != b)
+				riser(a > b ? 4 : 5, x, z + 1, x1, z + 1, std::min(a, b), std::max(a, b));
+			x = x1;
 		}
 
 	// walls at the block's sides
@@ -2170,21 +2252,30 @@ void MapblockMeshGenerator::drawGround(const ground::Top &top)
 	bool open[4];
 	for (int s = 0; s < 4; s++)
 		open[s] = cutShape(p + v3s16(ground::SIDE_DIR[s][0], 0, ground::SIDE_DIR[s][1]));
-	for (int s = 0; s < 4; s++)
-		for (int k = 0; k < STEPS; k++) {
-			// the column along side s at k (from its first corner: 0 or 1 along it)
-			const bool along_x = s >= 2;
-			const int edge = (s == 1 || s == 3) ? STEPS : 0;
+	for (int s = 0; s < 4; s++) {
+		const bool along_x = s >= 2;
+		const int edge = (s == 1 || s == 3) ? STEPS : 0;
+		// the column along side s at k (from its first corner: 0 or 1 along
+		// it): its top, and how low the wall goes (against a cut node, down to
+		// the base: it may not cover the side)
+		auto span = [&](int k) {
 			const int x = along_x ? k : (edge ? STEPS - 1 : 0), z = along_x ? (edge ? STEPS - 1 : 0) : k;
-			// against a cut node, down to the base: it may not cover the side
-			const int h = top.cells[x][z], low = open[s] ? 0 : top.beside(s, k);
-			if (h <= low)
-				continue;
-			if (along_x)
-				riser(FACE[s], k, edge, k + 1, edge, low, h);
-			else
-				riser(FACE[s], edge, k, edge, k + 1, low, h);
+			return std::make_pair(open[s] ? 0 : top.beside(s, k), int(top.cells[x][z]));
+		};
+		for (int k = 0; k < STEPS;) {
+			const auto [low, h] = span(k);
+			int k1 = k + 1;
+			while (k1 < STEPS && span(k1) == std::make_pair(low, h))
+				k1++; // a run of one wall
+			if (h > low) {
+				if (along_x)
+					riser(FACE[s], k, edge, k1, edge, low, h);
+				else
+					riser(FACE[s], edge, k, edge, k1, low, h);
+			}
+			k = k1;
 		}
+	}
 }
 
 void MapblockMeshGenerator::voxelQuad(const TileSpec &tile, int face, std::array<v3f, 4> q,
@@ -2199,7 +2290,13 @@ void MapblockMeshGenerator::voxelQuad(const TileSpec &tile, int face, std::array
 		v.Pos = q[k] + cur_node.origin;
 		v.Normal = normal;
 		if (data->m_smooth_lighting) {
-			v.Color = blendLightColor(q[k], normal);
+			// a top or a side is lit by the air over its cell: blended by its
+			// height, a thin layer low in its cell (a rut's ridge, its edge)
+			// took the light of the ground under the cell, black
+			v3f lit = q[k];
+			if (normal.Y > -0.5f)
+				lit.Y = 0.5f * BS;
+			v.Color = blendLightColor(lit, normal);
 		} else {
 			v.Color = flat;
 			if (!cur_node.f->light_source)
@@ -2275,7 +2372,12 @@ void MapblockMeshGenerator::drawShape(const shape::Shape &s)
 		getTile(d, &tile);
 		for (auto &layer : tile.layers)
 			layer.material_flags |= MATERIAL_FLAG_BACKFACE_CULLING;
-		const video::SColor flat = encode_light(getFaceLight(cur_node.n, across, nodedef),
+		// across cut or smoothed ground (which holds no light: it's its
+		// material's), the light above it (see getSmoothLightCorner)
+		MapNode lit = across;
+		for (v3s16 q = p2; cutShape(q) || groundTop(q);)
+			lit = data->m_vmanip.getNodeNoExNoEmerge(q += v3s16(0, 1, 0));
+		const video::SColor flat = encode_light(getFaceLight(cur_node.n, lit, nodedef),
 				cur_node.f->light_source);
 
 		for (int a = 0; a < STEPS; a++) {

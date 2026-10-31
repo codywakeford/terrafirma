@@ -35,6 +35,7 @@ set(unittest_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/test_orbit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_physics.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_sandbox.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/test_pile.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_matter.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_terragen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/test_atlas.cpp
