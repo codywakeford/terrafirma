@@ -25,9 +25,6 @@ static constexpr double INSTALL_MS = 3;
 static constexpr double PAINT_MS = 3;
 // A tile not wanted for this many updates is dropped.
 static constexpr u32 KEEP_FRAMES = 600;
-// Blocks: how far a tile's land can stand off the sea (its peaks, its trees), for
-// whether any of it is past the near world's range.
-static constexpr double RELIEF = 256;
 
 /*
 	What the workers share: copies of what they build from, the queue, the
@@ -286,7 +283,7 @@ bool Tiles::inside(const TileKey &key, const Eye &eye) const
 	const double r = m_tiling.radius(), sea = r + m_horizon.water_level + 1;
 	const double d = std::hypot(p.x * sea / r - eye.at.x, p.y * sea / r - eye.at.y, p.z * sea / r - eye.at.z) +
 			m_tiling.diagonal(key) / 2;
-	const double far = std::hypot(d, (double)eye.altitude) + RELIEF;
+	const double far = std::hypot(d, (double)eye.altitude) + Tiles::RELIEF;
 	return far < eye.cut;
 }
 

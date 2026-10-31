@@ -204,6 +204,9 @@ private:
 	std::mt19937 m_random{ 82 };
 	v3s16 m_offset;
 	v3f m_camera; // nodes
+	// how far the map's blocks are drawn (nodes): past it the far view draws
+	// the sea, so the flat sea stops where they do
+	float m_range = 0;
 	std::optional<s16> m_sea; // the sea's highest node: full water at or under it is the sea's, a reservoir
 	video::SMaterial m_material;
 	aabb3f m_box{ v3f(-1e7f), v3f(1e7f) }; // it is wherever liquid is: never culled as a whole

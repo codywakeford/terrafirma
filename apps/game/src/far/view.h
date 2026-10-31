@@ -8,6 +8,7 @@
 #include "irrlichttypes_bloated.h"
 #include <ISceneNode.h>
 #include <SMaterial.h>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -80,7 +81,7 @@ private:
 	// settings
 	bool m_enabled = true;
 	float m_split = 2; // a tile splits while nearer than this many of its spans past the cut
-	float m_max = 0;
+	float m_max = 0; // past the eye's own horizon, it draws no farther than this
 
 	float m_cut = 0;      // blocks
 	float m_reach = 0;    // scene units
@@ -88,6 +89,7 @@ private:
 	float m_altitude = 0; // m above the sea
 	float m_share = 0;    // 0 in the air's haze .. 1 above the air
 	AtlasView *m_view = nullptr; // where it draws the planet, this frame
+	std::function<bool(v3f, f32)> m_culled; // the camera's frustum, this frame (Camera::getFrustumCuller)
 	v3f m_eye;                   // where it's drawn from then, in blocks
 };
 

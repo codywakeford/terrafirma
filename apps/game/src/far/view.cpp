@@ -137,13 +137,17 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	// up through the air the haze gives way to the planet seen from above
 	m_share = (float)std::clamp(h / (AIR_DEPTH * terragen::sphere(r).scale_height), 0.0, 1.0);
 
-	// out to the planet's horizon (at most half way round), along the planet
+	// Out to the horizon and no farther: past it the planet hides the land,
+	// but for peaks, which show over it as far again as they'd see the
+	// eye's sea from (on a small planet a fixed distance is most of the way
+	// round: the whole shell drawn, nearly all of it behind the ground).
+	// The eye's own horizon is always reached; the setting caps the peaks'.
 	const float horizon = (float)std::sqrt(2 * r * h + h * h); // m
-	float range = std::min(m_max, (float)(M_PI * r));
+	const double peak = Tiles::RELIEF;
+	const float over = (float)std::sqrt(2 * r * peak + peak * peak);
+	float range = std::min({ horizon + over, std::max(m_max, 1.1f * horizon), (float)(M_PI * r) });
 	if (fog_limit)
 		range = std::min(range, *fog_limit);
-	else
-		range = std::min(std::max(range, 1.1f * horizon), (float)(M_PI * r));
 	m_cut = near_range;
 	m_reach = std::max(range, horizon) * BS + m_altitude * BS;
 	m_showing = m_enabled && !range_all && range > m_cut;
@@ -154,6 +158,7 @@ void View::update(const Camera &camera, ClientMap &map, float near_range, bool r
 	const Eye at{ { o.x / centre * sea, o.y / centre * sea, o.z / centre * sea }, m_altitude, m_cut, range, m_split };
 	m_tiles->update(at);
 	m_eye = eye;
+	m_culled = camera.getFrustumCuller();
 }
 
 void View::OnRegisterSceneNode()
@@ -171,6 +176,7 @@ void View::render()
 		return;
 
 	const v3f origin = camera->getAbsolutePosition() - m_eye * BS; // the scene position of map node (0, 0, 0)
+	const v3f offset = m_eye * BS - camera->getAbsolutePosition(); // a scene position plus this is a map position
 	m_state->cut = m_cut * BS;
 	m_state->haze = std::max(m_max - m_cut, 1.0f) * BS;
 	m_state->share = m_share;
@@ -186,6 +192,16 @@ void View::render()
 	for (const Tiles::Drawn &tile : m_tiles->drawn()) {
 		const std::optional<core::matrix4> world = m_view->place(tile.middle);
 		if (!world)
+			continue;
+		// a tile out of the camera's sight isn't drawn (the scene is the
+		// camera's offset from the map: the culler takes map positions)
+		aabb3f box(world->getTranslation());
+		for (const auto &part : tile.parts) {
+			aabb3f b = part->getBoundingBox();
+			world->transformBoxEx(b);
+			box.addInternalBox(b);
+		}
+		if (m_culled(box.getCenter() + offset, box.getExtent().getLength() / 2))
 			continue;
 		driver->setTransform(video::ETS_WORLD, *world);
 		for (const auto &part : tile.parts)

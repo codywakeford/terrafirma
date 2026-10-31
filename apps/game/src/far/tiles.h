@@ -50,6 +50,11 @@ public:
 	// One body of the atlas's.
 	Tiles(const planet::Atlas &atlas, int body, const Horizon &horizon, const Palette &palette, unsigned threads);
 
+	// Blocks: how far a tile's land can stand off the sea (its peaks, its
+	// trees): whether any of it is past the near world's range, and how far
+	// past the eye's horizon a peak still shows.
+	static constexpr double RELIEF = 256;
+
 	// The threads a view may build with: a share of the machine's (0..1), at least one.
 	static unsigned threadsFor(float share);
 	~Tiles();

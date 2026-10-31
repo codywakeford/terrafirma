@@ -32,6 +32,8 @@ static const float GLIDE = 4;      // per s: how fast a shown level closes on it
 static const float SETTLED = 0.002; // of its room: close enough to stop gliding
 static const u8 ALPHA = 175;
 static const float RELIGHT = 2;    // s between drawing again by the day's light
+// a block's half diagonal (nodes)
+static const float BLOCK_REACH = MAP_BLOCKSIZE * 0.8660254f;
 static const int FLAT_PER_FRAME = 6;   // flat blocks drawn again by the day's light in a frame (no hitch)
 // a liquid's surface catches the sky: clear ones (spirit, brine) are still seen
 static const float SHEEN = 0.22f;
@@ -492,6 +494,7 @@ void Layer::update(const std::unordered_set<v3s16> &changed, const std::unordere
 	const s64 began = micros();
 	m_offset = offset;
 	m_camera = camera;
+	m_range = map.getControl().range_all ? INFINITY : map.getControl().wanted_range;
 	m_sea = sea;
 	for (Grid *g : { &m_fine, &m_coarse })
 		g->sea_level = sea ? (*sea + 1) * 16 : INT32_MIN;
@@ -1586,6 +1589,10 @@ void Layer::render()
 	driver->setMaterial(m_material);
 	for (const auto &[bp, b] : m_blocks) {
 		if (!b.mesh || b.mesh->getIndexCount() == 0)
+			continue;
+		// as ClientMap culls its blocks: by the block's middle and reach
+		const v3f middle = intToFloat(bp * MAP_BLOCKSIZE, 1) + v3f(MAP_BLOCKSIZE * 0.5f - 0.5f);
+		if (middle.getDistanceFrom(m_camera) > m_range + BLOCK_REACH)
 			continue;
 		core::matrix4 world;
 		world.setTranslation(intToFloat(bp * MAP_BLOCKSIZE - m_offset, BS));
