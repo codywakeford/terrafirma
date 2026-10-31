@@ -45,6 +45,9 @@ struct Refused : std::runtime_error
 	points at), a part by its own id; the history keeps the machine's id,
 	which lasts.
 */
+// A mirror across the machine's plane as it is in a part's own grid.
+sculpt::Stroke::Mirror partMirror(const piece::Pose &pose, const sculpt::Stroke::Mirror &m);
+
 class Workshop
 {
 public:
@@ -62,7 +65,8 @@ public:
 	explicit Workshop(const Opts &opts);
 
 	// On the world (object 0) or a machine's part: the block held is
-	// placed (or painted), else the material pointed at. `apart`: what it
+	// placed (or painted), else the material pointed at. A fitting held is
+	// added whole, one block facing the way they look (sprint 73). `apart`: what it
 	// adds grown as a part of its own off the part (and its mirror's
 	// another), joined to it so (a hinge: about the face's normal).
 	void stroke(PlayerSAO &who, u16 object, u64 part, const sculpt::Stroke &s,
@@ -86,13 +90,19 @@ public:
 	// person can; or let go (none). Sent while it's held, ~20 a second;
 	// a grip sent after it's let go is a fresh one (sprint 68).
 	void grab(PlayerSAO &who, u16 object, std::optional<std::pair<v3f, v3f>> grip);
+	// Driven from its seat (sprint 69), sent while they sit, ~20 a second;
+	// or got up from (none). One driver at a time; the seat within reach.
+	void drive(PlayerSAO &who, u16 object, std::optional<physics::Drive> drive);
 	// A part's design made a shell `thickness` sixteenths thick (undone as a stroke is).
 	void hollow(PlayerSAO &who, u16 object, u64 part, int thickness);
+	// Its edges and corners rounded to `radius` sixteenths (sprint 75; undone as a stroke is).
+	void round(PlayerSAO &who, u16 object, u64 part, int radius);
 
 	// The joint between two of a machine's parts set to `joint` (made at
 	// a face of a's, if there's none); none: taken away.
+	// `spring`: a sprung joint's set too (sprint 75)
 	void relink(PlayerSAO &who, u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
-			const std::optional<piece::Machine::Face> &at);
+			const std::optional<piece::Machine::Face> &at, std::optional<piece::Spring> spring = std::nullopt);
 	// Machine `b` set against `a` face to face and made one with it.
 	void join(PlayerSAO &who, u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b,
 			piece::Joint joint, u8 spin);
@@ -109,13 +119,31 @@ public:
 	void plugAgain(PlayerSAO &who, u16 a, u64 socket);
 	// A part made a machine of its own, where it was.
 	void detach(PlayerSAO &who, u16 object, u64 part);
+	// Set back on its feet, level, facing as it faced (sprint 79).
+	void upright(PlayerSAO &who, u16 object);
 	// A part gone (the machine with it, if it's its last).
 	void remove(PlayerSAO &who, u16 object, u64 part);
 
-	void save(PlayerSAO &who, u16 object, const std::string &name);
+	// A part and what hangs from it (sprint 74; the first part: the whole
+	// machine) kept in their parts library by name.
+	void save(PlayerSAO &who, u16 object, u64 part, const std::string &name);
 	// Its machines, from the open node `at`.
 	void place(PlayerSAO &who, const std::string &name, v3s16 at);
-	std::vector<std::string> blueprints(const std::string &player) const { return m_library.names(player); }
+	void forget(PlayerSAO &who, const std::string &name);
+	// Theirs, and the starter parts (sprint 76) they've none of the same name of.
+	std::vector<std::string> blueprints(const std::string &player) const;
+	// Copy and paste (sprint 74): a part and what hangs from it kept as
+	// the player's clipboard (how many parts that is); another of it made,
+	// held up in front of them to be carried onto something (its object
+	// id). Pasting is creative only: it's made from nothing.
+	size_t copy(PlayerSAO &who, u16 object, u64 part);
+	u16 paste(PlayerSAO &who);
+	// One from their library made their clipboard, and pasted.
+	u16 take(PlayerSAO &who, const std::string &name);
+	// A part pulled off by hand (sprint 77) with what hangs from it: a
+	// new object where it was, still till they carry it (its object id).
+	// It keeps how it hung, so it goes back on so.
+	u16 pull(PlayerSAO &who, u16 object, u64 part);
 
 	// Machines moved by physics (sprint 57): each server step, before the
 	// environment's; and told when the world's blocks change.
@@ -126,9 +154,17 @@ public:
 private:
 	void within(PlayerSAO &who, v3f there, float extra) const;
 	content_t held(PlayerSAO &who) const;
+	// The block held, if it's a fitting (a seat, an engine: sprint 73).
+	std::optional<content_t> fitting(PlayerSAO &who) const;
+	// A fitting fitted whole on a machine's part, a part of its own welded
+	// flat against the face the stroke's on (at any sixteenth), facing the
+	// way its fitter looks. Taken off as a part is (its menu's delete).
+	void fit(PlayerSAO &who, LuaEntitySAO &obj, piece::Machine &m, u64 part, const sculpt::Stroke &s,
+			content_t fitting);
 
 	ServerEnvironment &m_env;
 	IGameDef *m_gamedef;
+	const Materials &m_materials;
 	Entities m_entities;
 	Library m_library;
 	sculpt::History m_history;
@@ -144,6 +180,12 @@ private:
 		u8 spin;
 	};
 	std::map<std::string, Plugged> m_plugged;
+	// each player's clipboard: a machine's text
+	std::map<std::string, std::string> m_clipboard;
+	// theirs of that name, else the starter part (Refused: neither)
+	Blueprint blueprintOf(PlayerSAO &who, const std::string &name) const;
+	// the machine `text`, made anew, held up in front of them
+	u16 spawnHeld(PlayerSAO &who, const std::string &text);
 };
 
 } // namespace workshop

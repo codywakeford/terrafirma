@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "test.h"
+#include "workshop/starters.h"
 
 #include "dummygamedef.h"
 #include "exceptions.h"
@@ -35,7 +36,13 @@ public:
 	void testHingeThroughTheMiddle();
 	void testRigidGroups();
 	void testCompiledForPhysics();
+	void testFittedForDriving();
 	void testEntityTurns();
+	void testExtracted();
+	void testSprung();
+	void testStarters();
+	void testPulledOff();
+	void testOnAsHeld();
 };
 
 static TestMachine g_test_instance;
@@ -54,7 +61,13 @@ void TestMachine::runTests(IGameDef *gamedef)
 	TEST(testHingeThroughTheMiddle);
 	TEST(testRigidGroups);
 	TEST(testCompiledForPhysics);
+	TEST(testFittedForDriving);
 	TEST(testEntityTurns);
+	TEST(testExtracted);
+	TEST(testSprung);
+	TEST(testStarters);
+	TEST(testPulledOff);
+	TEST(testOnAsHeld);
 }
 
 namespace {
@@ -135,6 +148,26 @@ void TestMachine::testWrittenAndReadBack()
 	UASSERTEQ(size_t, back.parts().size(), size_t(2));
 	UASSERT(back.parts()[1].pose.turn == 5 && back.parts()[1].pose.offset == v3s32(16, 0, 0));
 	UASSERT(back.links().size() == 1 && back.links()[0].joint == Joint::Rotary);
+	UASSERT(back.front() == v3s16(0, 0, 1));
+
+	// its front kept (sprint 70); one from before fronts faces its +z
+	m.setFront(v3s16(-1, 0, 0));
+	back.read(m.write());
+	UASSERT(back.front() == v3s16(-1, 0, 0));
+	// TFM4 (sprint 74 and before): its one joint with no spring, then no
+	// sockets (a u16) and its front; read with the spring's middle steps
+	UASSERT(m.sockets().empty() && m.links().size() == 1);
+	std::string old = m.write();
+	old.erase(old.size() - 6 - 2 - 2, 2);
+	old.replace(0, 4, "TFM4");
+	back.read(old);
+	UASSERT(back.front() == v3s16(-1, 0, 0) && back.links()[0].spring == piece::Spring{});
+	old.replace(0, 4, "TFM3");
+	old.resize(old.size() - 6); // its front gone
+	back.read(old);
+	UASSERT(back.front() == v3s16(0, 0, 1) && back.parts().size() == 2);
+	EXCEPTION_CHECK(BaseException, m.setFront(v3s16(0, 1, 0)));
+	m.setFront(v3s16(0, 0, 1));
 
 	const Header h = header(m.write());
 	UASSERT(h.id == m.id());
@@ -277,6 +310,25 @@ void TestMachine::testFaceToward()
 	UASSERT(west && west->part == a && m.normal(*west) == v3s16(-1, 0, 0));
 	UASSERT(std::abs(m.point(*west).X) < 0.01f);
 	UASSERT(!Machine(&g.gamedef).faceToward(v3s16(0, 1, 0)));
+
+	// a plank four sixteenths thick in its node: met on its own top, and
+	// its outline is the plank (sprint 77: it was met at its node's, and
+	// floated twelve sixteenths off what it was put on)
+	Machine plank(&g.gamedef);
+	Object o(&g.gamedef);
+	shape::Shape thin;
+	for (s16 x = 0; x < 16; x++)
+		for (s16 y = 0; y < 4; y++)
+			for (s16 z = 0; z < 16; z++)
+				thin.set({ x, y, z }, true);
+	o.design().map().setNode({ 0, 0, 0 }, MapNode(g.planks));
+	o.design().map().setShape({ 0, 0, 0 }, thin);
+	o.build();
+	const u64 p = plank.add({ std::move(o), Pose{ v3s32(0), 0 } }).object.id();
+	const std::optional<Machine::Face> top = plank.faceToward(v3s16(0, 1, 0));
+	UASSERT(top && top->at.cell.Y == 3 && std::fabs(plank.point(*top).Y - 4) < 0.01f);
+	const std::optional<aabb3f> box = plank.filled(p);
+	UASSERT(box && std::fabs(box->MaxEdge.Y - (-0.25f)) < 1e-4f && std::fabs(box->MinEdge.Y + 0.5f) < 1e-4f);
 }
 
 // A socket on a face: written and read back; something carried onto it is
@@ -445,6 +497,48 @@ void TestMachine::testCompiledForPhysics()
 	UASSERT(h.friction > 0);
 }
 
+// Sprint 73: a seat's facedir is the machine's ahead, turned with its
+// part; a wheel's joint says whether it steers and is driven.
+void TestMachine::testFittedForDriving()
+{
+	Game g;
+	ContentFeatures f;
+	f.name = "test:seat";
+	f.walkable = true;
+	f.drawtype = NDT_NORMAL;
+	const content_t seat = g.gamedef.getWritableNodeDefManager()->set(f.name, std::move(f));
+	workshop::Materials materials;
+	materials.set(g.planks, { 600, 0.6f });
+	materials.set(seat, { 300, 0.6f, workshop::Role::Seat });
+	for (const Joint j : { Joint::Rotary, Joint::Steered, Joint::Driven, Joint::SteerDriven })
+		for (u8 facedir = 0; facedir < 4; facedir++)
+			for (const u8 turn : { u8(0), piece::quarterAbout(v3s16(0, 1, 0)) }) { // the root as built, and turned a quarter about up
+				Machine m(&g.gamedef);
+				Machine::Part root = g.block(v3s32(0), turn);
+				root.object.design().map().setNode({ 0, 1, 0 }, MapNode(seat, 0, facedir));
+				root.object.build();
+				const u64 r = m.add(std::move(root)).object.id();
+				m.grow({ r, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, j);
+				const physics::Assembly car = workshop::compile(m, materials, &g.gamedef);
+				UASSERT(car.seat.has_value());
+				v3f want = v3f::from(workshop::facing2(facedir));
+				want = m.parts()[0].pose.matrix().rotateAndScaleVect(want).normalize();
+				UTEST(car.facing.getDistanceFrom(want) < 1e-4f, "facedir %d turn %d faces %f %f %f", facedir, turn,
+						car.facing.X, car.facing.Y, car.facing.Z);
+				UASSERTEQ(size_t, car.wheels.size(), 1);
+				UASSERT(car.wheels[0].steers == piece::JOINTS[size_t(j)].steers);
+				UASSERT(car.wheels[0].driven == piece::JOINTS[size_t(j)].driven);
+			}
+	// a fitting on a plate one sixteenth thick sits on it, not a block up;
+	// across, it's on the block grid
+	UASSERT(workshop::fittingCorner(v3s32(20, 0, 37), v3s16(0, 1, 0)) == v3s32(16, 1, 32));
+	UASSERT(workshop::fittingCorner(v3s32(20, 0, 37), v3s16(0, -1, 0)) == v3s32(16, -16, 32));
+	UASSERT(workshop::fittingCorner(v3s32(-3, 7, 0), v3s16(1, 0, 0)) == v3s32(-2, 0, 0));
+	// the facedir nearest a look, and back
+	for (u8 facedir = 0; facedir < 4; facedir++)
+		UASSERTEQ(int, workshop::facedirOf(v3f::from(workshop::facing2(facedir)) + v3f(0.1f, 0, 0.1f)), facedir);
+}
+
 // An entity's turn (degrees, as piece::frame draws it) as physics' quaternion and back.
 void TestMachine::testEntityTurns()
 {
@@ -465,4 +559,212 @@ void TestMachine::testEntityTurns()
 			UASSERT(again.getDistanceFrom(drawn) < 1e-4f);
 		}
 	}
+}
+
+// A part copied (sprint 74) is it and what hangs from it, past it from the
+// first part: an arm's wheel comes with the arm, the body doesn't; the
+// joint between them and its kind come too, and the arm's corner is the
+// copy's. The first part's copy is all of it; a wheel's is the wheel.
+void TestMachine::testExtracted()
+{
+	Game g;
+	Machine m(&g.gamedef);
+	const u64 body = m.add(g.block()).object.id();
+	const u64 arm = m.add(g.block(v3s32(16, 0, 0))).object.id();
+	const u64 wheel = m.add(g.block(v3s32(32, 0, 0), 3)).object.id();
+	const u64 side = m.add(g.block(v3s32(0, 16, 0))).object.id();
+	m.relink(body, arm, Joint::Fixed, std::nullopt);
+	m.relink(arm, wheel, Joint::SteerDriven, std::nullopt);
+	m.relink(body, side, Joint::Hinge, std::nullopt);
+
+	const Machine copy = m.extract(arm);
+	UASSERTEQ(size_t, copy.parts().size(), 2);
+	UASSERT(copy.parts()[0].object.id() == arm && copy.parts()[1].object.id() == wheel);
+	UASSERT(copy.parts()[0].pose.offset == v3s32(0) && copy.parts()[1].pose.offset == v3s32(16, 0, 0));
+	UASSERT(copy.parts()[1].pose.turn == 3);
+	UASSERTEQ(size_t, copy.links().size(), 1);
+	UASSERT(copy.links()[0].joint == Joint::SteerDriven);
+	UASSERT(copy.id() != m.id());
+	// it reads back as itself
+	Machine back(&g.gamedef);
+	back.read(copy.write());
+	UASSERT(back.write() == copy.write());
+
+	// how each hung (sprint 76), kept in its text; the whole hung from nothing
+	UASSERT(copy.plug() && copy.plug()->joint == Joint::Fixed && back.plug() && back.plug()->joint == Joint::Fixed);
+	const Machine wheeled = m.extract(wheel);
+	UASSERT(wheeled.plug() && wheeled.plug()->joint == Joint::SteerDriven);
+	UASSERT(!m.extract(body).plug());
+	// welded on face to face, it's joined as it hung
+	Machine onto(&g.gamedef);
+	const u64 o = onto.add(g.block()).object.id();
+	onto.join({ o, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, m.extract(wheel),
+			{ wheel, { v3s16(0, 0, 0), v3s16(0, 7, 7) }, v3s16(-1, 0, 0) }, Joint::Fixed, 0);
+	UASSERT(onto.links().size() == 1 && onto.links()[0].joint == Joint::SteerDriven);
+	UASSERTEQ(size_t, m.extract(body).parts().size(), 4);
+	UASSERTEQ(size_t, m.extract(wheel).parts().size(), 1);
+	UASSERTEQ(size_t, m.extract(side).parts().size(), 1);
+	UASSERTEQ(size_t, m.parts().size(), 4); // the machine's as it was
+	EXCEPTION_CHECK(BaseException, m.extract(12345));
+}
+
+// Sprint 75: a wheel turning on a hub held on a sprung joint rides its
+// spring: as far as it says it travels, sagged as firm as it says; the
+// spring's kept in the machine's text. A wheel straight on the body has
+// the little stiff travel it always had.
+void TestMachine::testSprung()
+{
+	Game g;
+	workshop::Materials materials;
+	materials.set(g.planks, { 600, 0.6f });
+	Machine m(&g.gamedef);
+	const u64 body = m.add(g.block()).object.id();
+	const u64 deck = m.add(g.block(v3s32(0, 16, 0))).object.id();
+	m.relink(body, deck, Joint::Fixed, std::nullopt);
+	const u64 hub = m.add(g.block()).object.id();
+	m.relink(body, hub, Joint::Sprung, std::nullopt);
+	m.tune(body, hub, piece::Spring{ 2, 0 });
+	m.grow({ hub, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Driven);
+	UASSERTEQ(size_t, m.rigid().size(), 3); // the body and deck, the hub, the wheel
+
+	const physics::Assembly car = workshop::compile(m, materials, &g.gamedef);
+	UASSERTEQ(size_t, car.wheels.size(), 1);
+	UASSERT(car.wheels[0].driven);
+	// the hub's a body of its own (sprint 76), following its wheel
+	UASSERT(car.hubs.size() == 1 && car.hubs[0].wheel == size_t(0) && car.hubs[0].body != car.wheels[0].body
+			&& car.hubs[0].body != 0);
+	UTEST(std::fabs(car.wheels[0].travel - piece::TRAVELS[2].value) < 1e-4f, "travel %f", car.wheels[0].travel);
+	const float hz = piece::FIRMNESSES[0].value;
+	UTEST(std::fabs(car.wheels[0].sag - 9.81f / (4 * core::PI * core::PI * hz * hz)) < 0.01f, "sag %f", car.wheels[0].sag);
+
+	Machine back(&g.gamedef);
+	back.read(m.write());
+	const auto sprung = std::find_if(back.links().begin(), back.links().end(),
+			[](const Machine::Link &l) { return l.joint == Joint::Sprung; });
+	UASSERT(sprung != back.links().end() && sprung->spring == (piece::Spring{ 2, 0 }));
+	EXCEPTION_CHECK(BaseException, m.tune(deck, hub, piece::Spring{}));
+
+	// on the body itself: stiff, as before
+	Machine plain(&g.gamedef);
+	const u64 r = plain.add(g.block()).object.id();
+	plain.grow({ r, WHEEL.at, WHEEL.normal }, WHEEL.cells(), g.planks, Joint::Rotary);
+	const physics::Assembly cart = workshop::compile(plain, materials, &g.gamedef);
+	UASSERT(cart.wheels.size() == 1 && cart.wheels[0].travel < 0.2f);
+}
+
+// Sprint 76: the starter parts. A corner is a hub and a wheel on it,
+// turning as it's named, carried on by a spring: compiled on a body, its
+// wheel rides the spring and the hub follows it. A wheel alone is one
+// part, joined on as it turns. None without the game's steel and rubber.
+void TestMachine::testStarters()
+{
+	Game g;
+	EXCEPTION_CHECK(std::runtime_error, workshop::starter(&g.gamedef, "Wheel"));
+	workshop::Materials materials;
+	materials.set(g.planks, { 600, 0.6f });
+	for (const char *name : { "tf_world:steel", "tf_world:rubber" }) {
+		ContentFeatures f;
+		f.name = name;
+		f.walkable = true;
+		f.drawtype = NDT_NORMAL;
+		materials.set(g.gamedef.getWritableNodeDefManager()->set(f.name, std::move(f)), { 1000, 1.0f });
+	}
+	EXCEPTION_CHECK(std::out_of_range, workshop::starter(&g.gamedef, "Unicycle"));
+
+	const Machine wheel = workshop::starter(&g.gamedef, "Wheel");
+	UASSERT(wheel.parts().size() == 1 && wheel.plug() && wheel.plug()->joint == Joint::Rotary);
+	for (const workshop::Starter &st : workshop::STARTERS) {
+		if (!st.corner)
+			continue;
+		Machine corner = workshop::starter(&g.gamedef, st.name);
+		UASSERT(corner.parts().size() == 2 && corner.plug() && corner.plug()->joint == Joint::Sprung);
+		// it goes on by its hub's inner face, across from its wheel (sprint 77)
+		const std::optional<Machine::Face> by = corner.plugFace();
+		UASSERT(by && by->part == corner.parts()[0].object.id() && by->normal == v3s16(-1, 0, 0)
+				&& by->at.cell == v3s16(5, 7, 7));
+		UASSERT(corner.links().size() == 1 && corner.links()[0].joint == *st.corner);
+		// carried onto a body's +x face, welded: on its spring
+		Machine car(&g.gamedef);
+		const u64 body = car.add(g.block()).object.id();
+		const u64 hub = corner.parts()[0].object.id();
+		car.join({ body, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, std::move(corner),
+				{ hub, { v3s16(0, 0, 0), v3s16(5, 7, 7) }, v3s16(-1, 0, 0) }, Joint::Fixed, 0);
+		const physics::Assembly a = workshop::compile(car, materials, &g.gamedef);
+		UTEST(a.wheels.size() == 1 && a.hubs.size() == 1 && a.hubs[0].wheel == size_t(0), "%s: %zu wheels, %zu hubs",
+				st.name, a.wheels.size(), a.hubs.size());
+		UASSERT(a.wheels[0].steers == piece::JOINTS[size_t(*st.corner)].steers
+				&& a.wheels[0].driven == piece::JOINTS[size_t(*st.corner)].driven);
+		UASSERT(std::fabs(a.wheels[0].travel - piece::TRAVELS[1].value) < 1e-4f);
+	}
+}
+
+void TestMachine::testPulledOff()
+{
+	// a body, an arm off its +x face, a wheel off the arm's on a rotary joint
+	Game g;
+	Machine m(&g.gamedef);
+	const u64 body = m.add(g.block()).object.id();
+	Machine arm(&g.gamedef);
+	const u64 a = arm.add(g.block()).object.id();
+	m.join({ body, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, std::move(arm),
+			{ a, { v3s16(0, 0, 0), v3s16(0, 7, 7) }, v3s16(-1, 0, 0) }, Joint::Hinge, 0);
+	Machine wheel(&g.gamedef);
+	const u64 w = wheel.add(g.block()).object.id();
+	m.join({ a, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, std::move(wheel),
+			{ w, { v3s16(0, 0, 0), v3s16(0, 7, 7) }, v3s16(-1, 0, 0) }, Joint::Rotary, 0);
+
+	EXCEPTION_CHECK(BaseException, m.pull(body));
+	Machine off = m.pull(a);
+	// the arm and its wheel came off; the body's alone, with no joints
+	UASSERT(m.parts().size() == 1 && m.links().empty());
+	UASSERT(off.parts().size() == 2 && off.links().size() == 1 && off.plug() && off.plug()->joint == Joint::Hinge);
+	// it goes back on by the face it hung by: the arm's -x, toward the body
+	const std::optional<Machine::Face> by = off.plugFace();
+	UASSERT(by && by->part == a && by->normal == v3s16(-1, 0, 0) && by->at.cell.X == 0);
+	// and written and read, it still knows it
+	Machine back(&g.gamedef);
+	back.read(off.write());
+	UASSERT(back.plugFace() && back.plugFace()->normal == v3s16(-1, 0, 0));
+	// put back on there, by that face, it's where it was, hinged
+	const std::optional<Machine::Face> theirs = back.plugFace();
+	m.join({ body, { v3s16(0, 0, 0), v3s16(15, 7, 7) }, v3s16(1, 0, 0) }, std::move(back), *theirs, Joint::Fixed, 0);
+	UASSERT(m.parts().size() == 3 && m.part(a)->pose.offset == v3s32(16, 0, 0));
+	UASSERT(std::any_of(m.links().begin(), m.links().end(), [&](const Machine::Link &l) {
+		return l.joint == Joint::Hinge && (l.a == body || l.b == body); }));
+}
+
+// What's carried goes on as it's held (sprint 77): a beam held across the
+// view goes on across it, whichever way the player comes at the face;
+// tipped up in the hands, it stands up; a plug's face is kept.
+void TestMachine::testOnAsHeld()
+{
+	Game g;
+	for (const f32 yaw : { 0.f, 90.f, 180.f, 270.f, 30.f }) {
+		// held turned with the player: its x (its length) along their right
+		const core::matrix4 held = piece::frame(v3f(0), v3f(0, yaw, 0));
+		v3f length(1, 0, 0);
+		held.transformVect(length);
+		const Fit fit = nearestFit(v3s16(0, 1, 0), std::nullopt, held);
+		UASSERT(fit.side == v3s16(0, -1, 0)); // its underside meets the top
+		// joined on the block's top so, the beam lies along its length held
+		Machine m(&g.gamedef);
+		const u64 base = m.add(g.block()).object.id();
+		Machine beam(&g.gamedef);
+		Object o(&g.gamedef);
+		for (s16 x = 0; x < 3; x++)
+			o.design().map().setNode({ x, 0, 0 }, MapNode(g.planks));
+		o.build();
+		const u64 b = beam.add({ std::move(o), Pose{ v3s32(0), 0 } }).object.id();
+		const std::optional<Machine::Face> under = beam.faceToward(fit.side);
+		UASSERT(under);
+		m.join({ base, { v3s16(0, 0, 0), v3s16(7, 15, 7) }, v3s16(0, 1, 0) }, std::move(beam), *under, Joint::Fixed, fit.spin);
+		const v3s16 along = piece::turn(m.part(b)->pose.turn).axes[0];
+		UTEST(v3f::from(along).dotProduct(length) > 0.85f, "yaw %f: along %d %d %d", yaw, along.X, along.Y, along.Z);
+	}
+	// tipped up in the hands (its length up): it stands on its end
+	const Fit up = nearestFit(v3s16(0, 1, 0), std::nullopt, piece::frame(v3f(0), v3f(0, 0, 90)));
+	UASSERT(up.side.X != 0);
+	// a plug's face meets theirs whatever's nearest
+	const Fit plugged = nearestFit(v3s16(1, 0, 0), v3s16(0, 0, 1), core::matrix4());
+	UASSERT(plugged.side == v3s16(0, 0, 1));
 }

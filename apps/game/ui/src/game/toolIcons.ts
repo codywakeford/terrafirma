@@ -63,7 +63,7 @@ export const TOOL_ICONS: Record<ToolId, { label: string; rows: readonly string[]
         "...########...",
         ".....####.....",
     ] },
-    cut: { label: "Cut", rows: [
+    cut: { label: "Plane: shaves past the face", rows: [
         "..##..........",
         "..###.........",
         "...###........",
@@ -76,6 +76,48 @@ export const TOOL_ICONS: Record<ToolId, { label: string; rows: readonly string[]
         "#............#",
         "##############",
         "..............",
+    ] },
+    frame: { label: "Frame: drag its footprint, pull it up · the size is how thick its beams are", rows: [
+        "..............",
+        "##############",
+        "##..........##",
+        "#.#........#.#",
+        "#..#......#..#",
+        "#...########.#",
+        "#...#......#.#",
+        "#...#......#.#",
+        "#...#......#.#",
+        "##..#......#.#",
+        "#.#.#......##.",
+        "##############",
+    ] },
+    truss: { label: "Truss: a frame braced across each side", rows: [
+        "..............",
+        "##############",
+        "##..........##",
+        "#.#........#.#",
+        "#..#......#..#",
+        "#...#....#...#",
+        "#....#..#....#",
+        "#.....##.....#",
+        "#....#..#....#",
+        "#...#....#...#",
+        "##.#......#.##",
+        "##############",
+    ] },
+    beam: { label: "Beam: drag from one end to the other, at any angle · the size is how thick", rows: [
+        "..............",
+        "..........###.",
+        ".........####.",
+        "........####..",
+        ".......####...",
+        "......####....",
+        ".....####.....",
+        "....####......",
+        "...####.......",
+        "..####........",
+        ".####.........",
+        ".###..........",
     ] },
     bore: { label: "Bore", rows: [
         "......##......",
@@ -93,7 +135,7 @@ export const TOOL_ICONS: Record<ToolId, { label: string; rows: readonly string[]
     ] },
 }
 
-export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete"> | "library" | "select", { label: string; rows: readonly string[] }> = {
+export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete" | "copy" | "paste" | "name" | "take" | "forget"> | "library", { label: string; rows: readonly string[] }> = {
     focus: { label: "Pick up / let go (F)", rows: [
         "###........###",
         "#............#",
@@ -164,6 +206,20 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
         "##############",
         "..............",
     ] },
+    round: { label: "Round: its edges and corners rounded to the size", rows: [
+        "..............",
+        "....######....",
+        "..##......##..",
+        ".#..........#.",
+        ".#..........#.",
+        "#............#",
+        "#............#",
+        "#............#",
+        ".#..........#.",
+        ".#..........#.",
+        "..##......##..",
+        "....######....",
+    ] },
     hollow: { label: "Hollow: a wall the size thick", rows: [
         "##############",
         "##############",
@@ -206,21 +262,7 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
         "..............",
         "..............",
     ] },
-    select: { label: "Select: click a part, Shift-click another for the joint between", rows: [
-        "#.............",
-        "##............",
-        "#.#...........",
-        "#..#..........",
-        "#...#.........",
-        "#....#........",
-        "#.....#.......",
-        "#....###......",
-        "#.#..#........",
-        "##.#..#.......",
-        "#...#.#.......",
-        "......#.......",
-    ] },
-    library: { label: "Blueprints", rows: [
+    library: { label: "Parts library", rows: [
         "..............",
         "###.###.......",
         "#.#.#.#..##...",
@@ -237,7 +279,7 @@ export const ACTION_ICONS: Record<Exclude<ActionId, "place" | "detach" | "delete
 }
 
 export const BRUSH_ICONS: Record<BrushId, { label: string; rows: readonly string[] }> = {
-    add: { label: "Add (Shift: pull a face out) · creating, on the ground or a socket: a new part", rows: [
+    add: { label: "Add (Shift: pull a face out) · on the ground or a socket: a new part · Alt: into the world", rows: [
         "..............",
         "......##......",
         "......##......",

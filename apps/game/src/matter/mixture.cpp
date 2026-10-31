@@ -119,6 +119,21 @@ void Mixture::settle(double pressure)
 			continue;
 		}
 		const Substance &s = subs[i];
+		// held in its solvent (sprint 79): as much as the liquid there holds
+		// is liquid, the rest as it'd be; going in or out is quick, its heat
+		// of solution given or taken at once
+		if (s.dissolves) {
+			const double solvent = in(s.dissolves->solvent, State::Liquid);
+			const double held = std::min(amounts[i], s.dissolves->most * solvent);
+			const State free = s.state(temperature, pressure);
+			const double was_held = std::min(in(i, State::Liquid), amounts[i]);
+			if (free != State::Liquid && std::fabs(held - was_held) > amounts[i] * 1e-9)
+				temperature += (held - was_held) * s.dissolves->heat * 1000.0 / heatCapacity();
+			m_states[i] = held > 0 ? State::Liquid : free;
+			m_from[i] = free;
+			m_lagging[i] = held > 0 ? amounts[i] - held : 0; // the rest, still `free`
+			continue;
+		}
 		if (m_lagging[i] <= 0) {
 			State now = s.state(temperature, pressure);
 			if (same(now, m_states[i])) {
@@ -206,10 +221,61 @@ double Mixture::rate(const Reaction &r, const Conditions &c) const
 	return 0;
 }
 
+uint32_t Mixture::colour() const
+{
+	// mixed as light is: in linear terms, not sRGB's
+	auto linear = [](uint32_t c, int shift) { return std::pow(((c >> shift) & 0xff) / 255.0, 2.2); };
+	double rgb[3] = { 0, 0, 0 }, weight = 0;
+	const auto &subs = m_table.substances();
+	for (size_t i = 0; i < amounts.size(); i++) {
+		if (amounts[i] <= 0)
+			continue;
+		const double w = amounts[i] * subs[i].molar_mass * subs[i].tint;
+		for (int k = 0; k < 3; k++)
+			rgb[k] += w * linear(subs[i].colour, 16 - 8 * k);
+		weight += w;
+	}
+	if (weight <= 0)
+		return 0;
+	uint32_t out = 0;
+	for (int k = 0; k < 3; k++)
+		out |= uint32_t(std::lround(std::pow(rgb[k] / weight, 1 / 2.2) * 255)) << (16 - 8 * k);
+	return out;
+}
+
+const std::vector<size_t> &Mixture::candidates()
+{
+	std::vector<uint64_t> held((amounts.size() + 63) / 64, 0);
+	for (size_t i = 0; i < amounts.size(); i++)
+		if (amounts[i] > 0)
+			held[i / 64] |= uint64_t(1) << (i % 64);
+	if (held == m_held && !m_held.empty())
+		return m_candidates;
+	m_held = std::move(held);
+	m_held_changed = true;
+	m_candidates.clear();
+	const auto &reactions = m_table.reactions();
+	for (size_t j = 0; j < reactions.size(); j++)
+		if (std::all_of(reactions[j].reactants.begin(), reactions[j].reactants.end(),
+					[&](const Reaction::Term &t) { return amounts[t.substance] > 0; }))
+			m_candidates.push_back(j);
+	return m_candidates;
+}
+
 std::vector<double> Mixture::run(double seconds, const Conditions &c)
 {
 	const auto &reactions = m_table.reactions();
 	std::vector<double> done(reactions.size(), 0.0);
+	// still: nothing to do, and nothing given to it from outside (sprint 79)
+	constexpr double STILL = 0.25; // K
+	const bool alone = c.power == 0 && c.light == 0 && (c.exchange == 0 || c.surroundings == temperature);
+	if (alone && candidates().empty() && !m_held_changed && std::fabs(temperature - m_ran_at) < STILL &&
+			std::all_of(m_lagging.begin(), m_lagging.end(), [](double l) { return l <= 0; })) {
+		m_still = true;
+		return done;
+	}
+	m_still = false;
+	m_held_changed = false;
 	settle(c.pressure); // whatever arrived since the last run
 
 	double left = seconds;
@@ -224,7 +290,9 @@ std::vector<double> Mixture::run(double seconds, const Conditions &c)
 		// a reaction that would use up what it needs within FAST completes within
 		// the step (a flame), and doesn't hold every other one to its pace
 		double dt = std::min(left, LONGEST_STEP), heat = c.exchange * (c.surroundings - temperature);
-		for (size_t j = 0; j < reactions.size(); j++) {
+		std::fill(rates.begin(), rates.end(), 0.0);
+		std::fill(fast.begin(), fast.end(), false);
+		for (size_t j : candidates()) {
 			rates[j] = rate(reactions[j], c);
 			fast[j] = rates[j] > 0 && room(reactions[j]) / rates[j] < FAST;
 			if (rates[j] > 0 && !fast[j]) {
@@ -245,10 +313,20 @@ std::vector<double> Mixture::run(double seconds, const Conditions &c)
 				continue;
 			const Reaction &r = reactions[j];
 			double extent = fast[j] ? room(r) : std::min(rates[j] * dt, room(r));
-			for (const Reaction::Term &t : r.reactants)
+			// its heat is between standard states (sprint 79): what's used
+			// up in another state gives that state's heat back (steam
+			// burnt holds its boiling), and what's made in another pays
+			// for it (water out of a flame is steam: methane's 890 kJ is
+			// 802 so)
+			const auto &subs = m_table.substances();
+			for (const Reaction::Term &t : r.reactants) {
+				released += t.count * extent * latent(subs[t.substance], subs[t.substance].standard, state(t.substance, c.pressure));
 				amounts[t.substance] = std::max(0.0, amounts[t.substance] - t.count * extent);
-			for (const Reaction::Term &t : r.products)
+			}
+			for (const Reaction::Term &t : r.products) {
+				released -= t.count * extent * latent(subs[t.substance], subs[t.substance].standard, state(t.substance, c.pressure));
 				amounts[t.substance] += t.count * extent;
+			}
 			if (r.energy == Energy::None) // driven reactions take their heat from the power, not the pot
 				released += extent * r.heat * 1000.0;
 			done[j] += extent;
@@ -261,6 +339,7 @@ std::vector<double> Mixture::run(double seconds, const Conditions &c)
 	}
 	for (double &d : done)
 		d /= seconds;
+	m_ran_at = temperature;
 	return done;
 }
 

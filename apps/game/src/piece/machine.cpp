@@ -8,6 +8,7 @@
 #include "piece/header.h"
 #include "util/serialize.h"
 #include <algorithm>
+#include <set>
 #include <cmath>
 #include <map>
 #include <sstream>
@@ -15,14 +16,32 @@
 namespace piece {
 
 const JointKind JOINTS[size_t(Joint::Count)] = {
-	{ "fixed", false, 0 },
-	{ "rotary", true, 0 },
-	{ "hinge", true, 90 },
+	{ "fixed", "fixed", false, 0, false, false },
+	{ "rotary", "rotary", true, 0, false, false },
+	{ "hinge", "hinge", true, 90, false, false },
+	{ "steers", "steers", true, 0, true, false },
+	{ "driven", "driven", true, 0, false, true },
+	{ "steers_driven", "steers, driven", true, 0, true, true },
+	{ "sprung", "sprung", false, 0, false, false, true },
+};
+
+// a car's: a hand's breadth to most of a block; a soft road car to a racer
+const SpringStep TRAVELS[SPRING_STEPS] = {
+	{ "short", "short travel", 0.25f },
+	{ "medium", "medium travel", 0.5f },
+	{ "long", "long travel", 0.8f },
+};
+const SpringStep FIRMNESSES[SPRING_STEPS] = {
+	{ "soft", "soft", 1.2f },
+	{ "medium", "medium", 1.7f },
+	{ "firm", "firm", 2.4f },
 };
 
 namespace {
 
-const char MAGIC[] = "TFM3";
+const char MAGIC[] = "TFM5";
+const char MAGIC_4[] = "TFM4";
+const char MAGIC_3[] = "TFM3";
 const char MAGIC_2[] = "TFM2";
 const char MAGIC_1[] = "TFM1";
 constexpr f32 STEPS = 16; // sixteenths a node
@@ -67,12 +86,15 @@ struct Texts
 	std::vector<Part> parts;
 	std::vector<Machine::Link> links;
 	std::vector<Machine::Socket> sockets;
+	v3s16 front{ 0, 0, 1 }; // before fronts (TFM3 and older): its grid's +z
+	std::optional<Machine::Plug> plug;
 };
 
 Texts texts(const std::string &text)
 {
-	const bool first = text.compare(0, 4, MAGIC_1) == 0, second = text.compare(0, 4, MAGIC_2) == 0;
-	if (!first && !second && text.compare(0, 4, MAGIC) != 0) // an object's, or a piece's: one part
+	const bool first = text.compare(0, 4, MAGIC_1) == 0, second = text.compare(0, 4, MAGIC_2) == 0,
+			third = text.compare(0, 4, MAGIC_3) == 0, fourth = text.compare(0, 4, MAGIC_4) == 0;
+	if (!first && !second && !third && !fourth && text.compare(0, 4, MAGIC) != 0) // an object's, or a piece's: one part
 		return { std::nullopt, { { Pose{ v3s32(0), 0 }, text } }, {}, {} };
 	std::istringstream is(text, std::ios::binary);
 	is.ignore(4);
@@ -103,6 +125,12 @@ Texts texts(const std::string &text)
 		l.axis = readV3S16(is);
 		if (std::abs(l.axis.X) + std::abs(l.axis.Y) + std::abs(l.axis.Z) != 1)
 			throw SerializationError("machine: a joint's axis isn't one");
+		if (!first && !second && !third && !fourth) { // its spring (TFM5)
+			l.spring.travel = readU8(is);
+			l.spring.firmness = readU8(is);
+			if (l.spring.travel >= SPRING_STEPS || l.spring.firmness >= SPRING_STEPS)
+				throw SerializationError("machine: a joint's spring isn't one");
+		}
 	}
 	if (!first && !second) {
 		out.sockets.resize(readU16(is));
@@ -118,6 +146,33 @@ Texts texts(const std::string &text)
 			if (std::abs(k.axis.X) + std::abs(k.axis.Y) + std::abs(k.axis.Z) != 1)
 				throw SerializationError("machine: a socket's axis isn't one");
 		}
+	}
+	if (!first && !second && !third) {
+		out.front = readV3S16(is);
+		if (out.front.Y != 0 || std::abs(out.front.X) + std::abs(out.front.Z) != 1)
+			throw SerializationError("machine: its front isn't a level axis");
+	}
+	// how a copy hung (sprint 76): at its end, if it's one
+	if (!first && !second && !third && !fourth && is.peek() != std::char_traits<char>::eof()) {
+		Machine::Plug p;
+		const u8 joint = readU8(is);
+		if (joint >= u8(Joint::Count))
+			throw SerializationError("machine: no such joint for its plug");
+		p.joint = Joint(joint);
+		p.spring.travel = readU8(is);
+		p.spring.firmness = readU8(is);
+		if (p.spring.travel >= SPRING_STEPS || p.spring.firmness >= SPRING_STEPS)
+			throw SerializationError("machine: its plug's spring isn't one");
+		// the face it hung by (sprint 77), if it says
+		if (is.peek() != std::char_traits<char>::eof()) {
+			Machine::Plug::By by;
+			by.at = readV3F32(is);
+			by.out = readV3S16(is);
+			if (std::abs(by.out.X) + std::abs(by.out.Y) + std::abs(by.out.Z) != 1)
+				throw SerializationError("machine: its plug's face isn't on an axis");
+			p.by = by;
+		}
+		out.plug = p;
 	}
 	return out;
 }
@@ -171,6 +226,8 @@ void Machine::read(const std::string &text)
 	m_parts = std::move(parts);
 	m_links = std::move(t.links);
 	m_sockets = std::move(t.sockets);
+	m_front = t.front;
+	m_plug = t.plug;
 	// one part from before machines: the machine's id is the object's (as
 	// its header says)
 	m_id = t.id ? *t.id : m_parts.front().object.id();
@@ -194,6 +251,8 @@ std::string Machine::write() const
 		writeU8(os, u8(l.joint));
 		writeV3F32(os, l.anchor);
 		writeV3S16(os, l.axis);
+		writeU8(os, l.spring.travel);
+		writeU8(os, l.spring.firmness);
 	}
 	writeU16(os, u16(m_sockets.size()));
 	for (const Socket &k : m_sockets) {
@@ -203,7 +262,24 @@ std::string Machine::write() const
 		writeV3S16(os, k.axis);
 		writeU8(os, u8(k.joint));
 	}
+	writeV3S16(os, m_front);
+	if (m_plug) {
+		writeU8(os, u8(m_plug->joint));
+		writeU8(os, m_plug->spring.travel);
+		writeU8(os, m_plug->spring.firmness);
+		if (m_plug->by) {
+			writeV3F32(os, m_plug->by->at);
+			writeV3S16(os, m_plug->by->out);
+		}
+	}
 	return os.str();
+}
+
+void Machine::setFront(v3s16 front)
+{
+	if (front.Y != 0 || std::abs(front.X) + std::abs(front.Z) != 1)
+		throw BaseException("Machine::setFront: not a level axis");
+	m_front = front;
 }
 
 void Machine::renew()
@@ -260,6 +336,118 @@ Machine::Part Machine::take(u64 id)
 	m_sockets.erase(std::remove_if(m_sockets.begin(), m_sockets.end(), [&](const Socket &k) { return k.part == id; }),
 			m_sockets.end());
 	return out;
+}
+
+Machine Machine::extract(u64 id) const
+{
+	if (!part(id))
+		throw BaseException("Machine::extract: no part " + std::to_string(id));
+	Machine out(m_gamedef);
+	out.read(write());
+	out.m_id = freshId();
+	// what the first part reaches without crossing it stays behind
+	std::set<u64> behind;
+	if (m_parts.front().object.id() != id) {
+		std::vector<u64> todo{ m_parts.front().object.id() };
+		behind.insert(todo.front());
+		while (!todo.empty()) {
+			const u64 at = todo.back();
+			todo.pop_back();
+			for (const Link &l : m_links) {
+				const u64 other = l.a == at ? l.b : l.b == at ? l.a : 0;
+				if (other && other != id && behind.insert(other).second)
+					todo.push_back(other);
+			}
+		}
+	}
+	// how it hung from what stays behind: it's joined so again
+	out.m_plug.reset();
+	for (const Link &l : m_links)
+		if ((l.a == id && behind.count(l.b)) || (l.b == id && behind.count(l.a))) {
+			// the joint's axis is out of a's face: toward b
+			const v3s16 toward = l.a == id ? l.axis : v3s16(-l.axis.X, -l.axis.Y, -l.axis.Z);
+			out.m_plug = Plug{ l.joint, l.spring, Plug::By{ l.anchor, toward } };
+			break;
+		}
+	for (const Part &p : m_parts)
+		if (behind.count(p.object.id()))
+			out.take(p.object.id());
+	const auto first = std::find_if(out.m_parts.begin(), out.m_parts.end(),
+			[&](const Part &p) { return p.object.id() == id; });
+	std::rotate(out.m_parts.begin(), first, first + 1);
+	// moved, not turned: its corner at the copy's
+	const v3s32 by = -out.m_parts.front().pose.offset;
+	const v3f byf(by.X, by.Y, by.Z);
+	for (Part &p : out.m_parts)
+		p.pose.offset += by;
+	for (Link &l : out.m_links)
+		l.anchor += byf;
+	for (Socket &k : out.m_sockets)
+		k.point += byf;
+	if (out.m_plug && out.m_plug->by)
+		out.m_plug->by->at += byf;
+	return out;
+}
+
+Machine Machine::pull(u64 id)
+{
+	if (!m_parts.empty() && m_parts.front().object.id() == id)
+		throw BaseException("Machine::pull: the first part holds the rest");
+	Machine out = extract(id);
+	for (const Part &p : out.m_parts)
+		take(p.object.id());
+	return out;
+}
+
+std::optional<aabb3f> Machine::filled(u64 id) const
+{
+	const Part *p = part(id);
+	if (!p)
+		throw BaseException("Machine::filled: no part " + std::to_string(id));
+	// in its nodes, as boxOf's: node n spans n ± ½
+	std::optional<aabb3f> out;
+	p->object.design().each([&](v3s16 n, MapNode, const shape::Shape *s) {
+		for (s16 x = 0; x < STEPS; x++)
+			for (s16 y = 0; y < STEPS; y++)
+				for (s16 z = 0; z < STEPS; z++) {
+					if (s && !s->has(v3s16(x, y, z)))
+						continue;
+					const v3f lo = v3f(n.X, n.Y, n.Z) - v3f(0.5f) + v3f(x, y, z) / f32(STEPS);
+					const aabb3f cell(lo, lo + v3f(1.f / STEPS));
+					if (out)
+						out->addInternalBox(cell);
+					else
+						out = cell;
+				}
+	});
+	return out;
+}
+
+std::optional<Machine::Face> Machine::plugFace() const
+{
+	if (!m_plug || !m_plug->by || m_parts.empty())
+		return std::nullopt;
+	const Face face = faceAt(m_parts.front().object.id(), m_plug->by->at, m_plug->by->out);
+	if ((point(face) - m_plug->by->at).getLengthSQ() > 0.01f)
+		throw BaseException("Machine::plugFace: its face isn't on its first part's grid");
+	return face;
+}
+
+Machine::Face Machine::faceAt(u64 id, v3f at, v3s16 d) const
+{
+	const Part *p = part(id);
+	if (!p)
+		throw BaseException("Machine::faceAt: no part " + std::to_string(id));
+	// the sixteenth just inside the face, in the part's grid
+	const v3f inside = p->pose.unapply(at - v3f::from(d) * 0.5f);
+	const v3s32 w(std::floor(inside.X), std::floor(inside.Y), std::floor(inside.Z));
+	const v3s32 node(w.X >> 4, w.Y >> 4, w.Z >> 4);
+	const Turn &t = turn(p->pose.turn);
+	v3s16 local;
+	for (int a = 0; a < 3; a++)
+		local[a] = s16(d.X * t.axes[a].X + d.Y * t.axes[a].Y + d.Z * t.axes[a].Z);
+	return { id, { v3s16(node.X, node.Y, node.Z), v3s16(w.X - node.X * 16, w.Y - node.Y * 16, w.Z - node.Z * 16) },
+		local };
 }
 
 v3f Machine::point(const Face &face) const
@@ -392,7 +580,9 @@ std::vector<std::vector<u64>> Machine::rigid() const
 	std::vector<bool> turning(n, false);
 	for (const Link &l : m_links) {
 		const size_t a = index(l.a), b = index(l.b);
-		if (JOINTS[size_t(l.joint)].turns)
+		// a sprung joint's parts apart too (sprint 76): the hub rides its
+		// wheel's spring
+		if (JOINTS[size_t(l.joint)].turns || JOINTS[size_t(l.joint)].sprung)
 			turning[a] = turning[b] = true;
 		else
 			weld(a, b);
@@ -438,6 +628,18 @@ void Machine::relink(u64 a, u64 b, Joint joint, const std::optional<Face> &at)
 			v3s16(0, 1, 0) });
 }
 
+void Machine::tune(u64 a, u64 b, Spring spring)
+{
+	if (spring.travel >= SPRING_STEPS || spring.firmness >= SPRING_STEPS)
+		throw BaseException("Machine::tune: not a spring");
+	for (Link &l : m_links)
+		if ((l.a == a && l.b == b) || (l.a == b && l.b == a)) {
+			l.spring = spring;
+			return;
+		}
+	throw BaseException("Machine::tune: no joint between them");
+}
+
 void Machine::unlink(u64 a, u64 b)
 {
 	m_links.erase(std::remove_if(m_links.begin(), m_links.end(), [&](const Link &l) {
@@ -467,6 +669,9 @@ std::optional<Machine::Face> Machine::faceToward(v3s16 d) const
 					}
 		});
 	const v3f middle = (lo + hi) / 2;
+	// the filled sixteenth that reaches furthest that way (of those, the
+	// nearest its middle across): a beam a few sixteenths thick is met at
+	// its own face, not its node's (sprint 77: it floated off the other)
 	std::optional<Face> best;
 	f32 best_far = 0, best_off = 0;
 	for (const Part &p : m_parts) {
@@ -475,21 +680,22 @@ std::optional<Machine::Face> Machine::faceToward(v3s16 d) const
 		v3s16 local;
 		for (int a = 0; a < 3; a++)
 			local[a] = s16(d.X * t.axes[a].X + d.Y * t.axes[a].Y + d.Z * t.axes[a].Z);
-		p.object.design().each([&](v3s16 n, MapNode, const shape::Shape *) {
-			const v3f centre = p.pose.apply(v3f(n.X, n.Y, n.Z) * STEPS + v3f(STEPS / 2));
-			const f32 far = centre.dotProduct(dir);
-			const v3f across = (centre - middle) - dir * (centre - middle).dotProduct(dir);
-			const f32 off = across.getLengthSQ();
-			if (best && (far < best_far - 0.5f || (far < best_far + 0.5f && off >= best_off)))
-				return;
-			// across, the sixteenth nearest its middle (in the node)
-			const v3f there = p.pose.unapply(middle) - v3f(n.X, n.Y, n.Z) * STEPS;
-			v3s16 cell;
-			for (int a = 0; a < 3; a++)
-				cell[a] = local[a] ? (local[a] > 0 ? 15 : 0) : s16(core::clamp<f32>(std::floor(there[a]), 0, STEPS - 1));
-			best = Face{ p.object.id(), { n, cell }, local };
-			best_far = far;
-			best_off = off;
+		p.object.design().each([&](v3s16 n, MapNode, const shape::Shape *s) {
+			for (s16 x = 0; x < STEPS; x++)
+				for (s16 y = 0; y < STEPS; y++)
+					for (s16 z = 0; z < STEPS; z++) {
+						if (s && !s->has(v3s16(x, y, z)))
+							continue;
+						const v3f c = p.pose.apply(v3f(n.X * STEPS + x + 0.5f, n.Y * STEPS + y + 0.5f, n.Z * STEPS + z + 0.5f));
+						const f32 far = c.dotProduct(dir);
+						const v3f across = (c - middle) - dir * (c - middle).dotProduct(dir);
+						const f32 off = across.getLengthSQ();
+						if (best && (far < best_far - 0.5f || (far < best_far + 0.5f && off >= best_off)))
+							continue;
+						best = Face{ p.object.id(), { n, v3s16(x, y, z) }, local };
+						best_far = far;
+						best_off = off;
+					}
 		});
 	}
 	return best;
@@ -523,8 +729,14 @@ void Machine::join(const Face &mine, Machine other, const Face &theirs, Joint jo
 {
 	const v3f p = point(mine);
 	const v3s16 n = normal(mine);
+	// a copy welded on is joined as it hung (sprint 76)
+	Spring spring;
+	if (joint == Joint::Fixed && other.m_plug) {
+		joint = other.m_plug->joint;
+		spring = other.m_plug->spring;
+	}
 	adopt(std::move(other), theirs, p, n, spin);
-	m_links.push_back({ mine.part, theirs.part, joint, p, n });
+	m_links.push_back({ mine.part, theirs.part, joint, p, n, spring });
 }
 
 void Machine::adopt(Machine other, const Face &theirs, v3f p, v3s16 n, u8 spin)
@@ -626,6 +838,48 @@ Header header(const std::string &text)
 			out.id = o.id;
 	}
 	return out;
+}
+
+Fit nearestFit(v3s16 n, std::optional<v3s16> side, const core::matrix4 &held)
+{
+	v3f wants[3];
+	for (int a = 0; a < 3; a++) {
+		v3f e(0, 0, 0);
+		e[a] = 1;
+		held.transformVect(e);
+		wants[a] = e - held.getTranslation();
+	}
+	const v3s16 against(-n.X, -n.Y, -n.Z);
+	std::optional<u8> best;
+	f32 best_score = 0;
+	v3s16 best_side;
+	for (u8 t = 0; t < TURN_COUNT; t++) {
+		const Turn &T = turn(t);
+		// its side that'd meet theirs, turned so
+		v3s16 m(0, 0, 0);
+		for (int a = 0; a < 3; a++)
+			if (T.axes[a] == against || T.axes[a] == n)
+				m[a] = T.axes[a] == against ? 1 : -1;
+		if (side && m != *side)
+			continue;
+		f32 score = 0;
+		for (int a = 0; a < 3; a++)
+			score += v3f::from(T.axes[a]).dotProduct(wants[a]);
+		if (!best || score > best_score) {
+			best = t;
+			best_score = score;
+			best_side = m;
+		}
+	}
+	if (!best)
+		throw BaseException("nearestFit: no turn sets that side on");
+	// the quarters about the joint that make it so, as join turns it
+	const u8 quarter = quarterAbout(n);
+	u8 spun = turnTaking(best_side, against, 0);
+	for (u8 k = 0; k < 4; k++, spun = compose(spun, quarter))
+		if (spun == *best)
+			return { best_side, k };
+	throw BaseException("nearestFit: its turn isn't one about the joint");
 }
 
 } // namespace piece

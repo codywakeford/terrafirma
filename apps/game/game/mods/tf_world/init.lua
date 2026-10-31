@@ -47,6 +47,11 @@ core.register_node("tf_world:sand", {
 	_matter = { matter = "silica", share = 0.6, form = true }, -- grains, air between them,
 })
 
+-- Water is the world's matter's, not the engine's (sprint 80): a full block
+-- (the sea, a lake, a river) and a levelled one (a puddle, a pool's edge,
+-- water running), and core.matter runs both: it falls, runs level, fills
+-- holes, evaporates. The sea is asleep and costs nothing until something
+-- changes beside it. You swim in both.
 local water = {
 	description = "Water",
 	drawtype = "liquid",
@@ -58,27 +63,30 @@ local water = {
 	pointable = false,
 	diggable = false,
 	buildable_to = true,
+	liquid_move_physics = true,
 	drowning = 1,
-	liquid_alternative_flowing = "tf_world:water_flowing",
-	liquid_alternative_source = "tf_world:water_source",
-	liquid_viscosity = 1,
 	post_effect_color = { a = 110, r = 30, g = 70, b = 140 },
 	groups = { water = 3, liquid = 3 },
+	_matter = { matter = "water", share = 1, state = "liquid", form = true }, -- the form liquid water takes
 }
+core.register_node("tf_world:water_source", water)
 
-local source = table.copy(water)
-source.liquidtype = "source"
-source._matter = { matter = "water", share = 1, state = "liquid", form = true } -- the form liquid water takes
-core.register_node("tf_world:water_source", source)
-
-local flowing = table.copy(water)
-flowing.drawtype = "flowingliquid"
-flowing.special_tiles = { { name = water_texture, animation = water_animation, backface_culling = false },
-	{ name = water_texture, animation = water_animation, backface_culling = true } }
-flowing.paramtype2 = "flowingliquid"
-flowing.liquidtype = "flowing"
-flowing._matter = { matter = "water", share = 0.5, state = "liquid" } -- running water: half a block of it
-core.register_node("tf_world:water_flowing", flowing)
+local puddle = table.copy(water)
+puddle.description = "Shallow water"
+puddle.drawtype = "nodebox"
+puddle.node_box = { type = "leveled", fixed = { -0.5, -0.5, -0.5, 0.5, 0.5, 0.5 } }
+puddle.tiles = { { name = water_texture, animation = water_animation, backface_culling = false } }
+puddle.paramtype2 = "leveled"
+puddle.leveled = 64
+puddle.buildable_to = false -- it'd be lost: build into it and it's gone
+-- you wade through it (Luanti swims by the block, not by how deep it is)
+puddle.liquid_move_physics = false
+puddle.drowning = 0
+puddle.post_effect_color = nil
+puddle.groups = { water = 3, liquid = 3, matter_puddle = 1, not_in_creative_inventory = 1 } -- (sprint 81: a fill now; made one on load)
+core.register_node("tf_world:water_puddle", puddle)
+-- worlds from before kept the engine's running water
+core.register_alias("tf_world:water_flowing", "tf_world:water_puddle")
 
 -- The engine's built-in mapgens place these by alias.
 core.register_alias("mapgen_stone", "tf_world:stone")
@@ -88,6 +96,7 @@ core.register_alias("mapgen_river_water_source", "tf_world:water_source")
 assert(loadfile(core.get_modpath("tf_world") .. "/geology.lua"))()
 assert(loadfile(core.get_modpath("tf_world") .. "/soil.lua"))() -- before the biomes that fill with it
 assert(loadfile(core.get_modpath("tf_world") .. "/biomes.lua"))()
+assert(loadfile(core.get_modpath("tf_world") .. "/shore.lua"))()
 assert(loadfile(core.get_modpath("tf_world") .. "/vegetation.lua"))()
 
 -- Placeholder starter kit until survival progression exists: anyone joining
@@ -129,3 +138,4 @@ core.register_craft({
 })
 dofile(core.get_modpath("tf_world") .. "/lab.lua")
 dofile(core.get_modpath("tf_world") .. "/pieces.lua")
+dofile(core.get_modpath("tf_world") .. "/materials.lua")

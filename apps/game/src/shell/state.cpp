@@ -39,14 +39,10 @@ void State::update(const HudView &view)
 		tools["mirrored"] = hand.mirrored();
 		tools["focused"] = view.focused;
 		tools["cursor"] = view.cursor;
+		tools["naming"] = view.naming;
 		tools["brush"] = Hand::BRUSHES[size_t(hand.brush())].id; // the mode picked (Add acts as a part creating)
 		tools["creating"] = hand.creating();
 		tools["partJoint"] = piece::JOINTS[size_t(hand.partJoint())].id;
-		// what a click does (Hand::Mode)
-		const Hand::Mode &mode = hand.mode();
-		Json::Value m;
-		m["click"] = Hand::CLICKS[size_t(mode.click)];
-		tools["mode"] = m;
 	}
 	send("tools", tools);
 	Json::Value library(Json::arrayValue);

@@ -11,7 +11,6 @@
     "carbon_dioxide": 1,
     "water": 2
    },
-   "heat": 802,
    "activation": 160,
    "factor": 1900000000.0,
    "note": "Natural gas in air: once lit, its own heat keeps it going until the fuel or the oxygen runs out."
@@ -26,7 +25,6 @@
    "products": {
     "carbon_dioxide": 2
    },
-   "heat": 566,
    "activation": 120,
    "factor": 1000000000.0,
    "note": "The blue flame over glowing charcoal: carbon monoxide meeting air and burning on."
@@ -41,7 +39,6 @@
    "products": {
     "water": 2
    },
-   "heat": 484,
    "activation": 100,
    "factor": 3300000.0,
    "note": "Rocket fuel: the reverse of electrolysis, giving the energy back."
@@ -56,7 +53,6 @@
    "products": {
     "carbon_dioxide": 1
    },
-   "heat": 393.5,
    "activation": 150,
    "factor": 100000000.0,
    "note": "Carbon burning completely, where there's air enough."
@@ -71,7 +67,6 @@
    "products": {
     "carbon_monoxide": 2
    },
-   "heat": 221,
    "activation": 180,
    "factor": 4000000000.0,
    "note": "Hot carbon short of air makes carbon monoxide: what a furnace needs."
@@ -86,7 +81,6 @@
    "products": {
     "carbon_monoxide": 2
    },
-   "heat": -172,
    "activation": 250,
    "factor": 200000000000.0,
    "note": "Above about 1000 K, CO₂ passing over glowing carbon turns into carbon monoxide (the Boudouard reaction)."
@@ -102,7 +96,6 @@
     "iron": 2,
     "carbon_dioxide": 3
    },
-   "heat": 24.8,
    "activation": 120,
    "factor": 250000.0,
    "note": "Carbon monoxide pulls the oxygen out of iron ore. Slow below red heat."
@@ -118,7 +111,6 @@
     "carbon_dioxide": 1,
     "water": 1
    },
-   "heat": -50,
    "activation": 150,
    "factor": 600000000000.0,
    "note": "Green ore turns black in a fire, giving off CO₂ and steam."
@@ -134,7 +126,6 @@
     "copper": 1,
     "carbon_dioxide": 1
    },
-   "heat": 126,
    "activation": 90,
    "factor": 5200000.0,
    "note": "The first metal people won from rock: easier than iron, in a hot, smoky fire."
@@ -149,7 +140,6 @@
     "hydrogen": 2,
     "oxygen": 1
    },
-   "heat": -571.6,
    "activation": 0,
    "factor": 1,
    "energy": "electricity",
@@ -171,7 +161,6 @@
    "products": {
     "hematite": 2
    },
-   "heat": 1648,
    "activation": 50,
    "factor": 5000.0,
    "requires": [
@@ -192,7 +181,6 @@
     "lime": 1,
     "carbon_dioxide": 1
    },
-   "heat": -178,
    "activation": 200,
    "factor": 240000000.0,
    "note": "A kiln above about 1100 K drives CO₂ out of limestone, leaving quicklime."
@@ -208,7 +196,6 @@
     "glucose": 1,
     "oxygen": 6
    },
-   "heat": -2803,
    "activation": 0,
    "factor": 1,
    "energy": "light",
@@ -232,7 +219,6 @@
     "hematite": 2,
     "sulfur_dioxide": 8
    },
-   "heat": 3480,
    "activation": 140,
    "factor": 200000000.0,
    "note": "Brassy ore heated in air burns off its sulfur as choking fumes, leaving copper and iron oxides."
@@ -248,7 +234,6 @@
     "tin": 1,
     "carbon_dioxide": 2
    },
-   "heat": -15,
    "activation": 120,
    "factor": 470000.0,
    "note": "Tin ore gives up its oxygen to carbon monoxide at a bright red heat."
@@ -264,7 +249,6 @@
     "lead_oxide": 2,
     "sulfur_dioxide": 2
    },
-   "heat": 830,
    "activation": 130,
    "factor": 50000000.0,
    "note": "Galena burned in air: lead oxide and sulfur dioxide."
@@ -280,7 +264,6 @@
     "lead": 1,
     "carbon_dioxide": 1
    },
-   "heat": 66,
    "activation": 80,
    "factor": 370000.0,
    "note": "Lead comes easily: a hot fire is enough."
@@ -296,7 +279,6 @@
     "iron": 3,
     "carbon_dioxide": 4
    },
-   "heat": 13,
    "activation": 125,
    "factor": 250000.0,
    "note": "Black iron ore, smelted like red."
@@ -312,7 +294,6 @@
     "hematite": 2,
     "sulfur_dioxide": 8
    },
-   "heat": 3310,
    "activation": 140,
    "factor": 200000000.0,
    "note": "Fool's gold burns to iron oxide and sulfur dioxide."
@@ -327,7 +308,6 @@
    "products": {
     "sulfur_dioxide": 1
    },
-   "heat": 297,
    "activation": 100,
    "factor": 1600000000.0,
    "note": "A blue flame and choking smoke."
@@ -342,7 +322,6 @@
     "metakaolin": 1,
     "water": 2
    },
-   "heat": -170,
    "activation": 200,
    "factor": 600000000000.0,
    "note": "Above about 800 K clay gives up the water locked in it and turns to pottery for good."
@@ -357,7 +336,6 @@
    "products": {
     "bronze": 1
    },
-   "heat": 5,
    "activation": 0,
    "factor": 0.5,
    "requires": [
@@ -382,7 +360,6 @@
    "products": {
     "cast_iron": 1
    },
-   "heat": 20,
    "activation": 0,
    "factor": 0.2,
    "requires": [
@@ -404,7 +381,6 @@
     "steel": 11,
     "carbon_monoxide": 78
    },
-   "heat": 8600,
    "activation": 60,
    "factor": 50,
    "requires": [
@@ -425,7 +401,6 @@
    "products": {
     "pewter": 1
    },
-   "heat": 2,
    "activation": 0,
    "factor": 0.5,
    "requires": [
@@ -451,7 +426,6 @@
     "carbon_dioxide": 6,
     "water": 5
    },
-   "heat": 2800,
    "activation": 140,
    "factor": 600000000.0,
    "note": "A fire: once lit it feeds itself while there's air."
@@ -468,7 +442,6 @@
     "methane": 1,
     "water": 3
    },
-   "heat": -60,
    "activation": 125,
    "factor": 2000000.0,
    "note": "Heated, wood breaks down: charcoal stays, and carbon monoxide, methane and steam leave it. In air those gases burn as the flame; short of air they don't, and a charcoal kiln is left with the charcoal."
@@ -484,7 +457,6 @@
     "glass": 1,
     "carbon_dioxide": 1
    },
-   "heat": -80,
    "activation": 180,
    "factor": 14000000.0,
    "note": "Sand and soda above about 1100 K melt together into glass."
@@ -499,7 +471,6 @@
    "products": {
     "slaked_lime": 1
    },
-   "heat": 65,
    "activation": 40,
    "factor": 2000000.0,
    "requires": [
@@ -521,10 +492,299 @@
     "calcite": 1,
     "water": 1
    },
-   "heat": 113,
    "activation": 50,
    "factor": 3000.0,
    "note": "Slaked lime takes CO₂ back from the air over days and turns to stone again: lime mortar."
+  },
+  {
+   "id": "aluminium_in_acid",
+   "name": "Aluminium dissolves in acid",
+   "reactants": {
+    "aluminium": 2,
+    "hydrogen_chloride": 6
+   },
+   "products": {
+    "aluminium_chloride": 2,
+    "hydrogen": 3
+   },
+   "activation": 40,
+   "factor": 1000000.0,
+   "note": "Aluminium in hydrochloric acid fizzes, warms and gives off hydrogen, which burns.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "iron_in_acid",
+   "name": "Iron dissolves in acid",
+   "reactants": {
+    "iron": 1,
+    "hydrogen_chloride": 2
+   },
+   "products": {
+    "iron_chloride": 1,
+    "hydrogen": 1
+   },
+   "activation": 45,
+   "factor": 1000000.0,
+   "note": "Iron in hydrochloric acid slowly turns the acid green, bubbling hydrogen.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "zinc_in_acid",
+   "name": "Zinc dissolves in acid",
+   "reactants": {
+    "zinc": 1,
+    "hydrogen_chloride": 2
+   },
+   "products": {
+    "zinc_chloride": 1,
+    "hydrogen": 1
+   },
+   "activation": 40,
+   "factor": 1000000.0,
+   "note": "The schoolroom way to make hydrogen.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "sodium_in_water",
+   "name": "Sodium in water",
+   "reactants": {
+    "sodium": 2,
+    "water": 2
+   },
+   "products": {
+    "sodium_hydroxide": 2,
+    "hydrogen": 1
+   },
+   "activation": 20,
+   "factor": 10000.0,
+   "note": "It skates on the water, fizzing; enough of it lights its own hydrogen and bangs.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "potassium_in_water",
+   "name": "Potassium in water",
+   "reactants": {
+    "potassium": 2,
+    "water": 2
+   },
+   "products": {
+    "potassium_hydroxide": 2,
+    "hydrogen": 1
+   },
+   "activation": 15,
+   "factor": 10000.0,
+   "note": "Faster and hotter than sodium: its hydrogen lights at once.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "neutralising",
+   "name": "Acid meets base",
+   "reactants": {
+    "sodium_hydroxide": 1,
+    "hydrogen_chloride": 1
+   },
+   "products": {
+    "salt": 1,
+    "water": 1
+   },
+   "activation": 10,
+   "factor": 10000.0,
+   "note": "Caustic soda and hydrochloric acid cancel out into warm salty water.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "sulfuric_neutralising",
+   "name": "Sulfuric acid meets base",
+   "reactants": {
+    "sodium_hydroxide": 2,
+    "sulfuric_acid": 1
+   },
+   "products": {
+    "sodium_sulfate": 1,
+    "water": 2
+   },
+   "activation": 10,
+   "factor": 10000.0,
+   "note": "A strong acid and a strong base: salt, water and a lot of heat.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ]
+  },
+  {
+   "id": "salt_cake",
+   "name": "Acid from salt",
+   "reactants": {
+    "salt": 2,
+    "sulfuric_acid": 1
+   },
+   "products": {
+    "sodium_sulfate": 1,
+    "hydrogen_chloride": 2
+   },
+   "activation": 60,
+   "factor": 10000000.0,
+   "note": "Salt warmed in sulfuric acid gives off hydrogen chloride: hydrochloric acid, once it's in water."
+  },
+  {
+   "id": "brine_electrolysis",
+   "name": "Brine split by a current",
+   "reactants": {
+    "salt": 2,
+    "water": 2
+   },
+   "products": {
+    "sodium_hydroxide": 2,
+    "hydrogen": 1,
+    "chlorine": 1
+   },
+   "activation": 0,
+   "factor": 1,
+   "note": "A current through salty water makes caustic soda, hydrogen and chlorine.",
+   "requires": [
+    {
+     "substance": "water",
+     "state": "liquid"
+    }
+   ],
+   "energy": "electricity"
+  },
+  {
+   "id": "thermite",
+   "name": "Thermite",
+   "reactants": {
+    "aluminium": 2,
+    "hematite": 1
+   },
+   "products": {
+    "alumina": 1,
+    "iron": 2
+   },
+   "activation": 250,
+   "factor": 10000000000.0,
+   "note": "Aluminium takes rust's oxygen: hot enough to come out as molten iron. Hard to light, impossible to stop."
+  },
+  {
+   "id": "magnesium_burns",
+   "name": "Magnesium burns",
+   "reactants": {
+    "magnesium": 2,
+    "oxygen": 1
+   },
+   "products": {
+    "magnesia": 2
+   },
+   "activation": 200,
+   "factor": 10000000000.0,
+   "note": "A blinding white flame; water won't put it out."
+  },
+  {
+   "id": "zinc_burns",
+   "name": "Zinc burns",
+   "reactants": {
+    "zinc": 2,
+    "oxygen": 1
+   },
+   "products": {
+    "zinc_oxide": 2
+   },
+   "activation": 180,
+   "factor": 100000000.0,
+   "note": "A blue-green flame and white ash."
+  },
+  {
+   "id": "propane_burns",
+   "name": "Propane burns",
+   "reactants": {
+    "propane": 1,
+    "oxygen": 5
+   },
+   "products": {
+    "carbon_dioxide": 3,
+    "water": 4
+   },
+   "activation": 150,
+   "factor": 1000000000.0,
+   "note": "A blowtorch's flame."
+  },
+  {
+   "id": "ethanol_burns",
+   "name": "Alcohol burns",
+   "reactants": {
+    "ethanol": 1,
+    "oxygen": 3
+   },
+   "products": {
+    "carbon_dioxide": 2,
+    "water": 3
+   },
+   "activation": 140,
+   "factor": 500000000.0,
+   "note": "A clean blue flame, hard to see by day."
+  },
+  {
+   "id": "octane_burns",
+   "name": "Petrol burns",
+   "reactants": {
+    "octane": 2,
+    "oxygen": 25
+   },
+   "products": {
+    "carbon_dioxide": 16,
+    "water": 18
+   },
+   "activation": 140,
+   "factor": 1000000000.0,
+   "note": "Most of an engine's go, from a little liquid."
+  },
+  {
+   "id": "gunpowder",
+   "name": "Gunpowder",
+   "reactants": {
+    "potassium_nitrate": 2,
+    "sulfur": 1,
+    "carbon": 3
+   },
+   "products": {
+    "potassium_sulfide": 1,
+    "nitrogen": 1,
+    "carbon_dioxide": 3
+   },
+   "activation": 120,
+   "factor": 1000000000000.0,
+   "note": "Saltpetre carries its own oxygen, so it burns all at once, sealed or not: gas from nothing, fast."
   }
  ]
 }

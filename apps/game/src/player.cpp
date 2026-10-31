@@ -183,7 +183,8 @@ u32 PlayerControl::getKeysPressed() const
 		( (u32)(sneak & 1) << 6) |
 		( (u32)(dig   & 1) << 7) |
 		( (u32)(place & 1) << 8) |
-		( (u32)(zoom  & 1) << 9)
+		( (u32)(zoom  & 1) << 9) |
+		( (u32)(pour  & 1) << 10) // Terra Firma (sprint 80)
 	;
 
 	if (isMoving()) {
@@ -210,6 +211,7 @@ void PlayerControl::unpackKeysPressed(u32 keypress_bits)
 	dig   = keypress_bits & (1 << 7);
 	place = keypress_bits & (1 << 8);
 	zoom  = keypress_bits & (1 << 9);
+	pour  = keypress_bits & (1 << 10); // Terra Firma
 }
 
 v2f PlayerControl::getMovement() const

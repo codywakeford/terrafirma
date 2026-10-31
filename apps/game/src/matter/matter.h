@@ -59,6 +59,33 @@ struct Substance
 	double density_solid, density_liquid;    // kg/m³
 	double conductivity[3];                  // W/(m·K): solid, liquid, gas
 	bool approximate;                        // some anchors are estimates
+	// Sprint 79, from thermo.json (scripts/matter-data): its enthalpy of
+	// formation, kJ/mol, in its standard state (as it is at 298.15 K and
+	// 1 atm); and, for the fluids CoolProp models, its saturation curve
+	// (vapour pressure and liquid density, by temperature, rising)
+	double formation = 0;
+	State standard = State::Solid;
+	struct Saturation
+	{
+		std::vector<double> t, p, liquid;
+	};
+	std::optional<Saturation> saturation;
+	// How it looks (sprint 79): its colour (0xRRGGBB) and how strongly a
+	// little of it colours what it's in (1: as much as its mass; cobalt
+	// oxide's tens: a pinch turns glass blue)
+	uint32_t colour = 0;
+	double tint = 1;
+	// What it dissolves in (sprint 79): a gas or solid held in that liquid,
+	// up to `most` moles of it per mole of the solvent (hydrogen chloride
+	// in water is hydrochloric acid; salt in water, brine), counted as
+	// liquid while it's held. More than that stays as it would be.
+	struct Dissolves
+	{
+		size_t solvent;
+		double most;
+		double heat; // kJ/mol given off going in (taken: negative), its heat of solution
+	};
+	std::optional<Dissolves> dissolves;
 
 	State state(double t, double p) const;
 	double vapourPressure(double t) const;   // liquid–gas, triple..critical
@@ -101,7 +128,9 @@ struct Reaction
 
 	std::string id, name;
 	std::vector<Term> reactants, products;
-	double heat;       // kJ per reaction as written
+	// kJ per reaction as written, everything in its standard state: from
+	// the formation enthalpies (sprint 79), never given by hand
+	double heat;
 	double activation; // kJ/mol
 	double factor;     // per second
 	Energy energy;
@@ -125,7 +154,7 @@ struct RockKind
 
 /*
 	The tables, loaded from a directory (elements.json, substances.json,
-	reactions.json, rocks.json). Every substance's composition must name known elements,
+	reactions.json, rocks.json, thermo.json). Every substance's composition must name known elements,
 	its anchors must be in order (triple below critical, the boiling point
 	between), and every reaction must balance.
 */

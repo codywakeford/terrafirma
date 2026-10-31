@@ -90,6 +90,7 @@ struct PlayerControl
 	bool zoom = false;
 	bool dig = false;
 	bool place = false;
+	bool pour = false; // Terra Firma: pouring what's in hand (sprint 80)
 	// Note: These two are NOT available on the server
 	float pitch = 0.0f;
 	float yaw = 0.0f;

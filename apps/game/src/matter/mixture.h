@@ -56,6 +56,11 @@ public:
 	void take(size_t substance, State state, double moles);
 	// Joules per kelvin: everything in it, plus the vessel.
 	double heatCapacity() const;
+	// Whether its last run had nothing to do (sprint 79): see m_ran_at.
+	bool still() const { return m_still; }
+	// How it looks (sprint 79): its substances' colours by mass, each as
+	// strong as its tint (0xRRGGBB); black if it's empty.
+	uint32_t colour() const;
 
 private:
 	// How far a reaction could go on what's here (its limiting reactant).
@@ -68,7 +73,19 @@ private:
 	void track(double pressure);
 	void settle(double pressure);
 
+	// The reactions it could run (sprint 79): those whose every reactant
+	// it holds, found again only when what it holds changes, so a block
+	// pays for what's in it, not for the size of the table.
+	const std::vector<size_t> &candidates();
+
 	const Matter &m_table;
+	std::vector<uint64_t> m_held;      // which substances it held when they were found, a bit each
+	std::vector<size_t> m_candidates;
+	// where it last ran (sprint 79): one that's still (nothing it could
+	// run, nothing changing state, no warmer or cooler since and holding
+	// the same things) isn't run again, so a warm rock costs nothing here
+	double m_ran_at = -1;
+	bool m_held_changed = true, m_still = false;
 	std::vector<State> m_states, m_from;
 	std::vector<double> m_lagging;
 };

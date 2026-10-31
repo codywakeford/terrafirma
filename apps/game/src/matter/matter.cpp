@@ -20,8 +20,24 @@ static double between(Point a, Point b, double t)
 	return std::exp(std::log(a.p) + s * (1.0 / t - 1.0 / a.t));
 }
 
+// Where t falls in a rising table: the index below it and how far on.
+static std::pair<size_t, double> lookup(const std::vector<double> &ts, double t)
+{
+	size_t i = std::upper_bound(ts.begin(), ts.end(), t) - ts.begin();
+	i = std::clamp<size_t>(i, 1, ts.size() - 1) - 1;
+	return { i, (t - ts[i]) / (ts[i + 1] - ts[i]) };
+}
+
 double Substance::vapourPressure(double t) const
 {
+	// the real curve where it's known (sprint 79): ln p straight in 1/T
+	// between its rows
+	if (saturation && t >= saturation->t.front() && t <= saturation->t.back()) {
+		const Saturation &s = *saturation;
+		const size_t i = lookup(s.t, t).first;
+		const double x = (1 / t - 1 / s.t[i]) / (1 / s.t[i + 1] - 1 / s.t[i]);
+		return std::exp(std::log(s.p[i]) + (std::log(s.p[i + 1]) - std::log(s.p[i])) * x);
+	}
 	// through the triple point, the normal boiling point where there is one, and the critical point
 	if (boil && *boil > triple.t && *boil < critical.t) {
 		Point normal{ *boil, ATMOSPHERE };
@@ -65,7 +81,13 @@ double Substance::density(State s, double t, double p) const
 {
 	switch (s) {
 	case State::Solid: return density_solid;
-	case State::Liquid: return density_liquid;
+	case State::Liquid:
+		// lighter as it warms toward boiling, where that's known (sprint 79)
+		if (saturation && t >= saturation->t.front() && t <= saturation->t.back()) {
+			const auto [i, f] = lookup(saturation->t, t);
+			return saturation->liquid[i] + (saturation->liquid[i + 1] - saturation->liquid[i]) * f;
+		}
+		return density_liquid;
 	case State::Gas:
 	case State::Supercritical: return p * molar_mass / 1000.0 / (GAS_CONSTANT * t);
 	}
@@ -178,6 +200,16 @@ Matter Matter::load(const std::string &dir)
 			if (v <= 0)
 				throw MatterError(where + ": densities and conductivities must be positive");
 		x.approximate = s["approximate"].asBool();
+		const std::string colour = field(s, "colour", where).asString();
+		if (colour.size() != 7 || colour[0] != '#' ||
+				colour.find_first_not_of("0123456789abcdefABCDEF", 1) != std::string::npos)
+			throw MatterError(where + ": colour is #rrggbb");
+		x.colour = (uint32_t)std::stoul(colour.substr(1), nullptr, 16);
+		if (s.isMember("tint")) {
+			x.tint = number(s, "tint", where);
+			if (x.tint <= 0)
+				throw MatterError(where + ": tint must be positive");
+		}
 		if (x.triple.t >= x.critical.t || x.triple.p >= x.critical.p)
 			throw MatterError(where + ": the triple point must lie below the critical point");
 		if (x.boil && (*x.boil <= x.triple.t || *x.boil >= x.critical.t))
@@ -192,6 +224,46 @@ Matter Matter::load(const std::string &dir)
 			throw MatterError(where + ": a boiling point at 1 atm needs its triple point below 1 atm");
 		m.m_substances.push_back(x);
 	}
+
+	// what dissolves in what (sprint 79), once every substance is known
+	for (Json::ArrayIndex n = 0; n < substances["substances"].size(); n++) {
+		const Json::Value &s = substances["substances"][n];
+		if (!s.isMember("dissolves"))
+			continue;
+		const std::string where = "substance " + s["id"].asString();
+		const Json::Value &d = s["dissolves"];
+		Substance::Dissolves x{ m.index(field(d, "in", where).asString()), number(d, "most", where), number(d, "heat", where) };
+		if (x.most <= 0 || x.solvent == n)
+			throw MatterError(where + ": it dissolves in something else, some moles per mole of it");
+		m.m_substances[n].dissolves = x;
+	}
+
+	// each one's thermodynamics (sprint 79): baked by scripts/matter-data
+	Json::Value thermo = readJson(dir + "/thermo.json");
+	if (!thermo["substances"].isObject())
+		throw MatterError(dir + ": thermo.json needs \"substances\"");
+	for (Substance &x : m.m_substances) {
+		const std::string where = "thermo.json " + x.id;
+		if (!thermo["substances"].isMember(x.id))
+			throw MatterError(where + ": missing (run scripts/matter-data/build.py)");
+		const Json::Value &t = thermo["substances"][x.id];
+		x.formation = number(t, "formation", where);
+		x.standard = x.state(298.15, ATMOSPHERE);
+		if (!t.isMember("saturation"))
+			continue;
+		const Json::Value &rows = t["saturation"];
+		Substance::Saturation s;
+		for (const auto &[name, out] : { std::pair<const char *, std::vector<double> *>{ "t", &s.t },
+				{ "p", &s.p }, { "liquid", &s.liquid } })
+			for (const Json::Value &v : field(rows, name, where))
+				out->push_back(v.asDouble());
+		if (s.t.size() < 2 || s.p.size() != s.t.size() || s.liquid.size() != s.t.size())
+			throw MatterError(where + ": its saturation rows don't line up");
+		for (size_t i = 0; i < s.t.size(); i++)
+			if (s.p[i] <= 0 || s.liquid[i] <= 0 || (i > 0 && s.t[i] <= s.t[i - 1]))
+				throw MatterError(where + ": its saturation curve must rise, its pressures and densities positive");
+		x.saturation = std::move(s);
+	}
 	Json::Value reactions = readJson(dir + "/reactions.json");
 	if (!reactions["reactions"].isArray())
 		throw MatterError(dir + ": reactions.json needs \"reactions\"");
@@ -200,7 +272,6 @@ Matter Matter::load(const std::string &dir)
 		Reaction x;
 		x.id = field(r, "id", where).asString();
 		x.name = field(r, "name", where).asString();
-		x.heat = number(r, "heat", where);
 		x.activation = number(r, "activation", where);
 		x.factor = number(r, "factor", where);
 		if (x.activation < 0 || x.factor <= 0)
@@ -208,8 +279,6 @@ Matter Matter::load(const std::string &dir)
 		std::string energy = r["energy"].isNull() ? "" : r["energy"].asString();
 		x.energy = energy.empty() ? Energy::None : energy == "electricity" ? Energy::Electricity
 				: energy == "light" ? Energy::Light : throw MatterError(where + ": energy is electricity or light");
-		if (x.energy != Energy::None && x.heat >= 0)
-			throw MatterError(where + ": a reaction driven by electricity or light takes heat (negative heat)");
 
 		// the atoms on each side, which must match
 		std::map<std::string, double> atoms;
@@ -232,6 +301,17 @@ Matter Matter::load(const std::string &dir)
 		for (const auto &[symbol, left] : atoms)
 			if (std::fabs(left) > 1e-9)
 				throw MatterError(where + ": doesn't balance — " + symbol + " is off by " + std::to_string(left));
+		// its heat from what goes in and comes out (sprint 79): typed in
+		// by hand, they'd drift from the data under them
+		if (r.isMember("heat"))
+			throw MatterError(where + ": a reaction's heat comes from its substances' formation enthalpies; don't give one");
+		x.heat = 0;
+		for (const Reaction::Term &t : x.reactants)
+			x.heat += t.count * m.m_substances[t.substance].formation;
+		for (const Reaction::Term &t : x.products)
+			x.heat -= t.count * m.m_substances[t.substance].formation;
+		if (x.energy != Energy::None && x.heat >= 0)
+			throw MatterError(where + ": a reaction driven by electricity or light takes heat (negative heat)");
 
 		for (const Json::Value &q : r["requires"]) {
 			std::string state = q["state"].asString();
@@ -273,6 +353,9 @@ Matter Matter::load(const std::string &dir)
 	m.m_raw["rocks"] = rocks["rocks"];
 	m.m_raw["substances"] = substances["substances"];
 	m.m_raw["reactions"] = reactions["reactions"];
+	// whoever shows them sees the heat that's used
+	for (Json::ArrayIndex i = 0; i < m.m_raw["reactions"].size(); i++)
+		m.m_raw["reactions"][i]["heat"] = m.m_reactions[i].heat;
 	return m;
 }
 

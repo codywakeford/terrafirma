@@ -25,7 +25,7 @@ const catalog = shallowRef<CreativeItem[] | null>(null)
 const tab = ref("building")
 const query = ref("")
 const search = ref<HTMLInputElement | null>(null)
-const over = ref<{ slot: SlotRef; stack: Stack | null } | { item: CreativeItem } | null>(null)
+const over = ref<{ slot: SlotRef; stack: Stack | null } | { item: CreativeItem } | { part: string } | null>(null)
 
 // the catalogue's tabs, each drawn as an item from it (as Minecraft's)
 const TABS = [
@@ -68,7 +68,7 @@ function keydown(e: KeyboardEvent) {
     if (e.key === "Escape") { e.preventDefault(); close(); return }
     if (typing) return
     if (e.key === "i" || e.key === "I") { e.preventDefault(); close(); return }
-    if (/^[1-9]$/.test(e.key)) { e.preventDefault(); carry.key(Number(e.key), over.value); return }
+    if (/^[1-9]$/.test(e.key)) { e.preventDefault(); carry.key(Number(e.key), over.value && "part" in over.value ? null : over.value); return }
     // any other letter starts a search, as Minecraft's creative tabs do
     if (creative.value && tab.value !== "inventory" && e.key.length === 1 && /\S/.test(e.key) && !e.ctrlKey && !e.metaKey) {
         query.value += e.key
@@ -102,6 +102,7 @@ onBeforeUnmount(() => {
 const tooltip = computed(() => {
     if (carry.busy.value || !over.value) return null
     if ("item" in over.value) return over.value.item.description
+    if ("part" in over.value) return `${over.value.part} · click to carry it`
     const s = over.value.stack
     return s ? store.items[s.item]?.description ?? s.item : null
 })
@@ -114,6 +115,11 @@ const tooltip = computed(() => {
                 <button v-for="t in tabs" :key="t.id" class="tab" :class="{ on: tab === t.id && !query }" :title="t.label" @click="choose(t.id)">
                     <img v-if="t.face.icon" :src="t.face.icon" :alt="t.label" draggable="false">
                 </button>
+                <button class="tab" :class="{ on: tab === 'parts' && !query }" title="Parts: wheels, sprung corners, yours" @click="choose('parts')">
+                    <svg viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true">
+                        <path fill="currentColor" d="M3 0h3v1h-3zM1 1h2v1h-2zM6 1h2v1h-2zM1 2h1v1h-1zM7 2h1v1h-1zM0 3h1v3h-1zM8 3h1v3h-1zM3 3h3v3h-3zM1 6h1v1h-1zM7 6h1v1h-1zM1 7h2v1h-2zM6 7h2v1h-2zM3 8h3v1h-3z" />
+                    </svg>
+                </button>
                 <button class="tab" :class="{ on: !!query }" title="Search everything" @click="search?.focus()">
                     <svg viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true">
                         <path fill="currentColor" d="M2 0h3v1h-3zM1 1h1v1h-1zM5 1h1v1h-1zM0 2h1v3h-1zM6 2h1v3h-1zM1 5h1v1h-1zM5 5h1v1h-1zM2 6h3v1h-3zM6 6h1v1h-1zM7 7h1v1h-1zM8 8h1v1h-1z" />
@@ -123,7 +129,7 @@ const tooltip = computed(() => {
 
             <div class="body">
                 <header>
-                    <h2>{{ !creative ? "Inventory" : tab === "inventory" ? "Inventory" : query ? "Search" : tabs.find((t) => t.id === tab)?.label ?? "" }}</h2>
+                    <h2>{{ !creative ? "Inventory" : tab === "inventory" ? "Inventory" : query ? "Search" : tab === "parts" ? "Parts" : tabs.find((t) => t.id === tab)?.label ?? "" }}</h2>
                     <button class="close" title="Close (I or Esc)" @click="close">✕</button>
                 </header>
                 <label v-if="creative && tab !== 'inventory'" class="search">
@@ -133,7 +139,7 @@ const tooltip = computed(() => {
                     <input ref="search" v-model="query" type="search" placeholder="Search everything" aria-label="Search every item">
                 </label>
                 <CreativePanel v-if="creative && tab !== 'inventory'" :carry="carry" :items="catalog ?? []" :category="tab" :query="query"
-                    @hover="over = $event" />
+                    @hover="over = $event" @taken="close" />
                 <SurvivalPanel v-else :carry="carry" @hover="over = $event" />
                 <p v-if="carry.problem.value" class="problem">{{ carry.problem.value }}</p>
             </div>

@@ -18,6 +18,7 @@ public:
 
 	void testBlueprintWrittenAndRead();
 	void testKeptByPlayerAndName();
+	void testWorldsAdopted();
 };
 
 static TestLibrary g_test_instance;
@@ -26,6 +27,7 @@ void TestLibrary::runTests(IGameDef *gamedef)
 {
 	TEST(testBlueprintWrittenAndRead);
 	TEST(testKeptByPlayerAndName);
+	TEST(testWorldsAdopted);
 }
 
 // A blueprint's machines and where each goes survive its text; text that
@@ -44,9 +46,9 @@ void TestLibrary::testBlueprintWrittenAndRead()
 // new one. A name that isn't one is refused, and an unknown one isn't there.
 void TestLibrary::testKeptByPlayerAndName()
 {
-	const std::string world = getTestTempDirectory();
-	fs::RecursiveDelete(world + DIR_DELIM + "blueprints");
-	Library lib(world);
+	const std::string root = getTestTempDirectory() + DIR_DELIM + "parts";
+	fs::RecursiveDelete(root);
+	Library lib(root, "");
 	const Blueprint cart{ { { v3s16(0), "cart" } } }, pot{ { { v3s16(0), "pot" } } };
 	lib.save("cody", "small cart", cart);
 	lib.save("cody", "Pot_2", pot);
@@ -64,4 +66,25 @@ void TestLibrary::testKeptByPlayerAndName()
 	}
 	EXCEPTION_CHECK(std::out_of_range, lib.load("cody", "pot"));
 	EXCEPTION_CHECK(std::out_of_range, lib.load("cody", "../ann/pot"));
+	lib.remove("cody", "Pot_2");
+	UASSERT(lib.names("cody") == std::vector<std::string>({ "small cart" }));
+	EXCEPTION_CHECK(std::out_of_range, lib.remove("cody", "Pot_2"));
+}
+
+// A world's blueprints from before are copied into the library as it
+// opens, beside what's there; a name already taken keeps the library's.
+void TestLibrary::testWorldsAdopted()
+{
+	const std::string tmp = getTestTempDirectory(), root = tmp + DIR_DELIM + "parts2",
+			world = tmp + DIR_DELIM + "oldworld";
+	fs::RecursiveDelete(root);
+	fs::RecursiveDelete(world);
+	Library(world + DIR_DELIM + "blueprints", "").save("cody", "cart", Blueprint{ { { v3s16(0), "old cart" } } });
+	Library(world + DIR_DELIM + "blueprints", "").save("cody", "pot", Blueprint{ { { v3s16(0), "old pot" } } });
+	Library(root, "").save("cody", "pot", Blueprint{ { { v3s16(0), "new pot" } } });
+	Library lib(root, world);
+	UASSERT(lib.names("cody") == std::vector<std::string>({ "cart", "pot" }));
+	UASSERT(lib.load("cody", "cart").parts[0].machine == "old cart");
+	UASSERT(lib.load("cody", "pot").parts[0].machine == "new pot");
+	UASSERT(fs::PathExists(world + DIR_DELIM + "blueprints" + DIR_DELIM + "cody" + DIR_DELIM + "cart.tfb"));
 }

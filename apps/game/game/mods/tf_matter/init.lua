@@ -14,6 +14,9 @@ local modpath = core.get_modpath("tf_matter")
 dofile(modpath .. "/blocks.lua")
 dofile(modpath .. "/substances.lua")
 dofile(modpath .. "/tools.lua")
+dofile(modpath .. "/vessels.lua")
+dofile(modpath .. "/pour.lua")
+dofile(modpath .. "/lab.lua")
 
 local AIR, FLAME = "air", "tf_matter:flame"
 
@@ -53,14 +56,21 @@ core.register_on_mods_loaded(function()
 		end
 	end
 	-- what each solid block weighs in a machine (core.physics, sprint 57): its
-	-- matter's density; it grips as most things do, or barely if it's slippery
+	-- matter's density; it grips as most things do, or barely if it's
+	-- slippery, or as its `_machine.friction` says (rubber: sprint 74)
 	local unweighed = {}
 	for name, def in pairs(core.registered_nodes) do
 		if def.walkable ~= false and name ~= "air" and name ~= "ignore" then
 			local density = core.matter.density(name)
 			if density and density > 0 then
 				local slippery = def.groups and def.groups.slippery
-				core.physics.material(name, { density = density, friction = slippery and 0.1 or 0.6 })
+				local machine = def._machine or {}
+				local friction = machine.friction or (slippery and 0.1 or 0.6)
+				-- a fitting weighs what it says (sprint 78: an engine is a
+				-- made thing, not a cubic metre of iron): its block's a metre
+				-- cubed, so its mass is its density
+				core.physics.material(name, { density = machine.mass or density, friction = friction,
+					role = machine.role, power = machine.power, rpm = machine.rpm })
 			else
 				unweighed[#unweighed + 1] = name
 			end
@@ -221,6 +231,22 @@ core.register_on_placenode(function(pos, _, _, _, stack)
 	local t = temperature_of(stack)
 	if t then core.matter.heat(pos, t) end
 end)
+
+-- a block dug or built: liquids and heaps beside it run into the hole or
+-- against the wall, and a liquid placed starts to run (sprint 80)
+core.register_on_dignode(function(pos) core.matter.disturb(pos) end)
+
+-- Sprint 81: liquid lies in open space as a fill, not as a levelled block.
+-- A puddle block from before wakes, and the world's matter makes it the
+-- air its liquid lies in.
+core.register_lbm({
+	label = "puddles become fills",
+	name = "tf_matter:puddles_to_fills",
+	nodenames = { "group:matter_puddle" },
+	run_at_every_load = true,
+	action = function(pos) core.matter.disturb(pos) end,
+})
+core.register_on_placenode(function(pos) core.matter.disturb(pos) end)
 
 local function carry(dt)
 	local keep = math.exp(-dt / COOLING)

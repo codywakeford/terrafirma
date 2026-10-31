@@ -472,6 +472,8 @@ void MapBlock::serialize(std::ostream &os_compressed, u8 version, bool disk, int
 	}
 	if (version >= 30)
 		m_shapes.serialize(os);
+	if (version >= 31)
+		m_fills.serialize(os);
 
 	/*
 		Data that goes to disk, but not the network
@@ -580,6 +582,8 @@ void MapBlock::deSerializeUncompressed(std::istream &is, u8 version, bool disk)
 	m_node_metadata.deSerialize(is, m_gamedef->idef());
 	if (version >= 30)
 		m_shapes.deSerialize(is);
+	if (version >= 31)
+		m_fills.deSerialize(is);
 
 	/*
 		Data that is only on disk

@@ -15,12 +15,13 @@ watch(() => store.ui.probe, (r) => {
 })
 const r = computed(() => store.ui.probe)
 const name = (id?: string) => (id ?? "").replace(/_/g, " ")
+const moles = (n: number) => n >= 1 ? `${n.toPrecision(3)} mol` : `${(n * 1000).toPrecision(3)} mmol`
 const kelvin = (t: number) => `${Math.round(t)} K · ${Math.round(t - 273.15)} °C`
 </script>
 
 <template>
     <div v-if="visible && r" class="probe">
-        <span class="node">{{ r.node }}</span>
+        <span class="node"><span v-if="r.colour" class="swatch" :style="{ background: r.colour }" />{{ r.node }}</span>
         <template v-if="r.empty"><span class="dim">no matter registered</span></template>
         <template v-else>
             <span v-if="r.substance" class="what">{{ name(r.substance) }} · {{ r.state }} · {{ Math.round((r.fill ?? 0) * 100) }}% of the block</span>
@@ -28,6 +29,7 @@ const kelvin = (t: number) => `${Math.round(t)} K · ${Math.round(t - 273.15)} �
             <span class="temp">{{ r.temperature !== undefined ? kelvin(r.temperature) : "" }}</span>
             <span v-if="r.activity && Math.abs(r.activity) > 0.5" class="dim">{{ r.activity > 0 ? "giving off" : "taking in" }} {{ Math.abs(Math.round(r.activity)) }} W</span>
             <span v-if="r.vapour && (r.haze ?? 0) > 0.02" class="dim">{{ name(r.vapour) }} {{ Math.round((r.haze ?? 0) * 100) }}% of its gas</span>
+            <span v-for="c in r.contents ?? []" :key="c.substance" class="dim">{{ name(c.substance) }} · {{ c.state }} · {{ moles(c.moles) }}</span>
             <span class="dim">{{ r.awake ? "awake" : "settled" }}</span>
         </template>
     </div>
@@ -40,4 +42,5 @@ const kelvin = (t: number) => `${Math.round(t)} K · ${Math.round(t - 273.15)} �
 .what { font: 13px var(--font-display); }
 .temp { color: var(--accent-hi); font-family: var(--font-display); }
 .dim { color: var(--ink-dim); font-size: 11px; }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid var(--edge); vertical-align: -1px; }
 </style>

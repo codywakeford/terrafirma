@@ -694,6 +694,32 @@ bool Map::setShape(v3s16 p, const shape::Shape &s)
 	return true;
 }
 
+const fill::Fill *Map::getFill(v3s16 p)
+{
+	const v3s16 bp = getNodeBlockPos(p);
+	MapBlock *block = getBlockNoCreateNoEx(bp);
+	return block ? block->m_fills.get(p - bp * MAP_BLOCKSIZE) : nullptr;
+}
+
+bool Map::setFill(v3s16 p, const fill::Fill &f)
+{
+	const v3s16 bp = getNodeBlockPos(p);
+	MapBlock *block = getBlockNoCreateNoEx(bp);
+	if (!block)
+		return false;
+	const fill::Fill *was = block->m_fills.get(p - bp * MAP_BLOCKSIZE);
+	if ((!was && f.amount == 0) || (was && *was == f))
+		return true;
+	block->m_fills.set(p - bp * MAP_BLOCKSIZE, f);
+	block->raiseModified(MOD_STATE_WRITE_NEEDED, MOD_REASON_SET_NODE);
+	MapEditEvent event;
+	event.type = MEET_FILL;
+	event.p = p;
+	event.modified_blocks.push_back(bp);
+	dispatchEvent(event);
+	return true;
+}
+
 std::optional<ground::Top> Map::groundTop(v3s16 p)
 {
 	// cut, or under a cut node (what rose from it, kept): as it's cut
@@ -702,6 +728,24 @@ std::optional<ground::Top> Map::groundTop(v3s16 p)
 	const auto get = [&](v3s16 q) { return ground::seen(getNode(q), getShape(q)); };
 	const auto cube = [&](v3s16 q) { return m_atlas && m_atlas->cut({ q.X, q.Y, q.Z }).has_value(); };
 	return ground::Ground(*m_nodedef).top(get, cube, p);
+}
+
+std::optional<shape::Shape> Map::solidShape(v3s16 p)
+{
+	if (const shape::Shape *s = getShape(p))
+		return *s;
+	if (const std::optional<ground::Top> top = groundTop(p))
+		return top->shape(0);
+	const MapNode n = getNode(p);
+	if (n.getContent() == CONTENT_IGNORE || m_nodedef->get(n).walkable)
+		return std::nullopt;
+	// open: unless smoothed ground below rises into it
+	if (const std::optional<ground::Top> below = groundTop(p - v3s16(0, 1, 0))) {
+		shape::Shape high = below->shape(1);
+		if (!high.empty())
+			return high;
+	}
+	return std::nullopt;
 }
 
 void Map::settleGround(v3s16 p)

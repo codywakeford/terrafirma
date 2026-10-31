@@ -13,6 +13,7 @@
 #include "nodemetadata.h" // NodeMetadataList
 #include "nodetimer.h"
 #include "shape/shape.h"
+#include "fill/fill.h"
 #include "modifiedstate.h"
 #include "util/numeric.h" // getContainerPos
 
@@ -561,6 +562,7 @@ public:
 	NodeMetadataList m_node_metadata;
 	// Terra Firma: its cut nodes (sprint 44)
 	shape::Shapes m_shapes;
+	fill::Fills m_fills; // Terra Firma: liquid in its nodes' open space (sprint 81)
 	StaticObjectList m_static_objects;
 
 private:

@@ -67,7 +67,8 @@
    },
    "note": "Expands as it freezes, so ice floats and its melting point falls under pressure.",
    "approximate": false,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#3a7fc4"
   },
   {
    "id": "carbon_dioxide",
@@ -137,7 +138,8 @@
    "note": "Never liquid at Earth's surface pressure: dry ice turns straight to gas.",
    "approximate": false,
    "kind": "compound",
-   "sublime": 194.7
+   "sublime": 194.7,
+   "colour": "#e8eef2"
   },
   {
    "id": "methane",
@@ -228,7 +230,8 @@
    },
    "note": "Liquid in the cold of the outer system: the seas and rain of a Titan.",
    "approximate": false,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#eef2f4"
   },
   {
    "id": "ammonia",
@@ -308,7 +311,13 @@
    },
    "note": "Mixed with water it stays liquid far below water's freezing point: oceans under ice.",
    "approximate": false,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#eef2f4",
+   "dissolves": {
+    "in": "water",
+    "most": 0.5,
+    "heat": 30.5
+   }
   },
   {
    "id": "nitrogen",
@@ -365,7 +374,8 @@
    },
    "note": "Most of Earth's air; glaciers on the coldest worlds.",
    "approximate": false,
-   "kind": "element"
+   "kind": "element",
+   "colour": "#eef2f4"
   },
   {
    "id": "oxygen",
@@ -422,7 +432,8 @@
    },
    "note": "Made by life; what fire and lungs need.",
    "approximate": false,
-   "kind": "element"
+   "kind": "element",
+   "colour": "#e6eef8"
   },
   {
    "id": "hydrogen",
@@ -479,7 +490,8 @@
    },
    "note": "The lightest fuel; most of a giant planet.",
    "approximate": false,
-   "kind": "element"
+   "kind": "element",
+   "colour": "#f2f4f6"
   },
   {
    "id": "sulfur_dioxide",
@@ -548,7 +560,13 @@
    },
    "note": "Breathed out by volcanoes; with water it makes acid clouds.",
    "approximate": false,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f0eedc",
+   "dissolves": {
+    "in": "water",
+    "most": 0.03,
+    "heat": 26
+   }
   },
   {
    "id": "sulfuric_acid",
@@ -662,7 +680,8 @@
     ]
    },
    "note": "The clouds of a hothouse world. (Its triple and critical points are estimates.)",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#e8e4d0"
   },
   {
    "id": "iron",
@@ -703,7 +722,8 @@
    },
    "note": "The core of rocky worlds; the metal of an age.",
    "kind": "element",
-   "hardness": 4
+   "hardness": 4,
+   "colour": "#8a8d91"
   },
   {
    "id": "copper",
@@ -744,7 +764,8 @@
    },
    "note": "Soft, conducts heat and current; with tin, bronze.",
    "kind": "element",
-   "hardness": 3
+   "hardness": 3,
+   "colour": "#b87333"
   },
   {
    "id": "tin",
@@ -785,7 +806,8 @@
    },
    "note": "Melts in a campfire; hardens copper into bronze.",
    "kind": "element",
-   "hardness": 1.5
+   "hardness": 1.5,
+   "colour": "#c9ccd0"
   },
   {
    "id": "gold",
@@ -826,7 +848,8 @@
    },
    "note": "Doesn't tarnish; washes down rivers from its veins.",
    "kind": "element",
-   "hardness": 2.5
+   "hardness": 2.5,
+   "colour": "#d4af37"
   },
   {
    "id": "aluminium",
@@ -867,7 +890,8 @@
    },
    "note": "Common in rock but locked in oxides: it takes electricity to free.",
    "kind": "element",
-   "hardness": 2.75
+   "hardness": 2.75,
+   "colour": "#c8ccd2"
   },
   {
    "id": "lead",
@@ -908,7 +932,8 @@
    },
    "note": "Dense and soft; shields against radiation.",
    "kind": "element",
-   "hardness": 1.5
+   "hardness": 1.5,
+   "colour": "#6b6e75"
   },
   {
    "id": "mercury",
@@ -948,7 +973,8 @@
    },
    "note": "The metal that's liquid at room temperature.",
    "approximate": false,
-   "kind": "element"
+   "kind": "element",
+   "colour": "#c0c4c8"
   },
   {
    "id": "silicon",
@@ -989,7 +1015,8 @@
    },
    "note": "Denser as a liquid, like water. Purified, the heart of electronics.",
    "kind": "element",
-   "hardness": 7
+   "hardness": 7,
+   "colour": "#5b6168"
   },
   {
    "id": "carbon",
@@ -1030,7 +1057,9 @@
    },
    "note": "Never melts at ordinary pressure: it turns straight to vapour near 3900 K.",
    "kind": "element",
-   "sublime": 3915
+   "sublime": 3915,
+   "colour": "#1c1c1e",
+   "tint": 8
   },
   {
    "id": "salt",
@@ -1072,7 +1101,13 @@
     ]
    },
    "note": "Left behind where seas dry up.",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f4f4f2",
+   "dissolves": {
+    "in": "water",
+    "most": 0.11,
+    "heat": -3.9
+   }
   },
   {
    "id": "silica",
@@ -1164,7 +1199,8 @@
    },
    "note": "Sand and most rock; melted, glass. (Drawn as one SiO₄ tetrahedron of its network.)",
    "kind": "compound",
-   "hardness": 7
+   "hardness": 7,
+   "colour": "#e9e2d0"
   },
   {
    "id": "carbon_monoxide",
@@ -1222,7 +1258,8 @@
    },
    "note": "What a fire starved of air makes; what pulls oxygen out of ore in a furnace. Poisonous.",
    "approximate": false,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#eef2f4"
   },
   {
    "id": "hematite",
@@ -1264,7 +1301,9 @@
     ]
    },
    "note": "Red iron ore, and rust. Smelted with carbon monoxide it gives up its iron.",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#8b2f1c",
+   "tint": 12
   },
   {
    "id": "malachite",
@@ -1308,7 +1347,8 @@
     ]
    },
    "note": "Green copper ore. Heated, it breaks down into copper oxide, giving off CO₂ and steam (well before it could melt).",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#2e8b57"
   },
   {
    "id": "copper_oxide",
@@ -1350,7 +1390,9 @@
     ]
    },
    "note": "Black copper oxide: one step from metal, given carbon monoxide and heat.",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#1e1e1e",
+   "tint": 25
   },
   {
    "id": "calcite",
@@ -1393,7 +1435,8 @@
     ]
    },
    "note": "Limestone and chalk, laid down in seas. Burned in a kiln it gives quicklime and CO₂ (well before it could melt).",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f2efe6"
   },
   {
    "id": "lime",
@@ -1435,7 +1478,8 @@
     ]
    },
    "note": "Burned limestone: the base of mortar, cement and concrete.",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f6f5f0"
   },
   {
    "id": "glucose",
@@ -1543,7 +1587,8 @@
     ]
    },
    "note": "Sugar: what light builds from CO₂ and water, and what living things burn. (It chars before it could boil; drawn as its ring.)",
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#fbfbf6"
   },
   {
    "id": "olivine",
@@ -1635,7 +1680,8 @@
    },
    "note": "Green mineral of the mantle and of basalt. The first to crystallise from cooling magma.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#7b9a3c"
   },
   {
    "id": "pyroxene",
@@ -1727,7 +1773,8 @@
    },
    "note": "Dark chains of silica: much of basalt and the mantle.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#3d4a3a"
   },
   {
    "id": "feldspar",
@@ -1771,7 +1818,8 @@
    },
    "note": "The commonest mineral of the crust: the pink and white grains of granite. Weathers into clay.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#e8c9b0"
   },
   {
    "id": "plagioclase",
@@ -1815,7 +1863,8 @@
    },
    "note": "Sodium feldspar: the pale crystals in basalt and andesite.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#e6e2da"
   },
   {
    "id": "mica",
@@ -1859,7 +1908,8 @@
    },
    "note": "Splits into thin glittering sheets. (It breaks down before it could melt.)",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#c9b98a"
   },
   {
    "id": "kaolinite",
@@ -1902,7 +1952,8 @@
    },
    "note": "Clay: weathered feldspar. Wet, it shapes; fired in a kiln, it gives up its water and becomes pottery.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#efe9df"
   },
   {
    "id": "metakaolin",
@@ -1944,7 +1995,8 @@
    },
    "note": "Clay that has been through the kiln: hard, and water won't soften it again. Pottery and brick.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f2ece2"
   },
   {
    "id": "magnetite",
@@ -1986,7 +2038,9 @@
    },
    "note": "Black iron ore, and a natural magnet: lodestone. Smelts like hematite.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#2a2a2c",
+   "tint": 10
   },
   {
    "id": "chalcopyrite",
@@ -2029,7 +2083,8 @@
    },
    "note": "Brassy copper ore from hydrothermal veins. Roasted, it gives off sulfur dioxide and leaves copper and iron oxides.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#c9a93a"
   },
   {
    "id": "cassiterite",
@@ -2071,7 +2126,8 @@
    },
    "note": "Tin ore: heavy, so it gathers in river gravels below the granite it weathered from.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#5a4030"
   },
   {
    "id": "galena",
@@ -2113,7 +2169,8 @@
    },
    "note": "Lead ore: silvery grey cubes. Often carries silver.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#5d6266"
   },
   {
    "id": "lead_oxide",
@@ -2155,7 +2212,8 @@
    },
    "note": "Roasted galena: one step from lead.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#e8c040"
   },
   {
    "id": "pyrite",
@@ -2197,7 +2255,8 @@
    },
    "note": "Fool's gold. Roasted it gives sulfur dioxide; it sparks against steel. (It breaks down long before it could melt.)",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#c8b048"
   },
   {
    "id": "sulfur",
@@ -2237,7 +2296,8 @@
    },
    "approximate": false,
    "kind": "element",
-   "note": "Yellow crystals around volcanic vents. Burns with a blue flame into sulfur dioxide."
+   "note": "Yellow crystals around volcanic vents. Burns with a blue flame into sulfur dioxide.",
+   "colour": "#e8d630"
   },
   {
    "id": "bronze",
@@ -2280,7 +2340,8 @@
    "note": "Copper with about a tenth tin: harder than either, and it melts lower than copper, so it casts well. The first great alloy.",
    "approximate": true,
    "kind": "compound",
-   "hardness": 3.5
+   "hardness": 3.5,
+   "colour": "#b08d57"
   },
   {
    "id": "cast_iron",
@@ -2323,7 +2384,8 @@
    "note": "Iron that has soaked up carbon in the furnace: it melts hundreds of degrees lower than pure iron and pours into moulds, but it's brittle.",
    "approximate": true,
    "kind": "compound",
-   "hardness": 4.5
+   "hardness": 4.5,
+   "colour": "#5f6266"
   },
   {
    "id": "steel",
@@ -2366,7 +2428,8 @@
    "note": "Iron with a little carbon: hard and tough. Made by burning most of the carbon out of molten cast iron.",
    "approximate": true,
    "kind": "compound",
-   "hardness": 5.5
+   "hardness": 5.5,
+   "colour": "#9aa0a6"
   },
   {
    "id": "pewter",
@@ -2409,7 +2472,8 @@
    "note": "Tin hardened with a little lead: plates, cups and toys. Melts in a cooking fire.",
    "approximate": true,
    "kind": "compound",
-   "hardness": 2
+   "hardness": 2,
+   "colour": "#a9aeb3"
   },
   {
    "id": "zinc",
@@ -2450,7 +2514,8 @@
    "note": "With copper, brass. It boils not far above where it melts, so it's hard to smelt.",
    "approximate": true,
    "kind": "element",
-   "hardness": 2.5
+   "hardness": 2.5,
+   "colour": "#b9c0c6"
   },
   {
    "id": "wood",
@@ -2543,7 +2608,8 @@
    "note": "Cellulose, as far as chemistry cares: burns in air; heated without enough air it chars to charcoal. (It chars long before it could melt.) It never melts: it chars or burns long before (its melting and boiling points are placeholders far above any fire).",
    "approximate": true,
    "kind": "compound",
-   "hardness": 2
+   "hardness": 2,
+   "colour": "#9c6b3c"
   },
   {
    "id": "soda_ash",
@@ -2586,7 +2652,8 @@
    },
    "note": "From burned seaweed or dried salt lakes. Melted with sand it makes glass at a heat a fire can reach.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f6f6f2"
   },
   {
    "id": "glass",
@@ -2680,7 +2747,8 @@
    "note": "Sand and soda melted together and cooled before it can crystallise: clear, and it keeps the weather out.",
    "approximate": true,
    "kind": "compound",
-   "hardness": 5.5
+   "hardness": 5.5,
+   "colour": "#dfeeea"
   },
   {
    "id": "slaked_lime",
@@ -2722,7 +2790,1024 @@
    },
    "note": "Quicklime that has drunk water, hissing hot. Mixed with sand it's mortar, which slowly turns back to limestone in the air.",
    "approximate": true,
-   "kind": "compound"
+   "kind": "compound",
+   "colour": "#f4f3ee"
+  },
+  {
+   "id": "rubber",
+   "name": "Rubber",
+   "formula": "C₅H₈",
+   "composition": {
+    "C": 5,
+    "H": 8
+   },
+   "triple": [
+    3000,
+    1
+   ],
+   "critical": [
+    4000,
+    5000000.0
+   ],
+   "boil": 3500,
+   "fusion": 30,
+   "vaporization": 100,
+   "melt_slope": 0.05,
+   "density": {
+    "solid": 920,
+    "liquid": 920
+   },
+   "conductivity": {
+    "solid": 0.13,
+    "liquid": 0.15,
+    "gas": 0.03
+   },
+   "heat_capacity": 1900,
+   "structure": {
+    "type": "molecule",
+    "atoms": [
+     [
+      "C",
+      0,
+      0,
+      0
+     ],
+     [
+      "C",
+      1.3,
+      0.8,
+      0
+     ],
+     [
+      "C",
+      2.6,
+      0,
+      0
+     ],
+     [
+      "C",
+      3.9,
+      0.8,
+      0
+     ],
+     [
+      "C",
+      1.3,
+      2.2,
+      0
+     ]
+    ],
+    "bonds": [
+     [
+      0,
+      1,
+      1
+     ],
+     [
+      1,
+      2,
+      2
+     ],
+     [
+      2,
+      3,
+      1
+     ],
+     [
+      1,
+      4,
+      1
+     ]
+    ]
+   },
+   "note": "Natural rubber (polyisoprene), from tree sap: soft, springy and grippy, a tyre's tread. It burns and breaks down long before it could melt (its melting and boiling points are placeholders far above any fire).",
+   "approximate": true,
+   "kind": "compound",
+   "hardness": 1,
+   "colour": "#222224"
+  },
+  {
+   "id": "sodium",
+   "name": "Sodium",
+   "formula": "Na",
+   "composition": {
+    "Na": 1
+   },
+   "triple": [
+    370.9,
+    4.897e-05
+   ],
+   "critical": [
+    2573,
+    35000000.0
+   ],
+   "boil": 1156,
+   "fusion": 2.6,
+   "vaporization": 97.4,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 968,
+    "liquid": 927
+   },
+   "conductivity": {
+    "solid": 142,
+    "liquid": 86,
+    "gas": 0.03
+   },
+   "heat_capacity": 1230,
+   "note": "Soft, silvery and furious with water: it tears hydrogen out of it, hot enough to light it.",
+   "approximate": false,
+   "kind": "element",
+   "colour": "#d8dcde"
+  },
+  {
+   "id": "potassium",
+   "name": "Potassium",
+   "formula": "K",
+   "composition": {
+    "K": 1
+   },
+   "triple": [
+    336.5,
+    0.0009142
+   ],
+   "critical": [
+    2223,
+    16000000.0
+   ],
+   "boil": 1032,
+   "fusion": 2.33,
+   "vaporization": 76.9,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 862,
+    "liquid": 828
+   },
+   "conductivity": {
+    "solid": 102,
+    "liquid": 53,
+    "gas": 0.03
+   },
+   "heat_capacity": 757,
+   "note": "Sodium's wilder cousin: on water it lights its own hydrogen with a lilac flame.",
+   "approximate": false,
+   "kind": "element",
+   "colour": "#d0d4d8"
+  },
+  {
+   "id": "magnesium",
+   "name": "Magnesium",
+   "formula": "Mg",
+   "composition": {
+    "Mg": 1
+   },
+   "triple": [
+    923,
+    464.9
+   ],
+   "critical": [
+    3100,
+    50000000.0
+   ],
+   "boil": 1363,
+   "fusion": 8.48,
+   "vaporization": 128,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1738,
+    "liquid": 1584
+   },
+   "conductivity": {
+    "solid": 156,
+    "liquid": 80,
+    "gas": 0.03
+   },
+   "heat_capacity": 1023,
+   "note": "A light metal that burns blinding white once it's hot enough.",
+   "approximate": true,
+   "kind": "element",
+   "colour": "#c4c8cc"
+  },
+  {
+   "id": "cobalt",
+   "name": "Cobalt",
+   "formula": "Co",
+   "composition": {
+    "Co": 1
+   },
+   "triple": [
+    1768,
+    1.051
+   ],
+   "critical": [
+    5800,
+    100000000.0
+   ],
+   "boil": 3200,
+   "fusion": 16.2,
+   "vaporization": 377,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 8900,
+    "liquid": 7750
+   },
+   "conductivity": {
+    "solid": 100,
+    "liquid": 40,
+    "gas": 0.05
+   },
+   "heat_capacity": 421,
+   "note": "A hard metal; its oxide turns glass deep blue.",
+   "approximate": true,
+   "kind": "element",
+   "colour": "#8f9aa6"
+  },
+  {
+   "id": "chlorine",
+   "name": "Chlorine",
+   "formula": "Cl₂",
+   "composition": {
+    "Cl": 2
+   },
+   "triple": [
+    172.17,
+    1392.0
+   ],
+   "critical": [
+    416.9,
+    7991000.0
+   ],
+   "boil": 239.1,
+   "fusion": 6.4,
+   "vaporization": 20.4,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2030,
+    "liquid": 1563
+   },
+   "conductivity": {
+    "solid": 0.5,
+    "liquid": 0.13,
+    "gas": 0.009
+   },
+   "heat_capacity": 480,
+   "note": "A yellow-green choking gas.",
+   "approximate": false,
+   "kind": "element",
+   "colour": "#c8d850",
+   "tint": 6
+  },
+  {
+   "id": "hydrogen_chloride",
+   "name": "Hydrogen chloride",
+   "formula": "HCl",
+   "composition": {
+    "H": 1,
+    "Cl": 1
+   },
+   "triple": [
+    159.0,
+    13900.0
+   ],
+   "critical": [
+    324.7,
+    8310000.000000001
+   ],
+   "boil": 188.1,
+   "fusion": 2.0,
+   "vaporization": 16.2,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1500,
+    "liquid": 1190
+   },
+   "conductivity": {
+    "solid": 0.4,
+    "liquid": 0.2,
+    "gas": 0.014
+   },
+   "heat_capacity": 800,
+   "note": "Dissolved in water, it's hydrochloric acid: it eats metals and gives off hydrogen.",
+   "approximate": false,
+   "kind": "compound",
+   "colour": "#eef2f0",
+   "dissolves": {
+    "in": "water",
+    "most": 0.3,
+    "heat": 74.8
+   }
+  },
+  {
+   "id": "nitric_acid",
+   "name": "Nitric acid",
+   "formula": "HNO₃",
+   "composition": {
+    "H": 1,
+    "N": 1,
+    "O": 3
+   },
+   "triple": [
+    231.6,
+    83.99
+   ],
+   "critical": [
+    520,
+    6900000.0
+   ],
+   "boil": 356,
+   "fusion": 10.5,
+   "vaporization": 39.1,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1700,
+    "liquid": 1513
+   },
+   "conductivity": {
+    "solid": 0.4,
+    "liquid": 0.28,
+    "gas": 0.015
+   },
+   "heat_capacity": 1720,
+   "note": "A fuming acid; it makes nitrates, the oxygen in gunpowder.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f2eccc"
+  },
+  {
+   "id": "nitrogen_dioxide",
+   "name": "Nitrogen dioxide",
+   "formula": "NO₂",
+   "composition": {
+    "N": 1,
+    "O": 2
+   },
+   "triple": [
+    261.9,
+    18700.0
+   ],
+   "critical": [
+    431,
+    10100000.0
+   ],
+   "boil": 294.3,
+   "fusion": 14.65,
+   "vaporization": 19.1,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1950,
+    "liquid": 1443
+   },
+   "conductivity": {
+    "solid": 0.3,
+    "liquid": 0.13,
+    "gas": 0.015
+   },
+   "heat_capacity": 800,
+   "note": "The brown fumes off nitric acid at work.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#a0522d",
+   "tint": 15
+  },
+  {
+   "id": "sodium_hydroxide",
+   "name": "Caustic soda",
+   "formula": "NaOH",
+   "composition": {
+    "Na": 1,
+    "O": 1,
+    "H": 1
+   },
+   "triple": [
+    591,
+    1.102e-05
+   ],
+   "critical": [
+    2820,
+    25000000.0
+   ],
+   "boil": 1661,
+   "fusion": 6.6,
+   "vaporization": 175,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2130,
+    "liquid": 1780
+   },
+   "conductivity": {
+    "solid": 1.0,
+    "liquid": 0.8,
+    "gas": 0.03
+   },
+   "heat_capacity": 1490,
+   "note": "A strong base: it neutralises acids and eats grease and aluminium.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f6f6f4",
+   "dissolves": {
+    "in": "water",
+    "most": 0.45,
+    "heat": 44.5
+   }
+  },
+  {
+   "id": "potassium_hydroxide",
+   "name": "Caustic potash",
+   "formula": "KOH",
+   "composition": {
+    "K": 1,
+    "O": 1,
+    "H": 1
+   },
+   "triple": [
+    679,
+    0.1775
+   ],
+   "critical": [
+    2700,
+    25000000.0
+   ],
+   "boil": 1600,
+   "fusion": 9.4,
+   "vaporization": 130,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2044,
+    "liquid": 1700
+   },
+   "conductivity": {
+    "solid": 1.0,
+    "liquid": 0.8,
+    "gas": 0.03
+   },
+   "heat_capacity": 1180,
+   "note": "Lye from wood ash: a strong base.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f4f4f2",
+   "dissolves": {
+    "in": "water",
+    "most": 0.35,
+    "heat": 57.6
+   }
+  },
+  {
+   "id": "alumina",
+   "name": "Alumina",
+   "formula": "Al₂O₃",
+   "composition": {
+    "Al": 2,
+    "O": 3
+   },
+   "triple": [
+    2345,
+    99.42
+   ],
+   "critical": [
+    6000,
+    60000000.0
+   ],
+   "boil": 3250,
+   "fusion": 111,
+   "vaporization": 485,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 3950,
+    "liquid": 3000
+   },
+   "conductivity": {
+    "solid": 30,
+    "liquid": 6,
+    "gas": 0.05
+   },
+   "heat_capacity": 880,
+   "note": "Aluminium's oxide: corundum, sapphire, and thermite's ash.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f0f0ee"
+  },
+  {
+   "id": "aluminium_chloride",
+   "name": "Aluminium chloride",
+   "formula": "AlCl₃",
+   "composition": {
+    "Al": 1,
+    "Cl": 3
+   },
+   "triple": [
+    465.6,
+    233000.0
+   ],
+   "critical": [
+    620,
+    2600000.0
+   ],
+   "boil": null,
+   "fusion": 35,
+   "vaporization": 30,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2480,
+    "liquid": 1300
+   },
+   "conductivity": {
+    "solid": 0.5,
+    "liquid": 0.2,
+    "gas": 0.01
+   },
+   "heat_capacity": 680,
+   "note": "What aluminium becomes in hydrochloric acid.",
+   "approximate": true,
+   "kind": "compound",
+   "sublime": 453,
+   "colour": "#f2f0e2",
+   "dissolves": {
+    "in": "water",
+    "most": 0.06,
+    "heat": 329
+   }
+  },
+  {
+   "id": "iron_chloride",
+   "name": "Iron chloride",
+   "formula": "FeCl₂",
+   "composition": {
+    "Fe": 1,
+    "Cl": 2
+   },
+   "triple": [
+    950,
+    1433.0
+   ],
+   "critical": [
+    2000,
+    10000000.0
+   ],
+   "boil": 1296,
+   "fusion": 43,
+   "vaporization": 126,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 3160,
+    "liquid": 2600
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.5,
+    "gas": 0.02
+   },
+   "heat_capacity": 600,
+   "note": "What iron becomes in hydrochloric acid: a green solution.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#7fa86a",
+   "tint": 8,
+   "dissolves": {
+    "in": "water",
+    "most": 0.09,
+    "heat": 81.6
+   }
+  },
+  {
+   "id": "zinc_chloride",
+   "name": "Zinc chloride",
+   "formula": "ZnCl₂",
+   "composition": {
+    "Zn": 1,
+    "Cl": 2
+   },
+   "triple": [
+    563,
+    1.286
+   ],
+   "critical": [
+    1600,
+    5000000.0
+   ],
+   "boil": 1005,
+   "fusion": 10,
+   "vaporization": 120,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2907,
+    "liquid": 2500
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.5,
+    "gas": 0.02
+   },
+   "heat_capacity": 520,
+   "note": "What zinc becomes in hydrochloric acid; a soldering flux.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f6f6f4",
+   "dissolves": {
+    "in": "water",
+    "most": 0.5,
+    "heat": 73
+   }
+  },
+  {
+   "id": "zinc_oxide",
+   "name": "Zinc oxide",
+   "formula": "ZnO",
+   "composition": {
+    "Zn": 1,
+    "O": 1
+   },
+   "triple": [
+    2248,
+    11530.0
+   ],
+   "critical": [
+    4000,
+    30000000.0
+   ],
+   "boil": 2600,
+   "fusion": 70,
+   "vaporization": 300,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 5610,
+    "liquid": 4800
+   },
+   "conductivity": {
+    "solid": 50,
+    "liquid": 5,
+    "gas": 0.05
+   },
+   "heat_capacity": 494,
+   "note": "White zinc ash; zinc burns to it with a blue-green flame.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#fafaf8"
+  },
+  {
+   "id": "magnesia",
+   "name": "Magnesia",
+   "formula": "MgO",
+   "composition": {
+    "Mg": 1,
+    "O": 1
+   },
+   "triple": [
+    3098,
+    972.1
+   ],
+   "critical": [
+    6000,
+    60000000.0
+   ],
+   "boil": 3870,
+   "fusion": 77,
+   "vaporization": 600,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 3580,
+    "liquid": 2900
+   },
+   "conductivity": {
+    "solid": 45,
+    "liquid": 5,
+    "gas": 0.05
+   },
+   "heat_capacity": 877,
+   "note": "Magnesium's white ash; a furnace lining that won't melt.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#fafaf8"
+  },
+  {
+   "id": "cobalt_oxide",
+   "name": "Cobalt oxide",
+   "formula": "CoO",
+   "composition": {
+    "Co": 1,
+    "O": 1
+   },
+   "triple": [
+    2206,
+    906.1
+   ],
+   "critical": [
+    5000,
+    50000000.0
+   ],
+   "boil": 3100,
+   "fusion": 50,
+   "vaporization": 300,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 6440,
+    "liquid": 5000
+   },
+   "conductivity": {
+    "solid": 7,
+    "liquid": 3,
+    "gas": 0.05
+   },
+   "heat_capacity": 735,
+   "note": "A pinch makes glass cobalt blue.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#1f3fa8",
+   "tint": 60
+  },
+  {
+   "id": "manganese_oxide",
+   "name": "Manganese oxide",
+   "formula": "MnO₂",
+   "composition": {
+    "Mn": 1,
+    "O": 2
+   },
+   "triple": [
+    1800,
+    33.38
+   ],
+   "critical": [
+    5000,
+    50000000.0
+   ],
+   "boil": 3000,
+   "fusion": 40,
+   "vaporization": 300,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 5030,
+    "liquid": 4000
+   },
+   "conductivity": {
+    "solid": 5,
+    "liquid": 2,
+    "gas": 0.05
+   },
+   "heat_capacity": 630,
+   "note": "Pyrolusite: glassmakers' soap (it clears iron's green) and, more of it, purple.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#4b2a58",
+   "tint": 20
+  },
+  {
+   "id": "potassium_nitrate",
+   "name": "Saltpetre",
+   "formula": "KNO₃",
+   "composition": {
+    "K": 1,
+    "N": 1,
+    "O": 3
+   },
+   "triple": [
+    607,
+    0.01333
+   ],
+   "critical": [
+    2000,
+    20000000.0
+   ],
+   "boil": 1300,
+   "fusion": 10.1,
+   "vaporization": 150,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2109,
+    "liquid": 1870
+   },
+   "conductivity": {
+    "solid": 0.5,
+    "liquid": 0.4,
+    "gas": 0.03
+   },
+   "heat_capacity": 950,
+   "note": "Gives up its oxygen when hot: with charcoal and sulfur it's gunpowder.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f6f6f4",
+   "dissolves": {
+    "in": "water",
+    "most": 0.05,
+    "heat": -34.9
+   }
+  },
+  {
+   "id": "potassium_carbonate",
+   "name": "Potash",
+   "formula": "K₂CO₃",
+   "composition": {
+    "K": 2,
+    "C": 1,
+    "O": 3
+   },
+   "triple": [
+    1164,
+    17.96
+   ],
+   "critical": [
+    3000,
+    30000000.0
+   ],
+   "boil": 2000,
+   "fusion": 27.6,
+   "vaporization": 200,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2430,
+    "liquid": 1900
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.6,
+    "gas": 0.03
+   },
+   "heat_capacity": 830,
+   "note": "Wood ash leached and dried: a flux for glass, and gunpowder's ash.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f4f4f0"
+  },
+  {
+   "id": "potassium_sulfide",
+   "name": "Potassium sulfide",
+   "formula": "K₂S",
+   "composition": {
+    "K": 2,
+    "S": 1
+   },
+   "triple": [
+    1113,
+    32.11
+   ],
+   "critical": [
+    3000,
+    30000000.0
+   ],
+   "boil": 1900,
+   "fusion": 16,
+   "vaporization": 180,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 1740,
+    "liquid": 1500
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.5,
+    "gas": 0.03
+   },
+   "heat_capacity": 800,
+   "note": "Part of gunpowder's smoke.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#d8c890"
+  },
+  {
+   "id": "sodium_sulfate",
+   "name": "Sodium sulfate",
+   "formula": "Na₂SO₄",
+   "composition": {
+    "Na": 2,
+    "S": 1,
+    "O": 4
+   },
+   "triple": [
+    1157,
+    132.3
+   ],
+   "critical": [
+    3000,
+    30000000.0
+   ],
+   "boil": 1700,
+   "fusion": 24,
+   "vaporization": 200,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 2664,
+    "liquid": 2070
+   },
+   "conductivity": {
+    "solid": 1,
+    "liquid": 0.6,
+    "gas": 0.03
+   },
+   "heat_capacity": 900,
+   "note": "The salt left when caustic soda meets sulfuric acid.",
+   "approximate": true,
+   "kind": "compound",
+   "colour": "#f6f6f4",
+   "dissolves": {
+    "in": "water",
+    "most": 0.035,
+    "heat": 2.4
+   }
+  },
+  {
+   "id": "propane",
+   "name": "Propane",
+   "formula": "C₃H₈",
+   "composition": {
+    "C": 3,
+    "H": 8
+   },
+   "triple": [
+    85.5,
+    0.00017
+   ],
+   "critical": [
+    369.89,
+    4251200.0
+   ],
+   "boil": 231.04,
+   "fusion": 3.5,
+   "vaporization": 19.04,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 730,
+    "liquid": 582
+   },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.13,
+    "gas": 0.015
+   },
+   "heat_capacity": 2500,
+   "note": "Bottled gas: a blowtorch's fuel, about 2000 °C burning in air.",
+   "approximate": false,
+   "kind": "compound",
+   "colour": "#eef2f4"
+  },
+  {
+   "id": "ethanol",
+   "name": "Ethanol",
+   "formula": "C₂H₅OH",
+   "composition": {
+    "C": 2,
+    "H": 6,
+    "O": 1
+   },
+   "triple": [
+    159.0,
+    0.00048
+   ],
+   "critical": [
+    514.7,
+    6137000.0
+   ],
+   "boil": 351.4,
+   "fusion": 4.9,
+   "vaporization": 38.6,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 900,
+    "liquid": 789
+   },
+   "conductivity": {
+    "solid": 0.25,
+    "liquid": 0.17,
+    "gas": 0.015
+   },
+   "heat_capacity": 2440,
+   "note": "Alcohol: a fuel that burns with a clean blue flame.",
+   "approximate": false,
+   "kind": "compound",
+   "colour": "#eef2f4"
+  },
+  {
+   "id": "octane",
+   "name": "Octane",
+   "formula": "C₈H₁₈",
+   "composition": {
+    "C": 8,
+    "H": 18
+   },
+   "triple": [
+    216.4,
+    2.1
+   ],
+   "critical": [
+    568.7,
+    2490000.0
+   ],
+   "boil": 398.8,
+   "fusion": 20.7,
+   "vaporization": 34.4,
+   "melt_slope": 0.1,
+   "density": {
+    "solid": 800,
+    "liquid": 703
+   },
+   "conductivity": {
+    "solid": 0.2,
+    "liquid": 0.13,
+    "gas": 0.015
+   },
+   "heat_capacity": 2230,
+   "note": "The heart of petrol: a lot of energy in a little liquid.",
+   "approximate": false,
+   "kind": "compound",
+   "colour": "#e8e0c8"
   }
  ]
 }

@@ -135,7 +135,17 @@ private:
 	// update interval, as the machine's position is (sprint 66: a wheel's
 	// turn put at once while the body glides tore it off the axle)
 	std::vector<GroupPose> m_group_poses, m_group_from;
+	// each group's middle in its own frame (BS): glided, it's the middle
+	// that moves straight (sprint 71: a wheel's origin is the machine's, so
+	// gliding that cut a spinning wheel's middle through the ground)
+	std::vector<v3f> m_group_middles;
 	f32 m_group_t = 1, m_group_interval = 0.1f;
+	// each group's turn from where it was drawn to the server's latest (an
+	// axis times radians, the machine's frame), and how fast it was turning
+	// (rad/s): a wheel turning more than half a turn between poses was
+	// glided the short way, backwards, and wobbled (sprint 79), so the turn
+	// taken is the one that carries on as it was going
+	std::vector<v3f> m_group_turn, m_group_rate;
 	GroupPose groupShown(size_t i) const;
 	void poseGroups();
 	// Terra Firma: how its parts are drawn

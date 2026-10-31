@@ -3,6 +3,7 @@
 // Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "content_cao.h"
+#include <array>
 #include "piece/frame.h" // Terra Firma
 #include "piece/machine.h" // Terra Firma
 #include "client/figure.h" // Terra Firma
@@ -603,6 +604,7 @@ void GenericCAO::removeFromScene(bool permanent)
 		n->drop();
 	}
 	m_group_nodes.clear();
+	m_group_middles.clear();
 	m_figure.reset(); // Terra Firma
 	if (m_meshnode) {
 		m_meshnode->remove();
@@ -893,6 +895,7 @@ void GenericCAO::addToScene(ITextureSource *tsrc, scene::ISceneManager *smgr)
 		setSceneNodeMaterials(m_meshnode);
 		for (size_t g = 1; g < group_meshes.size(); g++) {
 			group_meshes[g]->recalculateBoundingBox();
+			m_group_middles.push_back(group_meshes[g]->getBoundingBox().getCenter());
 			scene::IMeshSceneNode *node = m_smgr->addMeshSceneNode(group_meshes[g], m_matrixnode);
 			node->setSharedMaterials(true);
 			// its box is about the machine's origin, not where its turn
@@ -1042,22 +1045,43 @@ void GenericCAO::updateLight(u32 day_night_ratio)
 	}
 }
 
+namespace {
+using Q = std::array<f32, 4>; // x y z w
+Q mul(const Q &a, const Q &b)
+{
+	return { a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+		a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2] };
+}
+// an axis times radians as a turn
+Q turnOf(v3f v)
+{
+	const f32 angle = v.getLength();
+	if (angle < 1e-6f)
+		return { 0, 0, 0, 1 };
+	const v3f u = v / angle * std::sin(angle / 2);
+	return { u.X, u.Y, u.Z, std::cos(angle / 2) };
+}
+} // namespace
+
 GenericCAO::GroupPose GenericCAO::groupShown(size_t i) const
 {
 	const GroupPose &to = m_group_poses[i];
-	if (i >= m_group_from.size() || m_group_t >= 1)
+	if (i >= m_group_from.size() || i >= m_group_turn.size() || m_group_t >= 1)
 		return to;
 	const GroupPose &from = m_group_from[i];
 	const f32 t = m_group_t;
-	// the short way round: q and -q are the same turn
-	const f32 sign = from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w < 0 ? -1.f : 1.f;
-	GroupPose p{ from.offset + (to.offset - from.offset) * t, from.x + (sign * to.x - from.x) * t,
-		from.y + (sign * to.y - from.y) * t, from.z + (sign * to.z - from.z) * t, from.w + (sign * to.w - from.w) * t };
-	const f32 l = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z + p.w * p.w);
-	p.x /= l;
-	p.y /= l;
-	p.z /= l;
-	p.w /= l;
+	// turned that far along its turn, the way it was going
+	const Q q = mul(turnOf(m_group_turn[i] * t), { from.x, from.y, from.z, from.w });
+	GroupPose p{ v3f(0), q[0], q[1], q[2], q[3] };
+	// its middle glided straight, its origin put round it as it's turned
+	const v3f middle = i < m_group_middles.size() ? m_group_middles[i] : v3f(0);
+	auto turn = [&](const GroupPose &q, v3f v) {
+		const v3f u(q.x, q.y, q.z);
+		const v3f c = u.crossProduct(v);
+		return v + c * (2 * q.w) + u.crossProduct(c) * 2;
+	};
+	const v3f a = from.offset + turn(from, middle), b = to.offset + turn(to, middle);
+	p.offset = a + (b - a) * t - turn(p, middle);
 	return p;
 }
 
@@ -2090,6 +2114,40 @@ void GenericCAO::processMessage(const std::string &data)
 			p.y = readF32(is);
 			p.z = readF32(is);
 			p.w = readF32(is);
+		}
+		// each one's turn from where it's drawn to there: of the turns that
+		// get there (whole turns more or less about the same axis), the
+		// nearest it'd have turned going on as it was
+		m_group_turn.resize(count, v3f(0));
+		m_group_rate.resize(count, v3f(0));
+		for (size_t i = 0; i < count; i++) {
+			const GroupPose &to = m_group_poses[i];
+			if (i >= m_group_from.size()) {
+				m_group_turn[i] = m_group_rate[i] = v3f(0);
+				continue;
+			}
+			const GroupPose &from = m_group_from[i];
+			Q d = mul({ to.x, to.y, to.z, to.w }, { -from.x, -from.y, -from.z, from.w });
+			if (d[3] < 0)
+				d = { -d[0], -d[1], -d[2], -d[3] };
+			const v3f v(d[0], d[1], d[2]);
+			const f32 s = v.getLength();
+			if (s < 1e-6f) {
+				m_group_turn[i] = v3f(0);
+				m_group_rate[i] = v3f(0);
+				continue;
+			}
+			const v3f axis = v / s;
+			const f32 angle = 2 * std::atan2(s, d[3]); // 0..π
+			const f32 expected = m_group_rate[i].dotProduct(axis) * m_group_interval;
+			f32 best = angle;
+			for (int k = -4; k <= 4; k++) {
+				const f32 a = angle + k * 2 * core::PI;
+				if (std::fabs(a - expected) < std::fabs(best - expected))
+					best = a;
+			}
+			m_group_turn[i] = axis * best;
+			m_group_rate[i] = axis * (best / m_group_interval);
 		}
 		poseGroups();
 	} else if (cmd == AO_CMD_STOP_ANIMATION) {

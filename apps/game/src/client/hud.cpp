@@ -320,6 +320,40 @@ bool Hud::hasElementOfType(HudElementType type)
 	return false;
 }
 
+// Terra Firma: the kit's colours (ui/src/theme.css): stone, its lit and
+// shaded edges, the accent, the ink
+void Hud::drawTiles(video::IVideoDriver *driver)
+{
+	static const video::SColor STONE(240, 38, 43, 48), LIGHT(255, 92, 100, 108), DARK(255, 12, 14, 16),
+			ACCENT(255, 0, 148, 210), INK(255, 232, 236, 239), LIT_STONE(245, 0, 96, 138);
+	video::SMaterial m = m_selection_material;
+	m.BackfaceCulling = false;
+	m.ZBuffer = video::ECFN_DISABLED; // over the world: never in the ground
+	m.MaterialType = video::EMT_TRANSPARENT_VERTEX_ALPHA;
+	driver->setMaterial(m);
+	driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+	for (const Tile &t : m_tiles) {
+		auto at = [&](f32 a, f32 b) { return t.centre + t.u * a + t.w * b; };
+		auto quad = [&](f32 a0, f32 b0, f32 a1, f32 b1, video::SColor c) {
+			static const u16 INDICES[] = { 0, 1, 2, 0, 2, 3 };
+			const v3f n(0, 1, 0);
+			const video::S3DVertex v[4] = { { at(a0, b0), n, c, v2f() }, { at(a1, b0), n, c, v2f() },
+				{ at(a1, b1), n, c, v2f() }, { at(a0, b1), n, c, v2f() } };
+			driver->drawIndexedTriangleList(v, 4, INDICES, 2);
+		};
+		constexpr f32 E = 0.1f; // an edge, of the half
+		quad(-1, -1, 1, 1, t.lit ? LIT_STONE : STONE);
+		quad(-1, 1 - E, 1, 1, LIGHT);   // its top
+		quad(-1, -1, -1 + E, 1, LIGHT); // its left
+		quad(-1, -1, 1, -1 + E, DARK);  // its bottom
+		quad(1 - E, -1, 1, 1, DARK);    // its right
+		if (t.lit)
+			quad(-1, -1, 1, -1 + 2 * E, ACCENT);
+		for (const auto &[a, b] : t.strokes)
+			driver->draw3DLine(at(a.X, a.Y), at(b.X, b.Y), INK);
+	}
+}
+
 // Calculates screen position of waypoint. Returns true if waypoint is visible (in front of the player), else false.
 // Terra Firma: each label centred where its place is on screen (behind
 // the camera: not drawn)
@@ -914,6 +948,17 @@ void Hud::drawSelectionMesh()
 {
 	if (m_mode == HIGHLIGHT_NONE || (m_mode == HIGHLIGHT_HALO && !m_selection_mesh))
 		return;
+	if (!m_tiles.empty()) // Terra Firma
+		drawTiles(driver);
+	if (!m_grid.empty()) { // Terra Firma
+		video::SMaterial faded = m_selection_material;
+		faded.MaterialType = video::EMT_TRANSPARENT_VERTEX_ALPHA;
+		faded.ZWriteEnable = video::EZW_OFF;
+		driver->setMaterial(faded);
+		driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);
+		for (const Guide &g : m_grid)
+			driver->draw3DLine(g.a, g.b, g.colour);
+	}
 	if (!m_guides.empty()) { // Terra Firma
 		driver->setMaterial(m_selection_material);
 		driver->setTransform(video::ETS_WORLD, core::IdentityMatrix);

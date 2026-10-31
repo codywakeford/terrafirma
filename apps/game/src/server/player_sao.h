@@ -156,6 +156,9 @@ public:
 	void setMaxSpeedOverride(const v3f &vel);
 	// Returns true if cheated
 	bool checkMovementCheat();
+	// Terra Firma: driving a machine (sprint 69): it moves them, as fast as it goes
+	void setDriving(bool driving) { m_driving = driving; }
+	bool driving() const { return m_driving; }
 
 	// Other
 
@@ -210,6 +213,7 @@ private:
 	// Cached privileges for enforcement
 	std::set<std::string> m_privs;
 	const bool m_is_singleplayer;
+	bool m_driving = false; // Terra Firma
 	bool m_is_new_player = false;
 
 	u16 m_breath = PLAYER_MAX_BREATH_DEFAULT;

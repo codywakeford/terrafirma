@@ -1931,8 +1931,8 @@ void Server::handleCommand_PieceNew(NetworkPacket *pkt)
 {
 	inWorkshop(pkt->getPeerId(), "new object", [&](PlayerSAO &sao) {
 		const u16 id = m_workshop->start(sao);
-		NetworkPacket held(TOCLIENT_HELD, 2, pkt->getPeerId());
-		held << id;
+		NetworkPacket held(TOCLIENT_HELD, 3, pkt->getPeerId());
+		held << id << u8(workshop::Handed::Focused);
 		Send(&held);
 	});
 }
@@ -1941,13 +1941,76 @@ void Server::handleCommand_PieceNew(NetworkPacket *pkt)
 void Server::handleCommand_BlueprintSave(NetworkPacket *pkt)
 {
 	u16 piece_id;
+	u64 part;
 	std::string name;
-	*pkt >> piece_id >> name;
+	*pkt >> piece_id >> part >> name;
 	inWorkshop(pkt->getPeerId(), "blueprint", [&](PlayerSAO &sao) {
-		m_workshop->save(sao, piece_id, name);
+		m_workshop->save(sao, piece_id, part, name);
 		SendBlueprints(pkt->getPeerId(), sao.getPlayer()->getName());
 		SendChatMessage(pkt->getPeerId(), ChatMessage(CHATMESSAGE_TYPE_SYSTEM, utf8_to_wide("Saved \"" + name + "\"")));
 	});
+}
+
+// Terra Firma: copy and paste, and the parts library (sprint 74)
+void Server::handleCommand_Clipboard(NetworkPacket *pkt)
+{
+	u8 verb;
+	*pkt >> verb;
+	if (verb >= u8(workshop::Clip::Count)) {
+		warningstream << "Server: a clipboard verb that's none: " << int(verb) << std::endl;
+		return;
+	}
+	const session_t peer = pkt->getPeerId();
+	auto handed = [&](u16 id, workshop::Handed how) {
+		NetworkPacket held(TOCLIENT_HELD, 3, peer);
+		held << id << u8(how);
+		Send(&held);
+	};
+	auto carried = [&](u16 id) { handed(id, workshop::Handed::Carried); };
+	auto said = [&](const std::string &text) {
+		SendChatMessage(peer, ChatMessage(CHATMESSAGE_TYPE_SYSTEM, utf8_to_wide(text)));
+	};
+	switch (workshop::Clip(verb)) {
+	case workshop::Clip::Copy: {
+		u16 object;
+		u64 part;
+		*pkt >> object >> part;
+		inWorkshop(peer, "copy", [&](PlayerSAO &sao) {
+			const size_t n = m_workshop->copy(sao, object, part);
+			said(n == 1 ? "Copied · Ctrl+V for another" : "Copied " + std::to_string(n) + " parts · Ctrl+V for another");
+		});
+		return;
+	}
+	case workshop::Clip::Paste:
+		inWorkshop(peer, "paste", [&](PlayerSAO &sao) { carried(m_workshop->paste(sao)); });
+		return;
+	case workshop::Clip::Take: {
+		std::string name;
+		*pkt >> name;
+		inWorkshop(peer, "take", [&](PlayerSAO &sao) { carried(m_workshop->take(sao, name)); });
+		return;
+	}
+	case workshop::Clip::Forget: {
+		std::string name;
+		*pkt >> name;
+		inWorkshop(peer, "forget", [&](PlayerSAO &sao) {
+			m_workshop->forget(sao, name);
+			SendBlueprints(peer, sao.getPlayer()->getName());
+		});
+		return;
+	}
+	case workshop::Clip::Pull: {
+		u16 object;
+		u64 part;
+		*pkt >> object >> part;
+		inWorkshop(peer, "pull", [&](PlayerSAO &sao) {
+			handed(m_workshop->pull(sao, object, part), workshop::Handed::Pulled);
+		});
+		return;
+	}
+	case workshop::Clip::Count:
+		break;
+	}
 }
 
 // Terra Firma: a blueprint put down as ghosts (sprint 48)
@@ -2023,14 +2086,59 @@ void Server::handleCommand_ObjectGrab(NetworkPacket *pkt)
 	}
 }
 
+// Terra Firma: a machine driven from its seat, or got up from (sprint 69)
+void Server::handleCommand_Drive(NetworkPacket *pkt)
+{
+	u16 id;
+	u8 seated;
+	*pkt >> id >> seated;
+	std::optional<physics::Drive> drive;
+	if (seated) {
+		f32 forward, right, brake;
+		*pkt >> forward >> right >> brake;
+		drive = physics::Drive{ forward, right, brake };
+	}
+	RemotePlayer *player = m_env->getPlayer(pkt->getPeerId());
+	PlayerSAO *sao = player ? player->getPlayerSAO() : nullptr;
+	if (!sao || !checkPriv(player->getName(), "interact"))
+		return;
+	try {
+		m_workshop->drive(*sao, id, drive);
+	} catch (const workshop::Refused &e) {
+		SendChatMessage(pkt->getPeerId(), ChatMessage(utf8_to_wide(e.what())));
+	}
+}
+
+// Terra Firma: a machine set back on its feet (sprint 79); anyone may,
+// as anyone can push one
+void Server::handleCommand_Upright(NetworkPacket *pkt)
+{
+	u16 id;
+	*pkt >> id;
+	RemotePlayer *player = m_env->getPlayer(pkt->getPeerId());
+	PlayerSAO *sao = player ? player->getPlayerSAO() : nullptr;
+	if (!sao || !checkPriv(player->getName(), "interact"))
+		return;
+	try {
+		m_workshop->upright(*sao, id);
+	} catch (const workshop::Refused &e) {
+		SendChatMessage(pkt->getPeerId(), ChatMessage(utf8_to_wide(e.what())));
+	}
+}
+
 // Terra Firma: an object's design made a shell (sprint 50)
 void Server::handleCommand_Hollow(NetworkPacket *pkt)
 {
 	u16 id;
 	u64 part;
-	u8 thickness;
-	*pkt >> id >> part >> thickness;
-	inWorkshop(pkt->getPeerId(), "hollow", [&](PlayerSAO &sao) { m_workshop->hollow(sao, id, part, thickness); });
+	u8 thickness, rounded;
+	*pkt >> id >> part >> thickness >> rounded;
+	inWorkshop(pkt->getPeerId(), "hollow", [&](PlayerSAO &sao) {
+		if (rounded)
+			m_workshop->round(sao, id, part, thickness);
+		else
+			m_workshop->hollow(sao, id, part, thickness);
+	});
 }
 
 // Terra Firma: a face of a machine's part, off the wire (sprint 52)
@@ -2059,13 +2167,23 @@ void Server::handleCommand_Link(NetworkPacket *pkt)
 	std::optional<piece::Machine::Face> face;
 	if (at)
 		face = readFace(*pkt);
+	u8 travel, firmness;
+	*pkt >> travel >> firmness;
 	inWorkshop(pkt->getPeerId(), "joint", [&](PlayerSAO &sao) {
 		if (face)
 			checkFace(*face);
 		// 255: the joint taken away
 		if (joint != 255 && joint >= u8(piece::Joint::Count))
 			throw workshop::Refused("No such joint");
-		m_workshop->relink(sao, id, a, b, joint == 255 ? std::nullopt : std::optional<piece::Joint>(piece::Joint(joint)), face);
+		// 255: its spring as it was
+		std::optional<piece::Spring> spring;
+		if (travel != 255 || firmness != 255) {
+			if (travel >= piece::SPRING_STEPS || firmness >= piece::SPRING_STEPS)
+				throw workshop::Refused("No such spring");
+			spring = piece::Spring{ travel, firmness };
+		}
+		m_workshop->relink(sao, id, a, b, joint == 255 ? std::nullopt : std::optional<piece::Joint>(piece::Joint(joint)), face,
+				spring);
 	});
 }
 

@@ -91,14 +91,34 @@ public:
 	void grab(u16 object, v3f point, float strength);
 	void grabTo(u16 object, v3f hand);
 	void release(u16 object);
-	// Where what's grabbed is now (BS, degrees); nothing if it isn't here.
+	// Where what's grabbed or driven is now (BS, degrees); nothing if it isn't here.
 	std::optional<std::pair<v3f, v3f>> grabbed(u16 object) const;
+	// What's been let go and still rolls here (drawn as grabbed() has it).
+	std::vector<u16> coasting() const;
+	// Where the grip on what's grabbed is now (BS): on the part it's on,
+	// turned with it; nothing if it isn't here.
+	std::optional<v3f> gripAt(u16 object) const;
+	// The object the player stands on, if they stand on one.
+	std::optional<u16> standingOn() const;
+
+	// Driving (sprint 69): sat in an object's seat, facing its front
+	// (sprint 73); false if it has no seat here. Sat, the player is where
+	// the seat is, the machine is moved here by the driver's hands and feet
+	// as the server moves it there, and brought toward the server's word as
+	// what's grabbed is.
+	bool hasSeat(u16 object) const;
+	bool sit(u16 object);
+	void steer(u16 object, const physics::Drive &drive);
+	void getUp(u16 object);
+	std::optional<u16> driving() const { return m_driving; }
 
 private:
 	struct Mirror
 	{
 		physics::World::Id id;
 		size_t text; // the machine's text's hash: changed, it's rebuilt
+		std::optional<v3f> seat; // its driver's (nodes, its frame)
+		v3f facing{ 0, 0, 1 };   // the seat's front (its frame)
 	};
 
 	void ensureWorld();
@@ -125,6 +145,14 @@ private:
 	std::map<u16, size_t> m_unweighed; // machines it can't weigh (its text's hash): said once
 	std::optional<std::pair<u16, float>> m_carrying;
 	std::optional<u16> m_grabbing;
+	// let go and still rolling: predicted here, corrected toward the server,
+	// till it's been still a while (when it went still, ms; 0: moving)
+	std::map<u16, u64> m_coasting;
+	u64 m_parted_said = 0; // when the client's and server's poses parting was last logged (ms)
+	std::optional<u16> m_driving;
+	std::optional<f32> m_ride_yaw; // the seat's facing last frame (radians, as the view's yaw)
+	// Sat: the machine moved, the player put in its seat.
+	void ride(LocalPlayer &p, float dtime);
 	// What the player's walked into (held here where the server has
 	// them): sent for the server to push, every so often (sprint 61)
 	void push(float dtime);

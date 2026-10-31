@@ -124,6 +124,7 @@ export function MockBridge() {
         keymap_aux1: "SYSTEM_SCANCODE_224|GAMEPAD_BUTTON_2",
         keymap_freemove: "SYSTEM_SCANCODE_14|GAMEPAD_BUTTON_13",
         keymap_brake: "SYSTEM_SCANCODE_5",
+        keymap_pour: "SYSTEM_SCANCODE_27",
         keymap_dig: "MOUSE_BUTTON_1|GAMEPAD_AXIS_PLUS_5",
         keymap_place: "MOUSE_BUTTON_3|GAMEPAD_AXIS_PLUS_4",
         keymap_inventory: "SYSTEM_SCANCODE_12|GAMEPAD_BUTTON_3",
@@ -563,7 +564,6 @@ export function MockBridge() {
         },
         "tools.pick": () => null,
         "tools.ask": () => null,
-        "tools.mode": () => null,
         "tools.brush": () => null,
         "hotbar.select": () => null,
         "inventory.drop": ({ from, count }) => {

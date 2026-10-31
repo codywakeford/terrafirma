@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 /*
@@ -100,6 +101,27 @@ struct Wheel
 	v3f axis;       // unit, level in the root's frame
 	float radius, half_width;
 	float friction; // N·m that turning it costs (rolling resistance)
+	// its joint's (sprint 73): turned by the driver's left and right, by
+	// the engines
+	bool steers = false, driven = false;
+	// its tread's friction (sprint 74: its rim's blocks'; a rubber tyre's
+	// grips): its tyre grips as Jolt's car tyre does at GRIP, more or less
+	// with more or less
+	float grip = GRIP;
+	static constexpr float GRIP = 0.6f; // most blocks'
+	// its suspension (sprint 75): how far it travels all told, and how far
+	// its spring's sagged where it was built (nodes); a wheel built on no
+	// spring has a little, stiff, so it rides over a sixteenth's step
+	float travel = 0.1f, sag = 0.05f;
+};
+
+// A hub (sprint 76): a body on a spring off the root that a wheel turns on.
+// It follows its wheel's suspension, not its turn: the strut's seen to
+// work. With no wheel (none on it yet) it rides the root as if welded.
+struct Hub
+{
+	size_t body;
+	std::optional<size_t> wheel; // which of the assembly's wheels
 };
 
 struct Assembly
@@ -107,6 +129,21 @@ struct Assembly
 	std::vector<Body> bodies; // the first is its root: its pose is the assembly's
 	std::vector<Hinge> hinges;
 	std::vector<Wheel> wheels; // all on one axis, each a body none of the hinges join
+	std::vector<Hub> hubs;
+	// Driving (sprint 69): where its driver sits (the assembly's frame,
+	// nodes: a seat's top) and which way the seat faces (sprint 73: ahead,
+	// a level unit vector), and its engines' power (W) and how fast they
+	// turn at most (rpm: sprint 78, a power, not a torque)
+	std::optional<v3f> seat;
+	v3f facing{ 0, 0, 1 };
+	float power = 0, rpm = 0;
+};
+
+// A driver's hands and feet (sprint 69): forward (-1 back .. 1), right
+// (-1 left .. 1), brake (0 .. 1). Forward is the seat's facing (sprint 73).
+struct Drive
+{
+	float forward = 0, right = 0, brake = 0;
 };
 
 struct Quat
@@ -190,6 +227,9 @@ public:
 	// that gets it there); let go, it falls from there as it was moving.
 	void hold(Id id, bool held);
 	void moveTo(Id id, const Pose &to);
+	// Set back on its feet (sprint 79: a car on its roof): lifted `lift`
+	// (nodes), level, facing as it faced, still. Wakes it.
+	void upright(Id id, float lift);
 	// N·s at its root's centre of mass; or, given who gives it (where they
 	// stand), at the nearest point of the body nearest them (a corner pushed
 	// turns it).
@@ -213,6 +253,12 @@ public:
 	void grabTo(Id id, unsigned who, const v3d &hand);
 	void release(Id id, unsigned who);
 	bool grabbed(Id id) const;
+	// Where `who`'s grip is now (nodes): on the body it's on, as that's
+	// turned (a wheel's turns with it); nothing if they've none.
+	std::optional<v3d> gripAt(Id id, unsigned who) const;
+	// Driven so, or not (none): its steering wheels steered, its engines
+	// turning its driven ones (none, it has none or none's driven), braked.
+	void drive(Id id, std::optional<Drive> drive);
 	// Moved a share (0..1) of the way to `to`, all its bodies as one, moving
 	// as they were: a copy brought toward another's word for it. Further
 	// than `snap` (nodes), it's put there.
@@ -235,6 +281,7 @@ public:
 		bool on_ground;      // standing on something it can stand on
 		v3f ground_velocity; // of what it stands on (a cart it rides)
 		v3f ground_normal;
+		std::optional<Id> standing_on; // the assembly it stands on, if it's one
 	};
 	CharacterState character(CharId id) const;
 	// What it's walked into held assemblies since last asked (N·s each,
@@ -257,6 +304,11 @@ public:
 	bool asleep(Id id) const;
 	// Each body but the root, in order: where it is in the root's frame.
 	std::vector<Relative> relatives(Id id) const;
+
+	// For finding what's wrong (sprint 72): its tier and pose, each wheel's
+	// contact (where, how far its suspension's out), and the ground blocks
+	// under it (built, and how many boxes) — one line of words.
+	std::string describe(Id id) const;
 
 	// How many ground blocks are built (for tests: only round what's Live).
 	size_t groundBlocks() const;

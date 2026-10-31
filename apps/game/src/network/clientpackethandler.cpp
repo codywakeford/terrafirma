@@ -334,6 +334,7 @@ void Client::handleCommand_BlockData(NetworkPacket* pkt)
 		Add it to mesh update queue and set it to be acknowledged after update.
 	*/
 	addUpdateMeshTaskWithEdge(p, true);
+	m_liquids_changed.insert(p); // Terra Firma: its liquid, drawn by the liquid layer (sprint 81)
 }
 
 void Client::handleCommand_Inventory(NetworkPacket* pkt)
@@ -2019,6 +2020,22 @@ void Client::handleCommand_Shape(NetworkPacket *pkt)
 	addUpdateMeshTaskForNode(p, false, true);
 }
 
+// Terra Firma: a node's liquid (sprint 81): kept in its block, drawn by the
+// liquid layer (client/liquids), which glides to it; the block isn't remeshed
+void Client::handleCommand_Fill(NetworkPacket *pkt)
+{
+	v3s16 p;
+	std::string liquid;
+	fill::Fill f;
+	*pkt >> p >> liquid >> f.amount >> f.r >> f.g >> f.b;
+	if (!liquid.empty())
+		f.liquid = fill::liquid(liquid);
+	else
+		f.amount = 0;
+	if (m_env.getMap().setFill(p, f))
+		m_liquids_changed.insert(getNodeBlockPos(p));
+}
+
 // Terra Firma: the player's blueprints (sprint 48)
 void Client::handleCommand_Blueprints(NetworkPacket *pkt)
 {
@@ -2038,9 +2055,11 @@ void Client::handleCommand_Materials(NetworkPacket *pkt)
 	workshop::Materials m;
 	for (u16 i = 0; i < count; i++) {
 		u16 c;
-		f32 density, friction;
-		*pkt >> c >> density >> friction;
-		m.set(c, { density, friction }); // throws on what isn't one: the server's broken
+		f32 density, friction, power, rpm;
+		u8 role;
+		*pkt >> c >> density >> friction >> role >> power >> rpm;
+		// throws on what isn't one: the server's broken
+		m.set(c, { density, friction, workshop::Role(role), power, rpm });
 	}
 	m_materials = std::move(m);
 }
@@ -2049,6 +2068,9 @@ void Client::handleCommand_Materials(NetworkPacket *pkt)
 void Client::handleCommand_Held(NetworkPacket *pkt)
 {
 	u16 id;
-	*pkt >> id;
-	m_held = id;
+	u8 how;
+	*pkt >> id >> how;
+	if (how >= u8(workshop::Handed::Count))
+		throw SerializationError("TOCLIENT_HELD: no such way to hand it over");
+	m_held = std::make_pair(id, workshop::Handed(how));
 }

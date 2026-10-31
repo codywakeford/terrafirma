@@ -21,8 +21,11 @@ const Kind KINDS[size_t(Tool::Count)] = {
 	{ "cylinder", "Cylinder", true, false, 1, Kind::Round::Across },
 	{ "cone", "Cone", true, false, 1, Kind::Round::Taper },
 	{ "sphere", "Sphere", true, false, 1, Kind::Round::Ball },
-	{ "cut", "Cut", true, true, 1, Kind::Round::None },
+	{ "cut", "Plane", true, true, 1, Kind::Round::None }, // named apart from the cut brush (sprint 70)
 	{ "bore", "Bore", false, false, 2, Kind::Round::Across },
+	{ "frame", "Frame", true, false, 1, Kind::Round::Frame },
+	{ "truss", "Truss", true, false, 1, Kind::Round::Truss },
+	{ "beam", "Beam", true, false, 1, Kind::Round::Line },
 };
 
 namespace {
@@ -103,11 +106,19 @@ std::vector<v3s32> Stroke::cells() const
 	for (int b = 0; b < 3; b++)
 		if (b != a)
 			radius = std::max(radius, std::abs(t[b] - g[b]));
+	// a structure's members aren't round: drawn corner to corner as a box is
+	const bool rounded = k.round == Kind::Round::Ball || k.round == Kind::Round::Across || k.round == Kind::Round::Taper;
 	v3s32 lo, hi; // the volume's box, [lo, hi)
 	for (int b = 0; b < 3; b++) {
 		if (b == a)
 			continue;
-		if (dragged && k.round != Kind::Round::None) {
+		if (k.round == Kind::Round::Line) {
+			// a beam: its ends' middles, and half its thickness round them
+			lo[b] = std::min(g[b], t[b]) - size / 2;
+			hi[b] = std::max(g[b], t[b]) + (size + 1) / 2 + 1;
+			continue;
+		}
+		if (dragged && rounded) {
 			lo[b] = g[b] - radius;
 			hi[b] = g[b] + radius + 1;
 			continue;
@@ -149,10 +160,45 @@ std::vector<v3s32> Stroke::cells() const
 			out.push_back(c);
 		}
 	};
+	// a structure's members: as thick as the size, but not past the box's middle
+	auto near = [&](s32 c, int b) {
+		const s32 thick = std::min<s32>(size, (hi[b] - lo[b] + 1) / 2);
+		return c - lo[b] < thick || hi[b] - 1 - c < thick;
+	};
+	// across side `b`'s two other axes: on one of its diagonals
+	auto crossed = [&](v3s32 c, int b) {
+		const int u = (b + 1) % 3, v = (b + 2) % 3;
+		const f32 w = f32(hi[u] - lo[u]), h = f32(hi[v] - lo[v]);
+		if (w < 3 * size || h < 3 * size) // too small to brace
+			return false;
+		const f32 pu = c[u] + 0.5f - lo[u], pv = c[v] + 0.5f - lo[v];
+		const f32 length = std::sqrt(w * w + h * h);
+		// distance from each diagonal, from its corner to the far one
+		return std::fabs(pu * h - pv * w) / length < size / 2.f
+				|| std::fabs(pu * h - (h - pv) * w) / length < size / 2.f;
+	};
+	const v3f from(g.X + 0.5f, g.Y + 0.5f, g.Z + 0.5f), till(t.X + 0.5f, t.Y + 0.5f, t.Z + 0.5f);
 	for (s32 x = lo.X; x < hi.X; x++)
 		for (s32 y = lo.Y; y < hi.Y; y++)
 			for (s32 z = lo.Z; z < hi.Z; z++) {
-				if (k.round != Kind::Round::None) {
+				const v3s32 c(x, y, z);
+				if (k.round == Kind::Round::Frame || k.round == Kind::Round::Truss) {
+					const int edges = near(x, 0) + near(y, 1) + near(z, 2);
+					bool in = edges >= 2;
+					// a side's cross: on that side's skin
+					for (int b = 0; b < 3 && !in && k.round == Kind::Round::Truss; b++)
+						in = near(c[b], b) && crossed(c, b);
+					if (!in)
+						continue;
+				} else if (k.round == Kind::Round::Line) {
+					// within half the size of the line across the face (all along the normal)
+					v3f p(x + 0.5f, y + 0.5f, z + 0.5f), d = till - from;
+					p[a] = from[a];
+					d[a] = 0;
+					const f32 along = d.getLengthSQ() > 0 ? std::clamp((p - from).dotProduct(d) / d.getLengthSQ(), 0.f, 1.f) : 0;
+					if ((from + d * along).getDistanceFrom(p) > size / 2.f)
+						continue;
+				} else if (k.round != Kind::Round::None) {
 					const v3f c(x + 0.5f, y + 0.5f, z + 0.5f);
 					f32 e = 0; // squared, 1 at the ellipse
 					for (int b = 0; b < 3; b++)
@@ -371,14 +417,29 @@ Edit Sculptor::apply(const Stroke &s, content_t material, std::optional<VoxelAre
 	return edit;
 }
 
-Edit Sculptor::hollow(const VoxelArea &area, int thickness)
+// What's in an area, a sixteenth at a time, with open space a sixteenth
+// round it (all that's further from anything open is at least that far
+// from this), and how far each solid sixteenth is from open space (steps
+// to any of the 26 round it) out to `reach` (0: further).
+struct Sculptor::Solid
+{
+	VoxelArea box; // the solid nodes'
+	v3s32 origin, dims;
+	std::vector<bool> filled;
+	std::vector<u8> near;
+
+	size_t index(v3s32 c) const { return size_t(c.X) + size_t(dims.X) * (size_t(c.Y) + size_t(dims.Y) * size_t(c.Z)); }
+	bool inside(v3s32 c) const { return c.X >= 0 && c.Y >= 0 && c.Z >= 0 && c.X < dims.X && c.Y < dims.Y && c.Z < dims.Z; }
+	bool solid(v3s32 c) const { return inside(c) && filled[index(c)]; }
+};
+
+std::optional<Sculptor::Solid> Sculptor::solidIn(const VoxelArea &area, int reach) const
 {
 	const NodeDefManager *ndef = m_map.getNodeDefManager();
 	auto solid = [&](v3s16 p) {
 		const MapNode n = m_map.getNode(p);
 		return n.getContent() != CONTENT_AIR && ndef->get(n).drawtype == NDT_NORMAL;
 	};
-	// the solid nodes' box
 	std::optional<VoxelArea> box;
 	for (s16 x = area.MinEdge.X; x <= area.MaxEdge.X; x++)
 		for (s16 y = area.MinEdge.Y; y <= area.MaxEdge.Y; y++)
@@ -389,14 +450,13 @@ Edit Sculptor::hollow(const VoxelArea &area, int thickness)
 					box->addPoint(v3s16(x, y, z));
 				}
 	if (!box)
-		return {};
+		return std::nullopt;
 
-	// its sixteenths, and open space a sixteenth round it (all that's
-	// further from anything open is at least that far from this)
-	const v3s32 origin = v3s32(box->MinEdge.X, box->MinEdge.Y, box->MinEdge.Z) * STEPS - v3s32(1, 1, 1);
-	const v3s32 dims = v3s32(box->getExtent().X, box->getExtent().Y, box->getExtent().Z) * STEPS + v3s32(2, 2, 2);
-	auto index = [&](v3s32 c) { return size_t(c.X) + size_t(dims.X) * (size_t(c.Y) + size_t(dims.Y) * size_t(c.Z)); };
-	std::vector<bool> filled(size_t(dims.X) * dims.Y * dims.Z, false);
+	Solid out;
+	out.box = *box;
+	out.origin = v3s32(box->MinEdge.X, box->MinEdge.Y, box->MinEdge.Z) * STEPS - v3s32(1, 1, 1);
+	out.dims = v3s32(box->getExtent().X, box->getExtent().Y, box->getExtent().Z) * STEPS + v3s32(2, 2, 2);
+	out.filled.assign(size_t(out.dims.X) * out.dims.Y * out.dims.Z, false);
 	for (s16 x = box->MinEdge.X; x <= box->MaxEdge.X; x++)
 		for (s16 y = box->MinEdge.Y; y <= box->MaxEdge.Y; y++)
 			for (s16 z = box->MinEdge.Z; z <= box->MaxEdge.Z; z++) {
@@ -408,43 +468,47 @@ Edit Sculptor::hollow(const VoxelArea &area, int thickness)
 					for (s16 cy = 0; cy < STEPS; cy++)
 						for (s16 cz = 0; cz < STEPS; cz++)
 							if (!cut || cut->has({ cx, cy, cz }))
-								filled[index(world({ p, v3s16(cx, cy, cz) }) - origin)] = true;
+								out.filled[out.index(world({ p, v3s16(cx, cy, cz) }) - out.origin)] = true;
 			}
 
-	// how far each solid sixteenth is from open space (a step to any of
-	// the 26 round it), out to the wall's thickness
-	std::vector<u8> near(filled.size(), 0); // 0: not reached
+	out.near.assign(out.filled.size(), 0);
 	std::vector<v3s32> ring;
-	for (s32 z = 0; z < dims.Z; z++)
-		for (s32 y = 0; y < dims.Y; y++)
-			for (s32 x = 0; x < dims.X; x++)
-				if (!filled[index({ x, y, z })])
+	for (s32 z = 0; z < out.dims.Z; z++)
+		for (s32 y = 0; y < out.dims.Y; y++)
+			for (s32 x = 0; x < out.dims.X; x++)
+				if (!out.filled[out.index({ x, y, z })])
 					ring.emplace_back(x, y, z);
-	for (int d = 1; d <= thickness && !ring.empty(); d++) {
+	for (int d = 1; d <= reach && !ring.empty(); d++) {
 		std::vector<v3s32> next;
 		for (const v3s32 &c : ring)
 			for (s32 dz = -1; dz <= 1; dz++)
 				for (s32 dy = -1; dy <= 1; dy++)
 					for (s32 dx = -1; dx <= 1; dx++) {
 						const v3s32 q = c + v3s32(dx, dy, dz);
-						if (q.X < 0 || q.Y < 0 || q.Z < 0 || q.X >= dims.X || q.Y >= dims.Y || q.Z >= dims.Z)
+						if (!out.inside(q))
 							continue;
-						const size_t i = index(q);
-						if (filled[i] && !near[i]) {
-							near[i] = u8(d);
+						const size_t i = out.index(q);
+						if (out.filled[i] && !out.near[i]) {
+							out.near[i] = u8(d);
 							next.push_back(q);
 						}
 					}
 		ring = std::move(next);
 	}
+	return out;
+}
 
-	// what's further than the wall is taken, node by node
+Edit Sculptor::takeWhere(const Solid &solid, const std::function<bool(v3s32 cell)> &taken)
+{
+	// node by node, what's taken
 	Edit edit;
-	for (s16 x = box->MinEdge.X; x <= box->MaxEdge.X; x++)
-		for (s16 y = box->MinEdge.Y; y <= box->MaxEdge.Y; y++)
-			for (s16 z = box->MinEdge.Z; z <= box->MaxEdge.Z; z++) {
+	const NodeDefManager *ndef = m_map.getNodeDefManager();
+	for (s16 x = solid.box.MinEdge.X; x <= solid.box.MaxEdge.X; x++)
+		for (s16 y = solid.box.MinEdge.Y; y <= solid.box.MaxEdge.Y; y++)
+			for (s16 z = solid.box.MinEdge.Z; z <= solid.box.MaxEdge.Z; z++) {
 				const v3s16 p(x, y, z);
-				if (!solid(p))
+				const MapNode n = m_map.getNode(p);
+				if (n.getContent() == CONTENT_AIR || ndef->get(n).drawtype != NDT_NORMAL)
 					continue;
 				const shape::Shape *was = m_map.getShape(p);
 				shape::Shape left = was ? *was : shape::Shape::whole();
@@ -452,21 +516,75 @@ Edit Sculptor::hollow(const VoxelArea &area, int thickness)
 				for (s16 cx = 0; cx < STEPS; cx++)
 					for (s16 cy = 0; cy < STEPS; cy++)
 						for (s16 cz = 0; cz < STEPS; cz++) {
-							const size_t i = index(world({ p, v3s16(cx, cy, cz) }) - origin);
-							if (filled[i] && !near[i]) {
+							const v3s32 c = world({ p, v3s16(cx, cy, cz) }) - solid.origin;
+							if (solid.filled[solid.index(c)] && taken(c)) {
 								left.set({ cx, cy, cz }, false);
 								changed = true;
 							}
 						}
 				if (!changed)
 					continue;
-				edit.was.push_back({ p, m_map.getNode(p), was ? std::optional<shape::Shape>(*was) : std::nullopt });
+				edit.was.push_back({ p, n, was ? std::optional<shape::Shape>(*was) : std::nullopt });
 				if (left.empty())
 					m_map.removeNodeWithEvent(p);
 				else
 					m_map.setShape(p, left);
 			}
 	return edit;
+}
+
+Edit Sculptor::hollow(const VoxelArea &area, int thickness)
+{
+	const std::optional<Solid> solid = solidIn(area, thickness);
+	if (!solid)
+		return {};
+	// what's further than the wall is taken
+	return takeWhere(*solid, [&](v3s32 c) { return !solid->near[solid->index(c)]; });
+}
+
+Edit Sculptor::round(const VoxelArea &area, int radius)
+{
+	const std::optional<Solid> solid = solidIn(area, radius);
+	if (!solid)
+		return {};
+	// the ball's offsets
+	std::vector<v3s32> ball;
+	for (s32 dz = -radius; dz <= radius; dz++)
+		for (s32 dy = -radius; dy <= radius; dy++)
+			for (s32 dx = -radius; dx <= radius; dx++)
+				if (dx * dx + dy * dy + dz * dz <= radius * radius)
+					ball.emplace_back(dx, dy, dz);
+	// the core: what a ball of the radius fits round, all solid (what's
+	// further than the radius from open space a step at a time is)
+	auto core = [&](v3s32 c) {
+		if (!solid->filled[solid->index(c)])
+			return false;
+		if (!solid->near[solid->index(c)])
+			return true;
+		for (const v3s32 &d : ball)
+			if (!solid->solid(c + d))
+				return false;
+		return true;
+	};
+	std::vector<s8> cored(solid->filled.size(), -1); // -1: not yet known
+	auto isCore = [&](v3s32 c) {
+		if (!solid->inside(c))
+			return false;
+		s8 &k = cored[solid->index(c)];
+		if (k < 0)
+			k = core(c) ? 1 : 0;
+		return k == 1;
+	};
+	// rounded: what no ball in the core reaches is taken (an opening: the
+	// shape's convex edges and corners rounded to the radius)
+	return takeWhere(*solid, [&](v3s32 c) {
+		if (!solid->near[solid->index(c)])
+			return false;
+		for (const v3s32 &d : ball)
+			if (isCore(c + d))
+				return false;
+		return true;
+	});
 }
 
 } // namespace sculpt

@@ -17,8 +17,8 @@
 	here till the game takes it, where it knows what's pointed at.
 
 	A tool is a brush (add, cut, paint, or a new part) and a shape (sprint
-	53); what a click does is its mode: it draws, or selects a part, or
-	joins two.
+	53). Sprint 70: one build mode (Tab); parts are picked and worked on
+	with the tools away, and their joints set from their menu.
 */
 class Hand
 {
@@ -27,6 +27,11 @@ public:
 		Focus, Mirror, Undo, Start, Save, Place, Hollow, Level, Reset,
 		Detach, Delete, Relink, // the part selected's: taken off, gone, a joint of it set
 		Socket, Unsocket, // a socket made on the face its menu's on, one taken away
+		// sprint 74: the part pointed at copied, another pasted; the part
+		// pointed at to be saved (the page asks its name: Save); one from
+		// the library taken into the hands, one forgotten
+		Copy, Paste, Name, Take, Forget,
+		Round, // the part's edges rounded to the tool's size (sprint 75)
 		Count,
 	};
 	// What each verb is, by Verb: the page's name for it, and whether it
@@ -54,7 +59,8 @@ public:
 
 	// What the brush does with the shape drawn (sprint 53): adds it to the
 	// part, cuts it out, paints what's there, makes it a part of its own;
-	// or pulls the flat face pressed on out or in (sprint 55).
+	// or pulls the flat face pressed on out or in (sprint 55). Joints are
+	// set from a part's menu (sprint 71).
 	enum class Brush : u8 { Add, Cut, Paint, Part, Pull, Count };
 	struct BrushKind
 	{
@@ -62,6 +68,7 @@ public:
 		sculpt::Act act; // pulling: as it's pulled, out (add) or in (cut)
 		bool apart; // grown as a part of its own
 		bool pulls; // a face pulled, not a shape drawn
+		bool picked; // on the rail, and R steps to it
 	};
 	static const BrushKind BRUSHES[size_t(Brush::Count)];
 	Brush brush() const { return m_brush; }
@@ -69,28 +76,17 @@ public:
 	// hinge about the face's normal (a wheel).
 	piece::Joint partJoint() const { return m_part_joint; }
 	void setPartJoint(piece::Joint joint);
-	// Throws on an id that isn't a brush: the page is wrong.
+	// Throws on an id that isn't a brush the rail picks: the page is wrong.
 	void pickBrush(const std::string &id);
-
-	// What a click does: draws with the brush, or selects a part (to work
-	// on alone, and see and set its joints). Two things are joined by
-	// carrying one onto the other.
-	enum class Click : u8 { Draw, Select, Count };
-	static const char *const CLICKS[size_t(Click::Count)]; // the page's names
-	struct Mode
-	{
-		Click click = Click::Draw;
-	};
-	const Mode &mode() const { return m_mode; }
-	// Throws on a mode that isn't one: the page is wrong.
-	void setMode(const Mode &mode);
+	// The next brush on the rail (R).
+	void nextBrush();
 
 	bool out() const { return m_out; }
-	// Build mode's two ways in (sprint 62): X shapes the world, C creates
-	// objects. Creating, what's added is always an object (a part on the
-	// ground, or on the workpiece), and the world isn't cut or painted.
-	bool creating() const { return m_out && m_creating; }
-	void setCreating(bool creating) { m_creating = creating; }
+	// One build mode (sprint 70): what's added is an object (a part on the
+	// ground, or on the workpiece) unless the world's asked for (Alt held),
+	// when it's added to the world. Cut and paint work on whatever's hit.
+	bool creating() const { return m_out && !m_world; }
+	void setWorld(bool world) { m_world = world; }
 	// The brush as it acts: creating, adding makes parts.
 	const BrushKind &acting() const
 	{
@@ -102,7 +98,6 @@ public:
 
 	void toggle() { m_out = !m_out; }
 	void takeOut() { m_out = true; }
-	void next();
 	// Throws on an id that isn't a tool: the page is wrong.
 	void pick(const std::string &id);
 	// Steps through the sizes: up for steps > 0.
@@ -120,12 +115,11 @@ public:
 
 private:
 	bool m_out = false;
-	bool m_creating = false;
+	bool m_world = false;
 	sculpt::Tool m_tool = sculpt::Tool::Box;
 	int m_size = 1;
 	bool m_mirror = false;
 	std::vector<Ask> m_asked;
-	Mode m_mode;
 	Brush m_brush = Brush::Add;
 	piece::Joint m_part_joint = piece::Joint::Fixed;
 };

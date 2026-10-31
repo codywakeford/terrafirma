@@ -5,6 +5,7 @@
 
 #include "physics/walk.h"
 #include "physics/world.h"
+#include "workshop/motion.h"
 #include <cmath>
 
 using namespace physics;
@@ -40,6 +41,16 @@ public:
 	void testGrabbedLiftsTipsOrHolds();
 	void testCorrectedTowardAnother();
 	void testCartOnACart();
+	void testDriven();
+	void testTreadGrips();
+	void testQuick();
+	void testUpright();
+	void testSprings();
+	void testHubsRide();
+	void testClientsGrabbedCartStaysUp();
+	void testCartDraggedKeepsItsWheelsUp();
+	void testWheelTurnedByItsRim();
+	void testGrabbedKeepsItsGround();
 };
 
 static TestPhysics g_test_instance;
@@ -70,6 +81,16 @@ void TestPhysics::runTests(IGameDef *gamedef)
 	TEST(testGrabbedLiftsTipsOrHolds);
 	TEST(testCorrectedTowardAnother);
 	TEST(testCartOnACart);
+	TEST(testDriven);
+	TEST(testTreadGrips);
+	TEST(testQuick);
+	TEST(testUpright);
+	TEST(testSprings);
+	TEST(testHubsRide);
+	TEST(testGrabbedKeepsItsGround);
+	TEST(testWheelTurnedByItsRim);
+	TEST(testCartDraggedKeepsItsWheelsUp);
+	TEST(testClientsGrabbedCartStaysUp);
 }
 
 namespace {
@@ -117,7 +138,7 @@ v3f turned(const Quat &q, v3f v)
 // z (or, `hinged`, round parts on hinges). Each axle's friction is rolling
 // resistance: 0.02 of its share of the cart's weight (~470 kg) at the
 // wheel's radius.
-Assembly cart(bool hinged = false)
+Assembly cart(bool hinged = false, bool mixed = false)
 {
 	Assembly a;
 	a.bodies.push_back(block(v3f(0), v3f(2, 0.25f, 1), WOOD));
@@ -127,7 +148,7 @@ Assembly cart(bool hinged = false)
 			Body w = block(c, v3f(0.6f, 0.6f, 0.2f), WOOD);
 			w.round = Round{ c, v3f(0, 0, 1), 0.4f, 0.1f };
 			const float friction = 0.02f * 470 / 4 * G * 0.4f;
-			if (hinged)
+			if (hinged || (mixed && z > 0))
 				a.hinges.push_back(Hinge{ 0, a.bodies.size(), c, v3f(0, 0, 1), friction });
 			else
 				a.wheels.push_back(Wheel{ a.bodies.size(), c, v3f(0, 0, 1), 0.4f, 0.1f, friction });
@@ -797,4 +818,336 @@ void TestPhysics::testCartOnACart()
 	run(w, 1);
 	UTEST(most < 0.5f, "the top one jolted at %f m/s", most);
 	UTEST(w.pose(high).position.Y > 0.5, "the top one's at %f", w.pose(high).position.Y);
+}
+
+// a lawnmower's engine and a strong car's (W)
+constexpr float SMALL = 3000, BIG = 370000;
+
+// Sprint 69: a driver's forward turns the engines' power into the wheels;
+// a cart with none goes nowhere. Sprint 73: only the driven wheels are
+// turned and only the steering ones steer, and ahead is the seat's facing.
+// A car facing +x: its front wheels steer, its back ones are driven.
+// Sprint 78: an engine's a power (W) to its most rpm, not a torque.
+Assembly car(float power, v3f facing = v3f(1, 0, 0), bool steers = true, bool driven = true)
+{
+	Assembly a = cart();
+	a.power = power;
+	a.rpm = 6000;
+	a.facing = facing;
+	for (Wheel &w : a.wheels) {
+		const bool front = w.centre.dotProduct(facing) > 0;
+		w.steers = steers && front;
+		w.driven = driven && !front;
+	}
+	return a;
+}
+
+void TestPhysics::testDriven()
+{
+	for (float power : { 0.f, SMALL }) {
+		World w(flat());
+		World::Id id = w.add(car(power), Pose{ v3d(2, 0.1, 8), {} });
+		run(w, 1);
+		w.drive(id, physics::Drive{ 1, 0, 0 });
+		run(w, 1.5);
+		const float speed = w.velocity(id).getLength();
+		if (power == 0) {
+			UTEST(speed < 0.1f, "no engine, yet it goes %f", speed);
+			continue;
+		}
+		UTEST(speed > 1.f && speed < 6, "driven to %f", speed);
+		UTEST(w.velocity(id).X > 0, "driven back, at %f", w.velocity(id).X);
+		w.drive(id, physics::Drive{ 0.3f, 1, 0 });
+		run(w, 1);
+		const Quat q = w.pose(id).rotation;
+		UTEST(std::fabs(q.y) > 0.05f, "steered only %f", q.y);
+		// right is the driver's right: facing +x, toward -z (sprint 73: it was left)
+		UTEST(w.velocity(id).Z < -0.1f, "steered right, it went %f along z", w.velocity(id).Z);
+		w.drive(id, physics::Drive{ 0, 0, 1 });
+		run(w, 3);
+		UTEST(w.velocity(id).getLength() < 0.2f, "braked, still at %f", w.velocity(id).getLength());
+		UTEST(w.pose(id).position.Y > -0.5, "off the floor at %f", w.pose(id).position.Y);
+	}
+	{
+		// the seat facing the other way, forward goes the other way
+		float went[2];
+		for (int ahead : { 1, -1 }) {
+			World w(flat());
+			World::Id id = w.add(car(SMALL, v3f(float(ahead), 0, 0)), Pose{ v3d(8, 0.1, 8), {} });
+			run(w, 1);
+			w.drive(id, physics::Drive{ 1, 0, 0 });
+			run(w, 1);
+			went[ahead > 0] = float(w.pose(id).position.X - 8);
+		}
+		UTEST(went[0] < -0.1f && went[1] > 0.1f, "went %f facing back, %f ahead", went[0], went[1]);
+	}
+	{
+		// an engine driving no wheel goes nowhere
+		World w(flat());
+		World::Id id = w.add(car(SMALL, v3f(1, 0, 0), true, false), Pose{ v3d(2, 0.1, 8), {} });
+		run(w, 1);
+		w.drive(id, physics::Drive{ 1, 0, 0 });
+		run(w, 1.5);
+		UTEST(w.velocity(id).getLength() < 0.1f, "no wheel driven, yet it goes %f", w.velocity(id).getLength());
+	}
+	{
+		// no wheel steering, it goes straight
+		World w(flat());
+		World::Id id = w.add(car(SMALL, v3f(1, 0, 0), false, true), Pose{ v3d(2, 0.1, 8), {} });
+		run(w, 1);
+		w.drive(id, physics::Drive{ 1, 1, 0 });
+		run(w, 2);
+		UTEST(std::fabs(w.pose(id).rotation.y) < 0.01f, "no wheel steers, yet it turned %f", w.pose(id).rotation.y);
+		UTEST(w.velocity(id).X > 1, "it went %f", w.velocity(id).X);
+	}
+}
+
+// Sprint 69: something in someone's hands (grabbed, carried, driven) wasn't
+// asked what ground it needs, so two seconds on the ground under it was
+// dropped and it fell through. A block dragged along for five seconds
+// stays on the floor.
+void TestPhysics::testGrabbedKeepsItsGround()
+{
+	World w(flat());
+	Assembly a;
+	a.bodies.push_back(block(v3f(0), v3f(1), 150)); // 150 kg, its pull past its friction
+	World::Id id = w.add(a, Pose{ v3d(0, 0, 0), {} });
+	run(w, 0.5);
+	w.grab(id, 1, v3f(0.5f, 0, 0), 1500);
+	for (double t = 0; t < 5; t += STEP) {
+		w.grabTo(id, 1, v3d(1 + t, 0, 0));
+		w.step(STEP);
+	}
+	UTEST(w.pose(id).position.Y > -0.1, "fell through to %f", w.pose(id).position.Y);
+	UTEST(w.pose(id).position.X > 2, "dragged only to %f", w.pose(id).position.X);
+}
+
+// Sprint 71: a grip on a wheel was a grip on the car (wheels aren't bodies
+// to Jolt), so its mark slid off the turning wheel and a rim pulled dragged
+// the car. Now the grip's on the wheel and turns with it: the front of a
+// rim lifted turns the wheel, and the car isn't hauled up with it.
+void TestPhysics::testWheelTurnedByItsRim()
+{
+	World w(flat());
+	World::Id id = w.add(cart(), Pose{ v3d(2, 0.1, 8), {} });
+	run(w, 1);
+	const v3d root = w.pose(id).position;
+	const v3d hub = root + v3d(0.7, -0.1, 0.65);
+	w.grab(id, 1, v3f(1.06f, -0.1f, 0.65f), 400); // the front of the front wheel's rim
+	const v3d from = *w.gripAt(id, 1);
+	for (double t = 0; t < 0.6; t += STEP) {
+		w.grabTo(id, 1, from + v3d(0, std::min(t, 0.3), 0));
+		w.step(STEP);
+	}
+	const v3d at = *w.gripAt(id, 1);
+	const v3d moved = w.pose(id).position - root;
+	const double off = (at - (hub + moved)).getLength();
+	UTEST(at.Y - from.Y > 0.1, "the rim's point rose only %f", at.Y - from.Y);
+	UTEST(std::fabs(off - 0.36) < 0.08, "the grip left the rim: %f from the hub", off);
+	UTEST(std::fabs(moved.Y) < 0.1, "the car was hauled %f", moved.Y);
+}
+
+// Sprint 71: wheels looked to fall through the ground as a car was pulled
+// about. A cart dragged by a corner, sideways and along, over many ground
+// blocks: its wheels' middles stay on the floor here (what sank was the
+// client's drawing of them: content_cao glides a group by its middle now).
+void TestPhysics::testCartDraggedKeepsItsWheelsUp()
+{
+	for (const v3d way : { v3d(0, 0, 1), v3d(1, 0, 0), v3d(0.7, 0, 0.7) }) {
+		World w(flat());
+		World::Id id = w.add(cart(), Pose{ v3d(2, 0.1, 2), {} });
+		run(w, 1);
+		w.grab(id, 1, v3f(1, 0.1f, 0.5f), 1500);
+		const v3d from = *w.gripAt(id, 1);
+		double lowest = 1e9, lowest_wheel = 1e9;
+		float tilt = 1;
+		for (double t = 0; t < 6; t += STEP) {
+			w.grabTo(id, 1, from + way * (2.5 * t) + v3d(0, 0.3, 0));
+			w.step(STEP);
+			const Pose p = w.pose(id);
+			lowest = std::min(lowest, p.position.Y);
+			tilt = std::min(tilt, workshop::turned(p.rotation, v3f(0, 1, 0)).Y);
+			// each wheel's middle (a wheel body's origin is the cart's: it swings as it turns)
+			const std::vector<Relative> rel = w.relatives(id);
+			const Assembly shape = cart();
+			for (const Wheel &wheel : shape.wheels) {
+				const Relative &r = rel[wheel.body - 1];
+				const v3f at = workshop::turned(p.rotation, r.offset + workshop::turned(r.rotation, wheel.centre));
+				lowest_wheel = std::min(lowest_wheel, p.position.Y + at.Y);
+			}
+		}
+		UTEST(lowest > -0.3, "the cart sank to %f", lowest);
+		UTEST(lowest_wheel > -0.3, "a wheel sank to %f", lowest_wheel);
+	}
+}
+
+// Sprint 72: a car sank on one side while grabbed and came back up when let
+// go: the client's copy. As a client has it: held where the server says,
+// then let go and grabbed, pulled, and brought toward the server's word
+// (a step late) a share a frame. Its body and wheels stay on the floor.
+void TestPhysics::testClientsGrabbedCartStaysUp()
+{
+	for (const int kind : { 0, 1, 2 }) {
+	const bool hinged = kind == 1, mixed = kind == 2;
+	World server(flat()), client(flat());
+	const Pose start{ v3d(2, 0.1, 2), {} };
+	World::Id s = server.add(cart(hinged, mixed), start), c = client.add(cart(hinged, mixed), start);
+	client.hold(c, true);
+	for (double t = 0; t < 1; t += STEP) {
+		server.step(STEP);
+		client.moveTo(c, server.pose(s));
+		client.step(STEP);
+	}
+	client.hold(c, false);
+	const v3f point(1, 0.1f, 0.5f);
+	server.grab(s, 1, point, 1500);
+	client.grab(c, 1, point, 1500);
+	const v3d from = *client.gripAt(c, 1);
+	double lowest = 1e9, lowest_wheel = 1e9;
+	const Assembly shape = cart(hinged, mixed);
+	for (double t = 0; t < 6; t += STEP) {
+		const v3d hand = from + v3d(0, 0, 2.5 * t) + v3d(0, 0.3, 0);
+		server.grabTo(s, 1, hand);
+		client.grabTo(c, 1, hand);
+		server.step(STEP);
+		client.step(STEP);
+		client.correct(c, { server.pose(s).position + v3d::from(server.velocity(s) * 0.1f), server.pose(s).rotation }, 0.05f, 1.5f);
+		const Pose p = client.pose(c);
+		lowest = std::min(lowest, p.position.Y);
+		const std::vector<Relative> rel = client.relatives(c);
+		for (const Wheel &wheel : shape.wheels) {
+			const Relative &r = rel[wheel.body - 1];
+			const v3f at = workshop::turned(p.rotation, r.offset + workshop::turned(r.rotation, wheel.centre));
+			lowest_wheel = std::min(lowest_wheel, p.position.Y + at.Y);
+		}
+	}
+	UTEST(lowest > -0.3, "the client's cart sank to %f", lowest);
+	UTEST(lowest_wheel > -0.3, "a client's wheel sank to %f", lowest_wheel);
+	}
+}
+
+// Sprint 78: a strong car's engine on a light cart is quick: it's past
+// 25 m/s (90 km/h) in six seconds from a stop, and still upright.
+void TestPhysics::testQuick()
+{
+	World w(flat());
+	World::Id id = w.add(car(BIG), Pose{ v3d(2, 0.1, 8), {} });
+	run(w, 1);
+	w.drive(id, physics::Drive{ 1, 0, 0 });
+	float at3 = 0;
+	for (int i = 0; i < 6; i++) {
+		run(w, 1);
+		if (i == 2)
+			at3 = w.velocity(id).X;
+	}
+	const float speed = w.velocity(id).X;
+	infostream << "TestPhysics: a 370 kW cart at 3 s " << at3 << " m/s, at 6 s " << speed << " m/s" << std::endl;
+	UTEST(speed > 25, "only %f m/s after six seconds", speed);
+	UTEST(w.pose(id).position.Y > -0.5 && w.pose(id).position.Y < 1, "off the floor at %f", w.pose(id).position.Y);
+}
+
+// Sprint 79: a car on its roof, set upright, lands on its wheels facing
+// as it did.
+void TestPhysics::testUpright()
+{
+	World w(flat());
+	const Quat roof = about(v3f(1, 0, 0), core::PI); // on its roof, rolled over its length (it's along x)
+	World::Id id = w.add(car(SMALL), Pose{ v3d(2, 0.6, 8), roof });
+	run(w, 2);
+	UTEST(w.pose(id).rotation.x * w.pose(id).rotation.x > 0.5f, "it didn't stay on its roof (%f)", w.pose(id).rotation.x);
+	w.upright(id, 1.5f);
+	run(w, 3);
+	const Quat q = w.pose(id).rotation;
+	// level: no pitch or roll left, only a turn about the up
+	UTEST(q.x * q.x + q.z * q.z < 0.01f, "still tipped (%f, %f)", q.x, q.z);
+	// facing +x as it did (rolled, not spun round)
+	const float ahead = 1 - 2 * (q.y * q.y + q.z * q.z);
+	UTEST(ahead > 0.9f, "turned about (%f along x)", ahead);
+	UTEST(w.pose(id).position.Y > -0.3 && w.pose(id).position.Y < 1, "at %f", w.pose(id).position.Y);
+}
+
+// A wheel's tread grips as its rim's material does (sprint 74): an
+// engine spins wheels on ice and gets nowhere much; on rubber it goes.
+void TestPhysics::testTreadGrips()
+{
+	float speed[2];
+	for (int i = 0; i < 2; i++) {
+		World w(flat());
+		Assembly a = car(BIG);
+		for (Wheel &wheel : a.wheels)
+			wheel.grip = i == 0 ? 0.05f : 1.f;
+		World::Id id = w.add(a, Pose{ v3d(2, 0.1, 8), {} });
+		run(w, 1);
+		w.drive(id, physics::Drive{ 1, 0, 0 });
+		run(w, 1);
+		speed[i] = w.velocity(id).getLength();
+	}
+	UTEST(speed[0] < speed[1] * 0.7f, "on ice %f, on rubber %f", speed[0], speed[1]);
+}
+
+// Sprint 75: dropped from a height, a car on long soft springs gives more
+// as it lands than one on the short stiff ones, and both settle on their
+// wheels where they were built.
+void TestPhysics::testSprings()
+{
+	double lowest[2], rest[2];
+	for (int i = 0; i < 2; i++) {
+		World w(flat());
+		Assembly a = car(0);
+		if (i == 1)
+			for (Wheel &wheel : a.wheels) {
+				wheel.travel = 0.8f;
+				wheel.sag = 0.17f;
+			}
+		{
+			World settle(flat());
+			const World::Id s = settle.add(a, Pose{ v3d(2, 0.1, 8), {} });
+			run(settle, 2);
+			rest[i] = settle.pose(s).position.Y;
+		}
+		World::Id id = w.add(a, Pose{ v3d(2, rest[i] + 1.5, 8), {} });
+		lowest[i] = rest[i] + 10;
+		for (int k = 0; k < 120; k++) {
+			run(w, 1.0 / 60);
+			lowest[i] = std::min(lowest[i], w.pose(id).position.Y);
+		}
+		run(w, 3);
+		UTEST(std::fabs(w.pose(id).position.Y - rest[i]) < 0.05, "settled at %f, not %f", w.pose(id).position.Y, rest[i]);
+	}
+	UTEST(rest[0] - lowest[0] < rest[1] - lowest[1], "gave %f stiff, %f soft", rest[0] - lowest[0], rest[1] - lowest[1]);
+	// both rest where they were built (sprint 76: the soft one rode high)
+	UTEST(std::fabs(rest[0] - rest[1]) < 0.03, "at rest stiff %f, soft %f", rest[0], rest[1]);
+}
+
+// Sprint 76: a hub on each wheel rides its wheel's spring: dropped on soft
+// springs, the hubs come up toward the root as the car lands, and are
+// back where they were built once it's settled; a hub with no wheel on
+// it stays put on the root.
+void TestPhysics::testHubsRide()
+{
+	Assembly a = car(0);
+	for (size_t i = 0; i < a.wheels.size(); i++) {
+		Wheel &wheel = a.wheels[i];
+		wheel.travel = 0.8f;
+		wheel.sag = 0.17f;
+		a.hubs.push_back(Hub{ a.bodies.size(), i });
+		a.bodies.push_back(block(wheel.centre + v3f(0, 0, wheel.centre.Z > 0 ? -0.15f : 0.15f), v3f(0.1f), WOOD));
+	}
+	const size_t lone = a.bodies.size();
+	a.hubs.push_back(Hub{ lone, std::nullopt });
+	a.bodies.push_back(block(v3f(0, 0.3f, 0), v3f(0.1f), WOOD));
+
+	World w(flat());
+	const World::Id id = w.add(a, Pose{ v3d(2, 1.5, 8), {} });
+	const size_t hub = a.hubs[0].body;
+	float highest = -10;
+	for (int k = 0; k < 180; k++) {
+		run(w, 1.0 / 60);
+		highest = std::max(highest, w.relatives(id)[hub].offset.Y);
+	}
+	run(w, 3);
+	const std::vector<Relative> rel = w.relatives(id);
+	UTEST(highest > 0.1f, "the hub rose only %f as it landed", highest);
+	UTEST(std::fabs(rel[hub].offset.Y) < 0.05f, "settled, the hub's %f off where it was built", rel[hub].offset.Y);
+	UTEST(rel[lone].offset.getLength() < 1e-3f, "the lone hub's %f off", rel[lone].offset.getLength());
 }

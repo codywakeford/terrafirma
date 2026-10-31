@@ -10,6 +10,7 @@ import LabStrip from "../lab/LabStrip.vue"
 import ProbeCard from "./ProbeCard.vue"
 import StatBar from "./StatBar.vue"
 import ActionRail from "./ActionRail.vue"
+import ShapeBar from "./ShapeBar.vue"
 import ToolRail from "./ToolRail.vue"
 import TravelScreen from "./TravelScreen.vue"
 import { useStore } from "./store.ts"
@@ -56,6 +57,7 @@ const hotbar = computed(() => {
                 <StatBar v-if="hud.breath && player.breath < player.breathMax" kind="bubble"
                     :value="player.breath" :max="player.breathMax" reverse />
             </div>
+            <ShapeBar v-if="tools?.out && !covered" :tools="tools" :free="tools.cursor || paused" />
             <Hotbar v-if="hud.hotbar && hotbar" :stacks="hotbar.stacks" :selected="hotbar.selected"
                 :free="!!tools?.out && tools.cursor || paused" />
         </div>

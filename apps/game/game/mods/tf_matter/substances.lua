@@ -5,26 +5,7 @@
 -- molten copper that cools becomes a copper block). The catalogue shows each
 -- substance as it is at room temperature; the rest exist for the physics.
 
-local LOOKS = { -- what the common ones look like; the rest get a colour of their own
-	water = "#3d7fd6", wood = "#8a5a32", carbon = "#2a2a2c", iron = "#8c8f94", copper = "#c8743c", tin = "#c4c8cc",
-	gold = "#e6c048", lead = "#6d7178", aluminium = "#c9ccd2", zinc = "#a9b0b8", bronze = "#b4823c", cast_iron = "#5f6266",
-	steel = "#9aa0a8", pewter = "#a6a9ad", glass = "#bfe3ea", silica = "#e6dcc4", salt = "#f2f2f2", sulfur = "#e8d03a",
-	lime = "#f0eee6", slaked_lime = "#ecebe2", calcite = "#e8e2d0", soda_ash = "#f4f4f0", hematite = "#8a3a2a",
-	magnetite = "#3a3a3e", malachite = "#2e8a5a", cassiterite = "#5a4a3e", galena = "#6a6e78", glucose = "#f6f2e6",
-	kaolinite = "#d8cdb8", metakaolin = "#c9a98a", mercury = "#b8bcc4", sulfuric_acid = "#d8d4a0", silicon = "#6a7080",
-	carbon_dioxide = "#e8eef2", ammonia = "#e4ecec", methane = "#dfe6ea", nitrogen = "#dde6f0", oxygen = "#cfe0f4",
-	hydrogen = "#e8f0f8", carbon_monoxide = "#e2e6ea", sulfur_dioxide = "#eeeadc",
-}
-
-local function colour(id)
-	if LOOKS[id] then return LOOKS[id] end
-	local h = 0
-	for i = 1, #id do h = (h * 31 + id:byte(i)) % 360 end
-	-- a muted mineral tone from the id
-	local r, g, b = 140 + (h % 60), 120 + ((h * 7) % 60), 100 + ((h * 13) % 60)
-	return string.format("#%02x%02x%02x", r, g, b)
-end
-
+-- how each looks is the matter table's (sprint 79: substances.json's colour)
 -- groups, hidden from the catalogue unless `shown` (a group that's present at all hides it)
 local function groups(shown)
 	local g = { cracky = 3, creative_matter = 1 }
@@ -32,24 +13,48 @@ local function groups(shown)
 	return g
 end
 
+-- a block's weight, for its description (sprint 80: what's carried weighs something)
+local function weight(kg)
+	if kg >= 1000 then return string.format("%.2f t", kg / 1000) end
+	return string.format("%d kg", math.floor(kg + 0.5))
+end
+
+-- a levelled block: param2 says how full it is, in sixty-fourths (sprint 80)
+local LEVELLED = { type = "leveled", fixed = { -0.5, -0.5, -0.5, 0.5, 0.5, 0.5 } }
+
 for _, s in ipairs(core.matter.substances()) do
-	local tint = colour(s.id)
+	local tint = s.colour
 	local solid_shown = s.state == "solid"
 	-- the solid: every substance has one (frozen nitrogen included); a gas or liquid at room temperature hides it
 	core.register_node("tf_matter:" .. s.id, {
-		description = s.name .. " (" .. s.formula .. ")",
+		description = s.name .. " (" .. s.formula .. ")\n1 m³ · " .. weight(s.density),
 		tiles = { "tf_matter_substance.png^[multiply:" .. tint },
 		groups = groups(solid_shown),
 		_matter = { matter = s.id, share = 1, form = true },
 		_matter_generated = true,
 	})
-	-- the liquid, where it has one at 1 atm: still (heat-made liquids don't flow yet), bright when hot
+	-- its powder: poured, it heaps and slides (sprint 80); levelled by how much is there
+	core.register_node("tf_matter:" .. s.id .. "_powder", {
+		description = s.name .. " powder",
+		drawtype = "nodebox",
+		node_box = LEVELLED,
+		paramtype = "light",
+		paramtype2 = "leveled",
+		leveled = 64,
+		tiles = { "tf_matter_substance.png^[multiply:" .. tint },
+		groups = groups(false),
+		drop = "",
+		_matter = { matter = s.id, share = 1, form = true, loose = true },
+		_matter_generated = true,
+	})
+	-- the liquid, where it has one at 1 atm: a full block, and a puddle
+	-- levelled by how much is there; the world's matter runs both (sprint 80)
 	local liquid = s.boils == nil or s.boils > s.melts
 	if liquid and s.melts < 3500 then
 		local hot = s.melts > 700
-		core.register_node("tf_matter:" .. s.id .. "_liquid", {
-			description = "Liquid " .. s.name:lower() .. " (" .. s.formula .. ")",
-			drawtype = "glasslike",
+		local def = {
+			description = "Liquid " .. s.name:lower() .. " (" .. s.formula .. ")\n1 m³ · " .. weight(s.density),
+			drawtype = "liquid",
 			tiles = { "tf_matter_liquid.png^[multiply:" .. tint },
 			use_texture_alpha = "blend",
 			paramtype = "light",
@@ -57,12 +62,27 @@ for _, s in ipairs(core.matter.substances()) do
 			walkable = false,
 			pointable = true,
 			buildable_to = false,
+			liquid_move_physics = true,
 			drowning = 1,
 			damage_per_second = hot and 6 or 0,
 			post_effect_color = { a = 160, r = 120, g = 120, b = 130 },
 			groups = groups(s.state == "liquid"),
 			_matter = { matter = s.id, share = 1, state = "liquid", form = true },
 			_matter_generated = true,
-		})
+		}
+		core.register_node("tf_matter:" .. s.id .. "_liquid", def)
+		local puddle = table.copy(def)
+		puddle.description = "Liquid " .. s.name:lower()
+		puddle.drawtype = "nodebox"
+		puddle.node_box = LEVELLED
+		puddle.paramtype2 = "leveled"
+		puddle.leveled = 64
+		puddle.groups = groups(false)
+		puddle.groups.matter_puddle = 1 -- sprint 81: liquid is a fill now; these become one on load
+		puddle.drop = ""
+		puddle.liquid_move_physics = false -- waded through (Luanti swims by the block, not by how deep it is)
+		puddle.drowning = 0
+		puddle.post_effect_color = nil
+		core.register_node("tf_matter:" .. s.id .. "_puddle", puddle)
 	end
 end

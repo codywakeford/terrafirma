@@ -38,6 +38,11 @@ private:
 	static int l_substances(lua_State *L);
 	static int l_heat(lua_State *L);
 	static int l_touch(lua_State *L);
+	static int l_add(lua_State *L);
+	static int l_pour(lua_State *L);
+	static int l_disturb(lua_State *L);
+	static int l_set_fill(lua_State *L);
+	static int l_get_fill(lua_State *L);
 	static int l_inspect(lua_State *L);
 	static int l_blow(lua_State *L);
 	static int l_step(lua_State *L);

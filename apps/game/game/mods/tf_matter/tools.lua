@@ -82,6 +82,67 @@ core.register_tool("tf_matter:heat_gun", {
 	on_secondary_use = function(stack, user, pointed) nudge(user, pointed, -STEP) end,
 })
 
+-- The blowtorch (sprint 79): a real flame, not a thermostat. Held on a
+-- face, it feeds propane and air (Shift: pure oxygen) into the air just in
+-- front of it and lights it; the propane burning there is the heat, as hot
+-- as propane burns in what it's given (~2000 °C in air, hotter in oxygen),
+-- and what's in front warms by conduction. Big things take long: a cubic
+-- metre of sand is two and a half tonnes. A crucible's cupful melts fast.
+local TORCH = {
+	rate = 0.01,   -- mol/s of propane: about 20 kW, a big torch
+	air = { oxygen = 5, nitrogen = 18.8 }, -- per propane, burnt clean
+	oxy = { oxygen = 5 },
+	light = 900,   -- K: its pilot's spark
+	every = 0.1,   -- s
+}
+
+local torches = {} -- player name -> seconds since it last fed
+
+local function torch(user, dtime)
+	local name = user:get_player_name()
+	torches[name] = (torches[name] or 0) + dtime
+	if torches[name] < TORCH.every then return end
+	local dt = torches[name]
+	torches[name] = 0
+	local eye = vector.offset(user:get_pos(), 0, user:get_properties().eye_height, 0)
+	for thing in core.raycast(eye, vector.add(eye, vector.multiply(user:get_look_dir(), 4)), false, false) do
+		if thing.type == "node" then
+			-- the flame's in the air before the face, touching it
+			local at = thing.above
+			if not core.matter.capacity(at) then return end
+			local fuel = TORCH.rate * dt
+			core.matter.add(at, "propane", fuel)
+			for gas, per in pairs(user:get_player_control().sneak and TORCH.oxy or TORCH.air) do
+				core.matter.add(at, gas, fuel * per)
+			end
+			-- lit once; then its own heat keeps it lit (a pilot every tick
+			-- would heat the whole block's air for nothing)
+			if core.matter.temperature(at) < TORCH.light then
+				core.matter.heat(at, TORCH.light)
+			end
+			return
+		end
+	end
+end
+
+core.register_tool("tf_matter:blowtorch", {
+	description = "Blowtorch\nHold left on a block: a propane flame against it · Shift: with oxygen, hotter",
+	inventory_image = "tf_matter_heat_gun.png^[colorize:#2060ff:90",
+	groups = { creative_functional = 1 },
+	on_use = function() end, -- held, not clicked: the step below feeds it
+})
+
+core.register_globalstep(function(dtime)
+	for _, user in ipairs(core.get_connected_players()) do
+		local control = user:get_player_control()
+		if (control.dig or control.LMB) and user:get_wielded_item():get_name() == "tf_matter:blowtorch" then
+			torch(user, dtime)
+		else
+			torches[user:get_player_name()] = nil
+		end
+	end
+end)
+
 -- The probe: what a block is made of, how hot, in what state, and what's
 -- happening in it, shown on the HUD (set_ui "probe").
 function tf_matter.probe(user, pos)

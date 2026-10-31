@@ -29,16 +29,20 @@ struct Blueprint
 };
 
 /*
-	Each player's blueprints, by name, kept in the world
-	(<world>/blueprints/<player>/<name>.tfb). A name is 1..LONGEST_NAME of
-	letters, digits, spaces, '-' and '_'.
+	Each player's blueprints, by name: their parts library. Kept outside
+	any world (sprint 74: <root>/<player>/<name>.tfb, root the user's
+	parts folder), so what's made in one world is there in the next; a
+	world's own from before (<world>/blueprints) are copied in as it opens,
+	where the name's free. A name is 1..LONGEST_NAME of letters, digits,
+	spaces, '-' and '_'.
 */
 class Library
 {
 public:
 	static constexpr size_t LONGEST_NAME = 32;
 
-	explicit Library(const std::string &world_path);
+	// `world_path`: a world whose blueprints from before are adopted (empty: none).
+	Library(const std::string &root, const std::string &world_path);
 
 	static bool named(const std::string &name);
 	// Throws std::invalid_argument on a name that isn't one, and
@@ -46,6 +50,8 @@ public:
 	void save(const std::string &player, const std::string &name, const Blueprint &blueprint);
 	// Throws std::out_of_range when the player has none of that name.
 	Blueprint load(const std::string &player, const std::string &name) const;
+	// Throws std::out_of_range when the player has none of that name.
+	void remove(const std::string &player, const std::string &name);
 	// The player's, sorted.
 	std::vector<std::string> names(const std::string &player) const;
 

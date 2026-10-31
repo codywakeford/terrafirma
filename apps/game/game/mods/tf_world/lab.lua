@@ -1,7 +1,7 @@
 -- tf_world's Lab scenarios (data in lab.json): the engine's liquids and
 -- falling blocks.
 
-local WATER = { ["tf_world:water_source"] = true, ["tf_world:water_flowing"] = true }
+local WATER = { ["tf_world:water_source"] = true, ["tf_world:water_puddle"] = true }
 
 tf_lab.load()
 
@@ -12,12 +12,19 @@ tf_lab.behaviour("water.spill", {
 		-- the gap, facing south (where the camera starts), centred
 		local left = 3 - math.floor((values.gap - 1) / 2)
 		area:fill({ x = left, y = 0, z = 0 }, { x = left + values.gap - 1, y = 1, z = 0 }, "air")
+		-- built, not dug: the world's matter (which runs water, sprint 80) is told the gap opened
+		for x = left, left + values.gap - 1 do
+			for y = 0, 1 do core.matter.disturb(area:pos({ x = x, y = y, z = 0 })) end
+		end
 	end,
 	expect = {
 		after = 5,
 		check = function(area)
 			local outside = area:get({ x = 3, y = 0, z = -2 })
-			return WATER[outside], "two blocks past the gap is " .. outside
+			-- (sprint 81: spilled water lies on the ground as a fill)
+			local fill = core.matter.get_fill(area:pos({ x = 3, y = 0, z = -2 }))
+			return WATER[outside] or (fill and fill.id == "water"), "two blocks past the gap is " .. outside
+				.. (fill and (" holding " .. fill.id) or "")
 		end,
 	},
 })

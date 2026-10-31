@@ -23,7 +23,7 @@ static constexpr int PATH_POINTS = 2048;
 static const char *const VERBS[] = {
 	"screen.close", "game.leave", "game.quit",
 	"inventory.move", "inventory.craft", "inventory.drop", "creative.list", "ui.send", "screen.open", "worldgen.preview",
-	"system.preview", "system.world", "tools.pick", "tools.ask", "tools.mode", "tools.brush", "hotbar.select",
+	"system.preview", "system.world", "tools.pick", "tools.ask", "tools.brush", "hotbar.select",
 };
 
 namespace {
@@ -145,16 +145,6 @@ Session::Session(const Opts &opts) :
 			hand.setPartJoint(piece::Joint(lookup(intent["joint"].asString(), piece::JOINTS,
 					size_t(piece::Joint::Count), [](const piece::JointKind &j) { return j.id; }, "joint")));
 		}
-		return Json::Value();
-	});
-	// what a click does: draw, or select a part
-	m_shell.on("tools.mode", [&hand = opts.hand](const Json::Value &intent) {
-		if (!intent["click"].isString())
-			throw Refused("tools.mode needs a string 'click'");
-		Hand::Mode mode;
-		mode.click = Hand::Click(lookup(intent["click"].asString(), Hand::CLICKS, size_t(Hand::Click::Count),
-				[](const char *c) { return c; }, "click"));
-		hand.setMode(mode);
 		return Json::Value();
 	});
 	// a hotbar slot clicked (the mouse free: an object held, or paused)

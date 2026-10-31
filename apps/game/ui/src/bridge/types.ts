@@ -47,18 +47,26 @@ export type CreativeItem = ItemInfo & { item: string; stackMax: number; category
 export type Stack = { item: string; count: number; wear: number }
 
 /** A tool in hand, as sculpt::KINDS names it, in its order. */
-export const TOOL_IDS = ["box", "cylinder", "cone", "sphere", "cut", "bore"] as const
+export const TOOL_IDS = ["box", "cylinder", "cone", "sphere", "cut", "bore", "frame", "truss", "beam"] as const
 export type ToolId = (typeof TOOL_IDS)[number]
-/** What the right-hand rail asks of the game (src/client/hand.h: Hand::ACTIONS); `save` and `place` take a blueprint's name. */
-export const ACTION_IDS = ["focus", "mirror", "undo", "start", "save", "place", "hollow", "level", "reset", "detach", "delete"] as const
+/**
+ * What the right-hand rail asks of the game (src/client/hand.h: Hand::ACTIONS); `save`, `place`, `take` and `forget`
+ * take a part's name in the library. `copy`, `paste` and `name` (Ctrl+C, V, S while building) are the keys' (sprint 74).
+ */
+export const ACTION_IDS = ["focus", "mirror", "undo", "start", "save", "place", "hollow", "level", "reset", "detach", "delete",
+    "copy", "paste", "name", "take", "forget", "round"] as const
 export type ActionId = (typeof ACTION_IDS)[number]
-/** What the brush does with a shape (src/client/hand.h: Hand::BRUSHES). */
+/** The actions that take a name. */
+export const NAMED_ACTIONS = ["save", "place", "take", "forget"] as const satisfies readonly ActionId[]
+export type NamedActionId = (typeof NAMED_ACTIONS)[number]
+/** What the brush does with a shape (src/client/hand.h: Hand::BRUSHES). Joints are set from a part's menu, in the world. */
 export const BRUSH_IDS = ["add", "cut", "paint", "pull", "part"] as const
 export type BrushId = (typeof BRUSH_IDS)[number]
-export type JointId = "fixed" | "rotary" | "hinge"
-/** What a click does (src/client/hand.h: Hand::Mode): draw with the brush, select a part, join two. */
-export type ToolMode = { click: "draw" | "select" }
-export type Ask = { action: Exclude<ActionId, "save" | "place"> } | { action: "save" | "place"; name: string }
+/** The brushes the rail picks, in its order (R steps through them). */
+export const RAIL_BRUSHES = ["add", "cut", "paint"] as const satisfies readonly BrushId[]
+/** piece::JOINTS (src/piece/machine.cpp): wheels steer and are driven by their joint (sprint 73). */
+export type JointId = "fixed" | "rotary" | "hinge" | "steers" | "driven" | "steers_driven" | "sprung"
+export type Ask = { action: Exclude<ActionId, NamedActionId> } | { action: NamedActionId; name: string }
     | { action: "relink"; other: string; joint: JointId | "none" }
     | { action: "socket"; joint: JointId } | { action: "unsocket"; socket: string }
 
@@ -72,15 +80,16 @@ export type StateSections = {
     tools: { out: false } | {
         /** `focused`: an object's on the workbench. `cursor`: the cursor's free (Tab, or a menu open): the page is clicked. */
         out: true; tool: ToolId; size: number; mirrored: boolean; focused: boolean; cursor: boolean
+        /** A part's to be saved (Ctrl+S): the page asks its name (sprint 74). */
+        naming: boolean
         /** The brush as it acts: creating, adding makes parts. */
         brush: BrushId
-        /** Build mode's way in (sprint 62): C creates objects (true), X shapes the world. */
+        /** Build mode (sprint 70): what's added is an object (true), or the world's (Alt held). */
         creating: boolean
         /** A new part's joint to what it's drawn on. */
         partJoint: JointId
-        mode: ToolMode
     }
-    /** The player's blueprints by name (src/workshop/library.h), sorted. */
+    /** The player's parts library by name (src/workshop/library.h: every world's), sorted. */
     library: string[]
     inventory: Record<string, { width: number; stacks: (Stack | null)[] }>
 }
@@ -286,7 +295,9 @@ export type UiValues = {
     discovered: string[]
     /** tf_matter: the last block the probe (or heat gun) read (core.matter.inspect) */
     probe: { node: string; empty?: boolean; temperature?: number; substance?: string; state?: string; fill?: number
-        activity?: number; vapour?: string; haze?: number; awake?: boolean }
+        activity?: number; vapour?: string; haze?: number; awake?: boolean
+        /** how it looks, from what's in it (#rrggbb), and what's in it, most first (sprint 79) */
+        colour?: string; contents?: { substance: string; moles: number; state: string }[] }
     /** tf_flight: riding the pack over the blocks, or in space (core.orbit) */
     flight: FlightNear | FlightSpace
     /** tf_player: the body the player is on (an atlas world's; `home` the world's own) */
@@ -532,7 +543,6 @@ export type Intents = {
     /** Terra Firma: a tool picked on the rail (src/client/hand.h). */
     "tools.pick": { request: { tool: ToolId }; response: null }
     "tools.ask": { request: Ask; response: null }
-    "tools.mode": { request: ToolMode; response: null }
     "tools.brush": { request: { brush: BrushId; joint?: JointId }; response: null }
     "hotbar.select": { request: { slot: number }; response: null }
     "screen.close": { request: {}; response: null }

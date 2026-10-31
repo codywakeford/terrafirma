@@ -27,6 +27,8 @@ public:
 	void testRocksAndOres();
 	void testAlloysAndCraft();
 	void testMeltingTakesTime();
+	void testHeatsFromData();
+	void testWetChemistry();
 };
 
 static TestMatter g_test_instance;
@@ -49,6 +51,8 @@ void TestMatter::runTests(IGameDef *gamedef)
 	TEST(testRocksAndOres);
 	TEST(testAlloysAndCraft);
 	TEST(testMeltingTakesTime);
+	TEST(testHeatsFromData);
+	TEST(testWetChemistry);
 }
 
 void TestMatter::testLoads()
@@ -69,7 +73,8 @@ void TestMatter::testWater()
 	UASSERT(w.state(700, 25e6) == State::Supercritical);
 	UASSERT(w.state(300, 1000) == State::Gas);           // a near vacuum: it boils at room temperature
 	UASSERT(w.state(273.1, 50e6) == State::Liquid);      // squeezed ice melts: the melting line leans back
-	UASSERT(std::fabs(*w.boilingPoint(ATMOSPHERE) - 373.15) < 0.01);
+	// CoolProp's curve (sprint 79): 373.124 K, not the old 373.15
+	UASSERT(std::fabs(*w.boilingPoint(ATMOSPHERE) - 373.15) < 0.1);
 	UASSERT(*w.boilingPoint(30000) < 350);               // on a high mountain it boils cooler
 	UASSERT(!w.boilingPoint(100));                       // below the triple point there's no liquid
 }
@@ -94,14 +99,18 @@ void TestMatter::testOtherWorlds()
 
 void TestMatter::testCurves()
 {
-	for (const Substance &s : table().substances()) {
-		// the curves meet at the triple point and rise with temperature
-		UASSERT(std::fabs(s.vapourPressure(s.triple.t) / s.triple.p - 1) < 1e-6);
+	const Matter m = table(); // kept: a loop over a temporary's substances reads freed memory
+	for (const Substance &s : m.substances()) {
+		// the curves meet at the triple point and rise with temperature;
+		// where CoolProp's curve is used (sprint 79) it's its measurements,
+		// the anchors the table's: they agree within a few percent
+		const double close = s.saturation ? 0.03 : 1e-6;
+		UTEST(std::fabs(s.vapourPressure(s.triple.t) / s.triple.p - 1) < close, "%s: %g at its triple point, not %g", s.id.c_str(), s.vapourPressure(s.triple.t), s.triple.p);
 		UASSERT(std::fabs(s.sublimationPressure(s.triple.t) / s.triple.p - 1) < 1e-6);
-		UASSERT(std::fabs(s.vapourPressure(s.critical.t) / s.critical.p - 1) < 1e-6);
+		UASSERT(std::fabs(s.vapourPressure(s.critical.t) / s.critical.p - 1) < close);
 		UASSERT(s.vapourPressure((s.triple.t + s.critical.t) / 2) > s.triple.p);
 		if (s.boil)
-			UASSERT(std::fabs(s.vapourPressure(*s.boil) / ATMOSPHERE - 1) < 1e-6);
+			UASSERT(std::fabs(s.vapourPressure(*s.boil) / ATMOSPHERE - 1) < close);
 		UASSERT(s.meltingPoint(1e10) > 0); // no melting line runs below absolute zero
 	}
 }
@@ -268,4 +277,63 @@ void TestMatter::testMeltingTakesTime()
 	ice.run(60, Conditions{ 250, ATMOSPHERE, 0, 0 });
 	if (ice.in(water, State::Solid) > 0 && ice.in(water, State::Liquid) > 0)
 		UASSERT(std::fabs(ice.temperature - 273.15) < 0.05);
+}
+
+// Sprint 79: a reaction's heat is its substances' formation enthalpies
+// (NASA's), not a number typed in: methane burnt to liquid water gives
+// 890 kJ/mol, as measured.
+void TestMatter::testHeatsFromData()
+{
+	const Matter m = table();
+	for (const Reaction &r : m.reactions())
+		if (r.id == "methane_burns")
+			UTEST(std::fabs(r.heat - 890.6) < 1, "methane burns at %f kJ", r.heat);
+	UASSERT(std::fabs(m.substance("water").formation + 285.83) < 0.01);
+	UASSERT(m.substance("iron").formation == 0); // an element as it is
+	// CoolProp's curve: water boils near 70 °C at 0.31 bar
+	UASSERT(std::fabs(*m.substance("water").boilingPoint(31200) - 343.15) < 0.5);
+}
+
+// Sprint 79: chemistry in water. Sodium dropped in water gives off
+// hydrogen and heat; aluminium in hydrochloric acid dissolves, fizzing
+// hydrogen; caustic soda and the acid cancel into salt water.
+void TestMatter::testWetChemistry()
+{
+	const Matter m = table();
+	const size_t water = m.index("water"), h2 = m.index("hydrogen");
+	{
+		Mixture pot(m);
+		pot.add(water, State::Liquid, 10); // 180 g
+		pot.add(m.index("sodium"), State::Solid, 0.2); // 4.6 g
+		const double was = pot.temperature;
+		pot.run(5, Conditions{ 293.15, ATMOSPHERE, 0, 0, 0 });
+		UTEST(pot.amounts[h2] > 0.09, "sodium gave %f mol of hydrogen", pot.amounts[h2]);
+		// 28 kJ into 180 g of water and its pot (1 kJ/K): about 16 K
+		UTEST(pot.temperature > was + 12, "it warmed only to %f K", pot.temperature);
+	}
+	{
+		Mixture pot(m);
+		pot.add(water, State::Liquid, 20);
+		pot.add(m.index("hydrogen_chloride"), State::Gas, 3);
+		pot.add(m.index("aluminium"), State::Solid, 0.5);
+		pot.run(60, Conditions{ 293.15, ATMOSPHERE, 0, 0, 0 });
+		UTEST(pot.amounts[m.index("aluminium_chloride")] > 0.4, "only %f mol dissolved", pot.amounts[m.index("aluminium_chloride")]);
+		UTEST(pot.amounts[h2] > 0.6, "only %f mol of hydrogen", pot.amounts[h2]);
+	}
+	{
+		Mixture pot(m);
+		pot.add(water, State::Liquid, 20);
+		pot.add(m.index("sodium_hydroxide"), State::Solid, 1);
+		pot.add(m.index("hydrogen_chloride"), State::Gas, 1);
+		pot.run(10, Conditions{ 293.15, ATMOSPHERE, 0, 0, 0 });
+		UTEST(pot.amounts[m.index("salt")] > 0.95, "only %f mol of salt", pot.amounts[m.index("salt")]);
+	}
+	{
+		// dry, sodium sits there
+		Mixture jar(m);
+		jar.add(m.index("sodium"), State::Solid, 1);
+		jar.add(m.index("nitrogen"), State::Gas, 1);
+		jar.run(60, Conditions{ 293.15, ATMOSPHERE, 0, 0, 0 });
+		UASSERT(jar.amounts[h2] == 0);
+	}
 }

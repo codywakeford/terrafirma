@@ -112,8 +112,10 @@ public:
 private:
 	void listenForKey(KeyPress keyCode, GameKeyType action)
 	{
+		// Terra Firma: a key can be several actions' (sprint 74: S walks
+		// back, and with Ctrl saves a part), so none takes another's key
 		if (keyCode)
-			keysListenedFor[keyCode] = action;
+			keysListenedFor[keyCode].push_back(action);
 	}
 
 	bool setKeyDown(KeyPress keyCode, float value);
@@ -179,7 +181,7 @@ private:
 	std::bitset<GameKeyType::INTERNAL_ENUM_COUNT> keyWasReleased;
 
 	// List of keys we listen for
-	std::unordered_map<KeyPress, GameKeyType> keysListenedFor;
+	std::unordered_map<KeyPress, std::vector<GameKeyType>> keysListenedFor;
 
 	// Intentionally not reset by clearInput/releaseAllKeys.
 	bool fullscreen_is_down = false;

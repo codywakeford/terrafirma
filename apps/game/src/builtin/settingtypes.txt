@@ -219,6 +219,15 @@ keymap_piece_new (New object) key SYSTEM_SCANCODE_17
 #    Terra Firma: free the cursor (to click the tool rails and menus; the world's pointed at through it), and take it back.
 keymap_cursor (Free the cursor) key SYSTEM_SCANCODE_43
 
+#    Terra Firma: with Ctrl, while building: copy the part pointed at and what hangs from it.
+keymap_copy (Copy a part) key SYSTEM_SCANCODE_6
+
+#    Terra Firma: with Ctrl, while building: another of what's copied, carried till you click.
+keymap_paste (Paste) key SYSTEM_SCANCODE_25
+
+#    Terra Firma: with Ctrl, while building: keep the part pointed at in your parts library.
+keymap_save_part (Save a part) key SYSTEM_SCANCODE_22
+
 #    Key for opening the pause menu in-game.
 #    Pressing the escape key always opens the pause menu.
 keymap_pause (Open pause menu) key GAMEPAD_BUTTON_6

@@ -4,5 +4,6 @@ set(sandbox_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/flow.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/physics.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/sandbox.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/pouring.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
 	PARENT_SCOPE)

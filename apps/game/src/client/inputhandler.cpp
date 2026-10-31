@@ -57,15 +57,18 @@ void MyEventReceiver::reloadKeybindings()
 	keybindings[KeyType::WIKI] = getKeySetting("keymap_wiki");
 	keybindings[KeyType::TOOLS] = getKeySetting("keymap_tools");
 	keybindings[KeyType::BRAKE] = getKeySetting("keymap_brake");
+	keybindings[KeyType::POUR] = getKeySetting("keymap_pour");
 	keybindings[KeyType::TOOL_NEXT] = getKeySetting("keymap_tool_next");
 	keybindings[KeyType::FOCUS] = getKeySetting("keymap_focus");
 	keybindings[KeyType::MIRROR] = getKeySetting("keymap_mirror");
 	keybindings[KeyType::ALT] = getKeySetting("keymap_alt");
 	keybindings[KeyType::UNDO] = getKeySetting("keymap_undo");
-	keybindings[KeyType::CREATE] = getKeySetting("keymap_create");
 	keybindings[KeyType::TURN_LEFT] = getKeySetting("keymap_turn_left");
 	keybindings[KeyType::TURN_RIGHT] = getKeySetting("keymap_turn_right");
 	keybindings[KeyType::CURSOR] = getKeySetting("keymap_cursor");
+	keybindings[KeyType::COPY] = getKeySetting("keymap_copy");
+	keybindings[KeyType::PASTE] = getKeySetting("keymap_paste");
+	keybindings[KeyType::SAVE_PART] = getKeySetting("keymap_save_part");
 	keybindings[KeyType::PLANETARIUM] = getKeySetting("keymap_planetarium");
 	keybindings[KeyType::CHAT] = getKeySetting("keymap_chat");
 	keybindings[KeyType::CMD] = getKeySetting("keymap_cmd");
@@ -168,7 +171,7 @@ bool MyEventReceiver::setKeyDown(KeyPress keyCode, float value)
 {
 	if (keysListenedFor.find(keyCode) == keysListenedFor.end()) // ignore irrelevant key input
 		return false;
-	auto action = keysListenedFor[keyCode];
+	const std::vector<GameKeyType> &actions = keysListenedFor[keyCode];
 	if (value > 0) {
 		if (physicalKeyDown.find(keyCode) == physicalKeyDown.end())
 			physicalKeyDown[keyCode].last_binary_update = porting::getTimeMs() / 1000.0;
@@ -176,7 +179,8 @@ bool MyEventReceiver::setKeyDown(KeyPress keyCode, float value)
 	} else {
 		physicalKeyDown.erase(keyCode);
 	}
-	setKeyDown(action, checkKeyDown(action));
+	for (GameKeyType action : actions)
+		setKeyDown(action, checkKeyDown(action));
 	return true;
 }
 

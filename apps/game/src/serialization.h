@@ -49,14 +49,15 @@
 	28: Added "private" flag to NodeMetadata
 	29: Switched compression to zstd, a bit of reorganization
 	30: Terra Firma: cut nodes' shapes (shape::Shapes), after node metadata
+	31: Terra Firma: liquid in nodes' open space (fill::Fills), after the shapes (sprint 81)
 */
 
 // This represents an uninitialized or invalid format
 constexpr u8 SER_FMT_VER_INVALID = 255;
 // Highest supported serialization version
-constexpr u8 SER_FMT_VER_HIGHEST_READ = 30;
+constexpr u8 SER_FMT_VER_HIGHEST_READ = 31;
 // Saved on disk version
-constexpr u8 SER_FMT_VER_HIGHEST_WRITE = 30;
+constexpr u8 SER_FMT_VER_HIGHEST_WRITE = 31;
 // Lowest supported serialization version
 constexpr u8 SER_FMT_VER_LOWEST_READ = 0;
 // Lowest serialization version for writing

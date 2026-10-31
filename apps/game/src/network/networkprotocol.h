@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 76;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 86;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 76;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 86;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -776,8 +776,11 @@ enum ToClientCommand : u16
 	TOCLIENT_HELD = 0x6D,
 	/*
 		Terra Firma: the object the player's new one is, held (sprint 49):
-		the client focuses it when it arrives
+		the client focuses it when it arrives, or carries it (sprint 74:
+		a copy pasted, to be carried onto something)
 		u16 object: its object id
+		u8 how (workshop::Handed): focused, carried till the next click,
+		or carried while the button that pulled it off is down (sprint 77)
 	*/
 
 	TOCLIENT_MATERIALS = 0x6E,
@@ -785,10 +788,20 @@ enum ToClientCommand : u16
 		Terra Firma: what each block weighs in a machine (core.physics.material,
 		sprint 58), on joining: the client's physics weighs what it carries so
 		u16 count
-		for each: u16 content id, f32 density (kg/m³), f32 friction
+		for each: u16 content id, f32 density (kg/m³), f32 friction,
+		u8 role (workshop::Role, sprint 69), f32 power (W, a motor's),
+		f32 rpm (its most; sprint 78: it was a torque)
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x6F,
+	TOCLIENT_FILL = 0x6F,
+	/*
+		Terra Firma (sprint 81): a node's liquid, for the client's liquid layer
+		v3s16 pos
+		std::string liquid ("" : none, and nothing follows but zeros)
+		u8 amount (of its open space, /255), u8 r, g, b
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x70,
 };
 
 enum ToServerCommand : u16
@@ -1044,8 +1057,10 @@ enum ToServerCommand : u16
 
 	TOSERVER_BLUEPRINT_SAVE = 0x59,
 	/*
-		Terra Firma: a piece kept in the player's library (sprint 48)
+		Terra Firma: a part kept in the player's library (sprint 48; a
+		part and what hangs from it, sprint 74)
 		u16 piece: its object id
+		u64 part
 		std::string name
 	*/
 
@@ -1072,10 +1087,12 @@ enum ToServerCommand : u16
 
 	TOSERVER_HOLLOW = 0x5D,
 	/*
-		Terra Firma: a part's design made a shell (sprint 50)
+		Terra Firma: a part's design made a shell (sprint 50), or rounded
+		(sprint 75)
 		u16 object: its object id
 		u64 part
-		u8 thickness: sixteenths
+		u8 thickness: sixteenths (rounded: the radius)
+		u8 rounded
 	*/
 
 	/*
@@ -1088,6 +1105,7 @@ enum ToServerCommand : u16
 		u16 object, u64 a, u64 b, u8 joint (piece::Joint; 255: taken away)
 		u8 at: 1 if a face of a's follows, where a new joint's made
 		if so: face
+		u8 travel, u8 firmness: its spring (piece::Spring, sprint 75; 255: as it was)
 	*/
 
 	TOSERVER_JOIN = 0x5F,
@@ -1138,7 +1156,30 @@ enum ToServerCommand : u16
 		v3f point (BS, in the object's frame), v3f hand (BS)
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x66,
+	TOSERVER_DRIVE = 0x66,
+	/*
+		Terra Firma: driving a machine from its seat (sprint 69), sent while
+		they sit there; or getting up
+		u16 object, u8 seated (0: they get up, and nothing more)
+		f32 forward, f32 right, f32 brake (ahead is the seat's front: sprint 73)
+	*/
+
+	TOSERVER_CLIPBOARD = 0x67,
+	/*
+		Terra Firma: copy and paste (sprint 74)
+		u8 verb (workshop::Clip): then for copy u16 object, u64 part; for
+		paste nothing; for take and forget std::string name (the library's);
+		for pull (sprint 77: a part pulled off by hand) u16 object, u64 part.
+		Paste and take are answered by TOCLIENT_HELD, carried; pull, pulled.
+	*/
+
+	TOSERVER_UPRIGHT = 0x68,
+	/*
+		Terra Firma: a machine set back on its feet (sprint 79)
+		u16 object
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x69,
 };
 
 enum AuthMechanism

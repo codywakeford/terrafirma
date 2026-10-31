@@ -11,6 +11,8 @@
 #include "sandbox/sandbox.h"
 #include "sandbox/world.h"
 #include "server.h"
+#include "shape/shape.h"
+#include "fill/fill.h"
 #include "serverenvironment.h"
 #include <fstream>
 #include <sstream>
@@ -44,6 +46,65 @@ static int64_t cube(Pos p)
 	return (c(p.x) << 42) | (c(p.y) << 21) | c(p.z);
 }
 
+// Sprint 81: a node's open space. Partly there (cut, or smoothed ground:
+// Map::solidShape), its empty sixteenths; whole, all of it where it isn't
+// stood on (air, a plant, the sea's water, a levelled heap), none where it
+// is; unloaded, none.
+struct Open
+{
+	std::optional<shape::Shape> solid;
+	bool whole_open;
+	bool at(v3s16 sixteenth) const { return solid ? !solid->has(sixteenth) : whole_open; }
+};
+
+static Open openOf(Map &map, const NodeDefManager *ndef, v3s16 p)
+{
+	Open o{ map.solidShape(p), false };
+	if (!o.solid) {
+		const MapNode n = map.getNode(p);
+		const ContentFeatures &f = ndef->get(n);
+		o.whole_open = n.getContent() != CONTENT_IGNORE && (!f.walkable || f.param_type_2 == CPT2_LEVELED);
+	}
+	return o;
+}
+
+static sandbox::Room roomAt(Map &map, const NodeDefManager *ndef, v3s16 p)
+{
+	const Open o = openOf(map, ndef, p);
+	if (!o.solid)
+		return o.whole_open ? sandbox::Room::open() : sandbox::Room::closed();
+	sandbox::Room r;
+	for (int y = 0; y < 16; y++) {
+		uint16_t n = 0;
+		for (int z = 0; z < 16; z++)
+			for (int x = 0; x < 16; x++)
+				n += o.solid->has(v3s16(x, y, z)) ? 0 : 1;
+		r.layers[y] = n;
+	}
+	return r;
+}
+
+// Which layers are open through a side (0..3: +x −x +z −z): where both
+// nodes are empty somewhere along the face they share.
+static uint16_t faceAt(Map &map, const NodeDefManager *ndef, v3s16 p, int side)
+{
+	static const v3s16 DIRS[4] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	const v3s16 d = DIRS[side];
+	const Open a = openOf(map, ndef, p), b = openOf(map, ndef, p + d);
+	if (!a.solid && !b.solid) // whole on both sides: all open or none
+		return a.whole_open && b.whole_open ? 0xFFFF : 0;
+	uint16_t mask = 0;
+	for (int y = 0; y < 16; y++)
+		for (int i = 0; i < 16 && !(mask & (1 << y)); i++) {
+			// the sixteenth on p's side of the face, and the one facing it
+			const v3s16 mine = d.X ? v3s16(d.X > 0 ? 15 : 0, y, i) : v3s16(i, y, d.Z > 0 ? 15 : 0);
+			const v3s16 theirs = d.X ? v3s16(d.X > 0 ? 0 : 15, y, i) : v3s16(i, y, d.Z > 0 ? 0 : 15);
+			if (a.at(mine) && b.at(theirs))
+				mask |= 1 << y;
+		}
+	return mask;
+}
+
 static ServerMatter &made(lua_State *L)
 {
 	if (s_matter)
@@ -62,13 +123,51 @@ static ServerMatter &made(lua_State *L)
 			// a family's param2 is which of its points it is
 			return sm->kind_of[c] + std::min<int32_t>(n.param2, sm->points_of[c] - 1);
 		},
-		[sm](Pos p, int32_t kind) {
+		[sm](Pos p, int32_t kind, double level) {
 			const auto &[c, param2] = sm->node_of.at(kind);
-			sm->server->getEnv().swapNode(v3s16(p.x, p.y, p.z), MapNode(c, 0, param2));
+			const ContentFeatures &f = sm->server->ndef()->get(c);
+			// a levelled block keeps how full it is in param2, in sixty-fourths (sprint 80)
+			u8 p2 = param2;
+			if (f.param_type_2 == CPT2_LEVELED)
+				p2 = (u8)std::clamp<int>((int)std::lround(level * 64), 1, 64);
+			sm->server->getEnv().swapNode(v3s16(p.x, p.y, p.z), MapNode(c, 0, p2));
 		},
 		[sm](Pos p) {
 			auto it = sm->ambient.find(cube(p));
 			return it != sm->ambient.end() ? it->second : 288.15; // a temperate default until the weather says
+		},
+		[sm](Pos p) {
+			MapNode n = sm->server->getEnv().getMap().getNode(v3s16(p.x, p.y, p.z));
+			const ContentFeatures &f = sm->server->ndef()->get(n);
+			return f.param_type_2 == CPT2_LEVELED ? n.getLevel(sm->server->ndef()) / 64.0 : 1.0;
+		},
+		[sm](Pos p) { return roomAt(sm->server->getEnv().getMap(), sm->server->ndef(), v3s16(p.x, p.y, p.z)); },
+		[sm](Pos p, int side) { return faceAt(sm->server->getEnv().getMap(), sm->server->ndef(), v3s16(p.x, p.y, p.z), side); },
+		[sm](Pos p) {
+			const fill::Fill *f = sm->server->getEnv().getMap().getFill(v3s16(p.x, p.y, p.z));
+			sandbox::Liquid l;
+			if (f) {
+				// a fill names a substance the table may no longer have: then it's none
+				const auto &all = sm->table.substances();
+				const std::string &id = fill::name(f->liquid);
+				for (size_t s = 0; s < all.size(); s++)
+					if (all[s].id == id) {
+						l.substance = (int32_t)s;
+						l.share = f->amount / 255.0;
+					}
+			}
+			return l;
+		},
+		[sm](Pos p, int32_t substance, double share, uint32_t colour) {
+			fill::Fill f;
+			if (substance >= 0) {
+				f.liquid = fill::liquid(sm->table.substances().at(substance).id);
+				f.amount = (u8)std::clamp<long>(std::lround(share * 255), 0, 255);
+				f.r = (colour >> 16) & 0xFF;
+				f.g = (colour >> 8) & 0xFF;
+				f.b = colour & 0xFF;
+			}
+			sm->server->getEnv().getMap().setFill(v3s16(p.x, p.y, p.z), f);
 		},
 	};
 	m->world = std::make_unique<WorldMatter>(WorldMatter::Opts{ m->table, 101325,
@@ -136,10 +235,15 @@ int ModApiMatter::l_register_block(lua_State *L)
 			throw LuaError("core.matter.register_block: " + node + "'s state is solid or liquid");
 		bool form = getboolfield_default(L, 2, "form", false);
 		bool flowing = getboolfield_default(L, 2, "flowing", false);
+		bool vessel = getboolfield_default(L, 2, "vessel", false); // sprint 79
+		bool loose = getboolfield_default(L, 2, "loose", false);   // sprint 80
 		content_t c = getServer(L)->ndef()->getId(node);
 		if (c == CONTENT_IGNORE)
 			throw LuaError("core.matter.register_block: no node called " + node);
-		int32_t kind = m.world->kind({ node, id, {}, share, state == "solid" ? matter::State::Solid : matter::State::Liquid, form, flowing });
+		// levelled: its definition keeps how full it is in param2
+		const bool leveled = getServer(L)->ndef()->get(c).param_type_2 == CPT2_LEVELED;
+		int32_t kind = m.world->kind({ node, id, {}, share, state == "solid" ? matter::State::Solid : matter::State::Liquid,
+				form, flowing, vessel, leveled, loose });
 		if (m.kind_of.size() <= c) {
 			m.kind_of.resize(c + 1, -1);
 			m.points_of.resize(c + 1, 1);
@@ -169,6 +273,12 @@ int ModApiMatter::l_substances(lua_State *L)
 			lua_setfield(L, -2, "formula");
 			lua_pushstring(L, matter::STATE_NAMES[(int)s.state(293.15, matter::ATMOSPHERE)]);
 			lua_setfield(L, -2, "state");
+			char hex[8];
+			snprintf(hex, sizeof hex, "#%06x", s.colour);
+			lua_pushstring(L, hex);
+			lua_setfield(L, -2, "colour");
+			setNumber(L, "molar_mass", s.molar_mass);
+			setNumber(L, "density", s.density(s.state(293.15, matter::ATMOSPHERE), 293.15, matter::ATMOSPHERE));
 			setNumber(L, "melts", s.meltingPoint(std::max(matter::ATMOSPHERE, s.triple.p)));
 			if (std::optional<double> b = s.boilingPoint(matter::ATMOSPHERE))
 				setNumber(L, "boils", *b);
@@ -216,6 +326,30 @@ int ModApiMatter::l_inspect(lua_State *L)
 		std::vector<WorldMatter::Awake> one = m.world->awake(p, p);
 		lua_pushboolean(L, !one.empty());
 		lua_setfield(L, -2, "awake");
+		// what's in it, most first, and how it looks (sprint 79)
+		if (std::optional<matter::Mixture> mix = m.world->mixture(p)) {
+			char hex[8];
+			snprintf(hex, sizeof hex, "#%06x", mix->colour());
+			lua_pushstring(L, hex);
+			lua_setfield(L, -2, "colour");
+			std::vector<size_t> order;
+			for (size_t i = 0; i < mix->amounts.size(); i++)
+				if (mix->amounts[i] > 1e-9)
+					order.push_back(i);
+			std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return mix->amounts[a] > mix->amounts[b]; });
+			constexpr size_t SHOWN = 6;
+			lua_createtable(L, (int)std::min(order.size(), SHOWN), 0);
+			for (size_t n = 0; n < order.size() && n < SHOWN; n++) {
+				lua_createtable(L, 0, 3);
+				lua_pushstring(L, m.table.substances()[order[n]].id.c_str());
+				lua_setfield(L, -2, "substance");
+				setNumber(L, "moles", mix->amounts[order[n]]);
+				lua_pushstring(L, matter::STATE_NAMES[(int)mix->state(order[n], matter::ATMOSPHERE)]);
+				lua_setfield(L, -2, "state");
+				lua_rawseti(L, -2, (int)n + 1);
+			}
+			lua_setfield(L, -2, "contents");
+		}
 		return 1;
 	});
 }
@@ -279,6 +413,87 @@ int ModApiMatter::l_heat(lua_State *L)
 	MAP_LOCK_REQUIRED;
 	return guarded(L, "heat", [&] {
 		started(L).world->heat(pos(L, 1), luaL_checknumber(L, 2));
+		return 0;
+	});
+}
+
+// core.matter.add(pos, substance, moles[, temperature]): matter put into a
+// block (sprint 79), at the weather's temperature if none's given
+int ModApiMatter::l_add(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "add", [&] {
+		ServerMatter &m = started(L);
+		const Pos p = pos(L, 1);
+		const size_t substance = m.table.index(luaL_checkstring(L, 2));
+		const double temperature = lua_isnoneornil(L, 4) ? m.world->temperature(p) : luaL_checknumber(L, 4);
+		m.world->add(p, substance, luaL_checknumber(L, 3), temperature);
+		return 0;
+	});
+}
+
+// core.matter.pour(pos, id, moles[, T]): as add, but it heaps and runs (sprint 80)
+int ModApiMatter::l_pour(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "pour", [&] {
+		ServerMatter &m = started(L);
+		const Pos p = pos(L, 1);
+		const size_t substance = m.table.index(luaL_checkstring(L, 2));
+		const double temperature = lua_isnoneornil(L, 4) ? m.world->temperature(p) : luaL_checknumber(L, 4);
+		m.world->pour(p, substance, luaL_checknumber(L, 3), temperature);
+		return 0;
+	});
+}
+
+// core.matter.set_fill(pos, id, share) (sprint 81): liquid lying in a node's
+// open space as the world keeps it asleep (generation filling the shore; nil
+// or 0 empties it). Its colour is the substance's own.
+int ModApiMatter::l_set_fill(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "set_fill", [&] {
+		ServerMatter &m = made(L);
+		const v3s16 p = check_v3s16(L, 1);
+		fill::Fill f;
+		if (!lua_isnoneornil(L, 2)) {
+			const std::string id = luaL_checkstring(L, 2);
+			const matter::Substance &sub = m.table.substances()[m.table.index(id)]; // throws on an unknown id
+			const double share = luaL_checknumber(L, 3);
+			if (share < 0 || share > 1)
+				throw LuaError("core.matter.set_fill: a share of its open space, 0..1");
+			f.liquid = fill::liquid(sub.id);
+			f.amount = (u8)std::lround(share * 255);
+			f.r = (sub.colour >> 16) & 0xFF;
+			f.g = (sub.colour >> 8) & 0xFF;
+			f.b = sub.colour & 0xFF;
+		}
+		getServer(L)->getEnv().getMap().setFill(p, f);
+		return 0;
+	});
+}
+
+// core.matter.get_fill(pos): the liquid lying in a node's open space,
+// { id, share } (of its open space), or nil (sprint 81)
+int ModApiMatter::l_get_fill(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	const fill::Fill *f = getServer(L)->getEnv().getMap().getFill(check_v3s16(L, 1));
+	if (!f)
+		return 0;
+	lua_newtable(L);
+	lua_pushstring(L, fill::name(f->liquid).c_str());
+	lua_setfield(L, -2, "id");
+	setNumber(L, "share", f->amount / 255.0);
+	return 1;
+}
+
+// core.matter.disturb(pos): something changed there; what can run or slide wakes
+int ModApiMatter::l_disturb(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "disturb", [&] {
+		started(L).world->disturb(pos(L, 1));
 		return 0;
 	});
 }
@@ -441,6 +656,11 @@ void ModApiMatter::Initialize(lua_State *L, int top)
 		{ "touch", l_touch },
 		{ "inspect", l_inspect },
 		{ "blow", l_blow },
+		{ "add", l_add },
+		{ "pour", l_pour },
+		{ "disturb", l_disturb },
+		{ "set_fill", l_set_fill },
+		{ "get_fill", l_get_fill },
 		{ "step", l_step },
 		{ "ambient", l_ambient },
 		{ "temperature", l_temperature },

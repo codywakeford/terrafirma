@@ -17,6 +17,7 @@
 #include "clientdynamicinfo.h"
 #include "clouds.h"
 #include "far/view.h"
+#include "client/liquids.h"
 #include "planetarium/sky.h"
 #include "client/hold.h"
 #include "client/hand.h"
@@ -357,6 +358,7 @@ private:
 	irr_ptr<Sky> sky;
 	irr_ptr<planetarium::Sky> space; // Terra Firma: the system round the planet, behind far_view
 	irr_ptr<far::View> far_view; // Terra Firma: the horizon, on a terra world
+	irr_ptr<liquids::Layer> liquid_layer; // Terra Firma: liquid in the world's open space (sprint 81)
 	int far_body = 0;            // Terra Firma: the atlas body far_view draws
 	// Terra Firma: the planet viewer, while it's open (it takes the input)
 	bool m_planetarium_alone = false;   // opened by its key (no screen over it): its key and Esc close it
@@ -369,8 +371,18 @@ private:
 	// Terra Firma: when the held object's pose was last sent, and what
 	f32 m_pose_age = 0;
 	std::optional<Hold::Pose> m_pose_sent;
-	// Terra Firma: a new object of ours, to focus when it arrives
-	std::optional<u16> m_awaited;
+	// Terra Firma: a new object of ours, to focus when it arrives (or, a
+	// paste, to carry: sprint 74; pulled off the workpiece, 77)
+	std::optional<std::pair<u16, workshop::Handed>> m_awaited;
+	// Terra Firma: where a part was pressed to pull it off (sprint 77):
+	// it's carried from there, by that point, when it arrives
+	std::optional<v3f> m_pulled_at;
+	// Terra Firma: a part to be saved (Ctrl+S: its object and part), while
+	// the page asks its name
+	std::optional<std::pair<u16, u64>> m_naming;
+	// Terra Firma: the other button stopped a stroke (sprint 75): not a
+	// turn or a menu till it's let go
+	bool m_place_spent = false;
 	// What the tools are pointed at (sprint 47): the world (piece 0, frame
 	// the world's) or a piece in its own grid; the node, point (BS) and
 	// face in that frame.
@@ -444,38 +456,72 @@ private:
 		bool turned = false; // it's turned something: not a click
 		bool place = false;  // the other button's (a click of it: the part's menu)
 	} m_drag;
-	// a face's joint menu (sprint 63), opened by the other button clicked
-	// on it: its buttons laid on the face, in the world, picked by looking
-	// at one and clicking; a socket of that joint's made there
+	// an object's menu (sprint 71), opened by right-clicking it: buttons
+	// standing in the world at the face, picked by looking and clicking.
+	// On the workpiece, its joints first (one looked at is shown where
+	// it'd be); then what's done with it; then its part's.
 	struct Menu
 	{
-		// what a button does
-		enum class Do : u8 { Socket, Edit, Detach, Delete, Unsocket, Relink, Unlink };
+		// Travel, Firmness: a sprung joint's spring, a step of its table (sprint 75)
+		enum class Do : u8 { Socket, Relink, Unjoint, Sit, Focus, Carry, Upright, Edit, Detach, Bare, Delete, Travel, Firmness };
 		struct Button
 		{
 			const char *label;
 			Do does;
 			piece::Joint joint; // a socket's, or the joint set
 			int row;
+			bool on; // what it is now (a joint's kind, the part being edited)
+			u8 step = 0; // a spring's
 		};
+		u16 object;
+		u64 part; // the part right-clicked
 		piece::Machine::Face face;
-		u64 part;       // the part it's on
-		u64 other = 0;  // relinking: the part the joint's to
+		std::optional<piece::Machine::Link> link; // a joint by where it was clicked
+		std::optional<u64> socket; // a socket by where it was clicked
 		std::vector<Button> buttons;
-		v3f at, normal; // BS, the world's: the face's middle, out of it
-		v3f u, w;       // the face's plane: across (level), up it
-		int lit = -1;   // the button looked at
+		v3f at, normal;  // BS, the world's: where it was clicked, out of the face
+		v3f u, w, facing; // its plane: across (level), up; toward the player
+		int lit = -1;     // the button looked at
+		bool armed = false; // delete clicked once: again deletes
 	};
 	std::optional<Menu> m_menu;
-	// a part's menu (sockets on the face; edit, detach, delete), or the
-	// joint menu between the part selected and `other`
+	// what's let go and drawn rolling where the client has it (Body::coasting)
+	std::set<u16> m_coasting;
 	void openMenu(const Aim &aim);
-	void openJointMenu(const Aim &aim, u64 other);
-	void placeMenu(const Aim &aim, std::vector<Menu::Button> buttons, u64 other);
-	// the buttons drawn, the one looked at lit; a click picks it (or, off
-	// them, closes it). True: the click was the menu's
-	bool menuStep();
-	// a part clicked to select (Shift, with another selected: their joint)
+	// drawn, the one looked at lit; a click picks it, or off them closes it
+	void menuStep(f32 dtime);
+	// a joint's sign at `at` about `axis` (BS, the world's), `scale` its size
+	void jointSign(v3f at, v3f axis, piece::Joint joint, video::SColor colour, f32 scale = 1);
+	void faceMenu(Menu &m) const;
+	// a sprung joint's spring, its travel and firmness, on rows `row` and the next
+	static void springRows(Menu &m, int row);
+	// Terra Firma: a seat or engine held, its place on what's looked at
+	// outlined, right-click fits it (sprint 73); true while it's shown
+	bool fitStep(u16 lit);
+	// Terra Firma: building, the floor's block grid round the player (sprint 73)
+	void gridStep();
+	bool m_fit_shown = false;
+	static const std::pair<piece::Joint, int> JOINT_ROWS[size_t(piece::Joint::Count)];
+	// a joint or socket of the workpiece, where it is (BS, the world's)
+	struct JointAt
+	{
+		std::optional<piece::Machine::Link> link; // a joint between two parts; else a socket
+		u64 socket;
+		v3f at, axis;
+		piece::Joint joint;
+		bool operator==(const JointAt &o) const
+		{
+			return link.has_value() == o.link.has_value() && socket == o.socket
+					&& (!link || (link->a == o.link->a && link->b == o.link->b && link->joint == o.link->joint));
+		}
+		bool operator!=(const JointAt &o) const { return !(*this == o); }
+	};
+	// the one looked at (the tools away, on the bench), and the last said
+	std::optional<JointAt> m_hover_joint, m_hover_said;
+	void hoverJoints(GenericCAO &obj);
+	void openJointMenu(const JointAt &j);
+	std::optional<Aim> socketAim(u16 object, u64 socket) const;
+	// a part clicked to select
 	void selectPart(const Aim &aim);
 	void closeMenu();
 	// the cursor free (Tab): the view stays, clicks go where it points
@@ -501,23 +547,20 @@ private:
 		v3f rotation; // as it was grabbed
 		f32 yaw;      // the player's, as it was grabbed: it turns as they do
 		f32 age;      // since its pose was last sent
+		bool sticky = false; // let go on a click, not as the button's let go (a paste)
 		struct Snap
 		{
 			u16 object;              // what it'd go on
 			piece::Machine::Face on; // their face (none of it, onto a socket)
 			piece::Machine::Face mine;
 			std::optional<u64> socket; // their socket it'd go on
+			v3f aim = {}; // where on their face it's aimed (their sixteenths)
 		};
 		std::optional<Snap> snap = std::nullopt;
-		// sprint 64: asked since it was last moved (Q/E quarters, R the
-		// next axis, F the other side)
+		// asked since it was last moved (sprint 77): quarters about the
+		// up (E) and tipped toward the player (Q)
 		int turn_asked = 0, tilt_asked = 0;
-		bool flip_asked = false;
-		// fitted to something: its side that meets it (its own axes), what
-		// that was chosen against, the quarters it's spun about the joint
-		std::optional<v3s16> side = std::nullopt;
-		u16 side_for = 0;
-		std::optional<u64> side_socket = std::nullopt;
+		// fitted to something: the quarters it's spun about the joint
 		u8 spin = 0;
 		// where it's drawn, fitted (BS position, rotation in degrees)
 		std::optional<std::pair<v3f, v3f>> fitted = std::nullopt;
@@ -533,6 +576,9 @@ private:
 	u16 m_lit = 0;
 	std::optional<u64> m_lit_part; // the part of it looked at
 	void handleCarry(const PointedThing &pointed, f32 dtime);
+	// a carry begun, of `object` held at `hit` (BS); `sticky`: carried
+	// till the next click (a paste), not while the button's down
+	void startCarry(u16 object, v3f hit, bool sticky);
 	// Terra Firma: grabbing (sprint 68): a point of an object pressed on,
 	// pulled toward the hand (as far off as it was, nearer or further by
 	// the wheel) as hard as a person, here at once and on the server
@@ -545,6 +591,16 @@ private:
 	};
 	std::optional<Grab> m_grab;
 	void handleGrab(const PointedThing &pointed, f32 dtime);
+	// Terra Firma: driving (sprint 69): sat in a machine's seat
+	// (right-click it), W/S forward and back, A/D steer, Space brakes,
+	// Shift gets up
+	struct Driving
+	{
+		u16 object;
+		f32 age; // s since the controls were last sent
+	};
+	std::optional<Driving> m_driving;
+	void handleDrive(const PointedThing &pointed, f32 dtime);
 	void showTool();
 	// an object's middle in its own grid (node coordinates); nothing if
 	// it's not an object (or gone)
@@ -570,9 +626,10 @@ private:
 	};
 	mutable std::optional<MirrorPlane> m_mirror_plane; // chosen at the first stroke, which only looks
 	int mirrorAxis(u16 object, int now) const;
+	// a machine's axis left to right of its front: what it's mirrored across
+	int sideAxis(u16 object) const;
 	void stepMirror();
 	// a click in a mode that isn't drawing, on what's aimed at
-	void clickMode(const Aim &aim);
 	// opens the focus view on what's pointed at, or closes it
 	// the focus on an object: held while it's open, let go when it closes
 	void focusOn(u16 id);

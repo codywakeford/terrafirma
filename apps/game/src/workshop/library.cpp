@@ -49,7 +49,28 @@ Blueprint Blueprint::read(const std::string &text)
 	return out;
 }
 
-Library::Library(const std::string &world_path) : m_root(world_path + DIR_DELIM + "blueprints") {}
+Library::Library(const std::string &root, const std::string &world_path) : m_root(root)
+{
+	if (world_path.empty())
+		return;
+	// a world's from before: copied, never moved (the world's still the player's)
+	const std::string old = world_path + DIR_DELIM + "blueprints";
+	for (const fs::DirListNode &player : fs::GetDirListing(old)) {
+		if (!player.dir)
+			continue;
+		const std::string from = old + DIR_DELIM + player.name, to = dir(player.name);
+		for (const fs::DirListNode &n : fs::GetDirListing(from)) {
+			const std::string target = to + DIR_DELIM + n.name;
+			if (n.dir || fs::PathExists(target))
+				continue;
+			std::string text;
+			if (!fs::ReadFile(from + DIR_DELIM + n.name, text))
+				throw FileNotGoodException("can't read " + from + DIR_DELIM + n.name);
+			if (!fs::CreateAllDirs(to) || !fs::safeWriteToFile(target, text))
+				throw FileNotGoodException("can't write " + target);
+		}
+	}
+}
 
 bool Library::named(const std::string &name)
 {
@@ -84,6 +105,15 @@ Blueprint Library::load(const std::string &player, const std::string &name) cons
 	if (!fs::ReadFile(path, text))
 		throw FileNotGoodException("can't read " + path);
 	return Blueprint::read(text);
+}
+
+void Library::remove(const std::string &player, const std::string &name)
+{
+	const std::string path = dir(player) + DIR_DELIM + name + EXT;
+	if (!named(name) || !fs::PathExists(path))
+		throw std::out_of_range("no blueprint \"" + name + "\"");
+	if (!fs::DeleteSingleFileOrEmptyDirectory(path))
+		throw FileNotGoodException("can't delete " + path);
 }
 
 std::vector<std::string> Library::names(const std::string &player) const

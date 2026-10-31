@@ -25,6 +25,7 @@ const explored = btoa(String.fromCharCode(...exploredBytes))
 const live = reactive({
     hp: 17, hpMax: 20, breath: 7, breathMax: 10, selected: 2, size: 9,
     visible: true, crosshair: true, wear: 30000, altitude: 120, trajectory: true,
+    building: false, world: false, cursor: false,
 })
 
 function push() {
@@ -32,6 +33,11 @@ function push() {
     bridge.emit({ kind: "state", section: "hud", value: { visible: live.visible, crosshair: live.crosshair, hotbar: true, health: true, breath: true } })
     bridge.emit({ kind: "state", section: "player", value: { hp: live.hp, hpMax: live.hpMax, breath: live.breath, breathMax: live.breathMax } })
     bridge.emit({ kind: "state", section: "hotbar", value: { size: live.size, selected: live.selected } })
+    bridge.emit({ kind: "state", section: "tools", value: live.building ? {
+        out: true, tool: "cylinder", size: 24, mirrored: false, focused: true, cursor: live.cursor, naming: false,
+        brush: "add", creating: !live.world, partJoint: "fixed",
+    } : { out: false } })
+    bridge.emit({ kind: "state", section: "library", value: ["small cart", "Spoked wheel"] })
     bridge.emit({ kind: "ui", key: "world_controls", value: { mode: "survival", damage: true, time: 0.5, paused: false } })
     bridge.emit({ kind: "ui", key: "map", value: {
         code, size: DEFAULTS.size, radius: DEFAULTS.size / (2 * Math.PI), sea: 1,
@@ -95,6 +101,11 @@ onMounted(() => {
                 <Slider v-model="live.selected" label="Selected" :min="0" :max="live.size - 1" :step="1" />
                 <Slider v-model="live.size" label="Size" :min="1" :max="10" :step="1" />
                 <Slider v-model="live.wear" label="Pickaxe wear" :min="0" :max="65535" :step="500" />
+            </Section>
+            <Section title="Building">
+                <Toggle v-model="live.building" label="Build mode (Tab)" />
+                <Toggle v-model="live.world" label="Alt held: into the world" />
+                <Toggle v-model="live.cursor" label="Cursor free (C)" />
             </Section>
             <Section title="Screens">
                 <Toggle :model-value="store.screen === 'pause'" label="Pause screen (Esc)"

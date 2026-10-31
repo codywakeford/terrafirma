@@ -204,6 +204,10 @@ public:
 	void handleCommand_Atlas(NetworkPacket *pkt);
 	void handleCommand_Window(NetworkPacket *pkt);
 	void handleCommand_Shape(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Fill(NetworkPacket *pkt); // Terra Firma (sprint 81)
+	// Terra Firma: map blocks whose liquid changed since the liquid layer last looked (sprint 81)
+	std::unordered_set<v3s16> takeLiquidsChanged() { std::unordered_set<v3s16> out; out.swap(m_liquids_changed); return out; }
+	void liquidsChanged(v3s16 blockpos) { m_liquids_changed.insert(blockpos); }
 	void handleCommand_Blueprints(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Held(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Materials(NetworkPacket *pkt); // Terra Firma
@@ -259,16 +263,20 @@ public:
 	// Terra Firma: a point of an object grabbed (in its frame, BS) and pulled
 	// toward `hand`, or let go (none)
 	void sendGrab(u16 object, std::optional<std::pair<v3f, v3f>> grip);
+	// Terra Firma: driving from a machine's seat, or getting up (none)
+	void sendDrive(u16 object, std::optional<physics::Drive> drive);
 	// Terra Firma: another of the last plugged in, into this socket (sprint 64)
 	void sendPlugAgain(u16 object, u64 socket);
 	// Terra Firma: an object's design made a shell, `thickness` sixteenths
-	void sendHollow(u16 object, u64 part, int thickness);
+	// rounded (sprint 75): its edges rounded to `thickness`, not hollowed
+	void sendHollow(u16 object, u64 part, int thickness, bool rounded);
 	// Terra Firma: machines (sprints 52–53): a joint between two parts set
 	// (made at `at`, a face of a's, if there's none), two machines joined
 	// face to face, a part taken off or deleted
 	// joint none: the joint taken away
+	// spring (sprint 75): a sprung joint's set too
 	void sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
-			const std::optional<piece::Machine::Face> &at);
+			const std::optional<piece::Machine::Face> &at, std::optional<piece::Spring> spring = std::nullopt);
 	void sendJoin(u16 a, const piece::Machine::Face &on_a, u16 b, const piece::Machine::Face &on_b, piece::Joint joint, u8 spin);
 	void sendPart(u16 object, u64 part, bool remove);
 	// Terra Firma: sockets (sprint 56): one made on a face (and its
@@ -279,12 +287,21 @@ public:
 	void sendPlug(u16 a, u64 socket, u16 b, const piece::Machine::Face &on_b, u8 spin);
 	// Terra Firma: the new object the server made for the player, to focus
 	// when it's here; taken, it's gone
-	std::optional<u16> takeHeld() { return std::exchange(m_held, std::nullopt); }
+	// the object id, and how it's handed (carried: a paste, sprint 74; pulled off, 77)
+	std::optional<std::pair<u16, workshop::Handed>> takeHeld() { return std::exchange(m_held, std::nullopt); }
 	// Terra Firma: undo the last stroke (TOSERVER_UNDO)
 	void sendUndo();
 	// Terra Firma: the library (sprint 48): an object (its object id) kept
 	// as a blueprint, one put down where `at` is
-	void sendBlueprintSave(u16 piece, const std::string &name);
+	void sendBlueprintSave(u16 piece, u64 part, const std::string &name);
+	// Terra Firma: copy a part, paste, take one from the library or forget
+	// it (TOSERVER_CLIPBOARD, sprint 74)
+	void sendCopy(u16 piece, u64 part);
+	void sendPaste();
+	void sendPull(u16 piece, u64 part); // sprint 77: off by hand
+	void sendUpright(u16 piece); // sprint 79
+	void sendTake(const std::string &name);
+	void sendForget(const std::string &name);
 	void sendBlueprintPlace(const std::string &name, v3s16 at);
 	// Terra Firma: the player's blueprints, as the server last said
 	const std::vector<std::string> &getBlueprints() const { return m_blueprints; }
@@ -543,9 +560,10 @@ private:
 	std::vector<std::pair<std::string, std::string>> m_ui_values;
 	std::optional<far::Horizon> m_horizon;
 	std::vector<std::string> m_blueprints; // Terra Firma
+	std::unordered_set<v3s16> m_liquids_changed; // Terra Firma: blocks whose liquid changed (sprint 81)
 	workshop::Materials m_materials; // Terra Firma
 	std::unique_ptr<Body> m_body; // Terra Firma: made when it's first asked for
-	std::optional<u16> m_held; // Terra Firma
+	std::optional<std::pair<u16, workshop::Handed>> m_held; // Terra Firma
 	std::optional<planet::Atlas> m_atlas; // Terra Firma: or an atlas planet (never both)
 
 	struct PendingMediaDownload {

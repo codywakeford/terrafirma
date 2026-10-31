@@ -36,8 +36,29 @@ int ModApiPhysics::l_material(lua_State *L)
 	lua_getfield(L, 2, "friction");
 	if (!lua_isnumber(L, -2) || !lua_isnumber(L, -1))
 		throw LuaError("core.physics.material: " + node + " needs a density and a friction");
-	const workshop::Material m{ (float)lua_tonumber(L, -2), (float)lua_tonumber(L, -1) };
+	workshop::Material m{ (float)lua_tonumber(L, -2), (float)lua_tonumber(L, -1) };
 	lua_pop(L, 2);
+	// what it does in a machine (sprint 69): `role` by name, a motor's
+	// `power` (kW) and `rpm` (sprint 78)
+	lua_getfield(L, 2, "role");
+	if (!lua_isnil(L, -1)) {
+		const std::string role = luaL_checkstring(L, -1);
+		size_t r = 0;
+		while (r < size_t(workshop::Role::Count) && role != workshop::ROLES[r].id)
+			r++;
+		if (r == size_t(workshop::Role::Count))
+			throw LuaError("core.physics.material: " + node + ": no role called " + role);
+		m.role = workshop::Role(r);
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, 2, "power");
+	if (!lua_isnil(L, -1))
+		m.power = (float)luaL_checknumber(L, -1) * 1000;
+	lua_pop(L, 1);
+	lua_getfield(L, 2, "rpm");
+	if (!lua_isnil(L, -1))
+		m.rpm = (float)luaL_checknumber(L, -1);
+	lua_pop(L, 1);
 	const content_t c = getServer(L)->ndef()->getId(node);
 	if (c == CONTENT_IGNORE)
 		throw LuaError("core.physics.material: no node called " + node);

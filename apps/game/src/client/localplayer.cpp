@@ -5,6 +5,8 @@
 #include "localplayer.h"
 #include "body.h" // Terra Firma
 #include "planet/atlas.h" // Terra Firma
+#include "fill/fill.h" // Terra Firma
+#include "shape/shape.h" // Terra Firma
 #include <cmath>
 #include "mtevent.h"
 #include "collision.h"
@@ -263,6 +265,18 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 	MapNode node;
 	v3s16 pp;
 
+	// Terra Firma: liquid lying in open space (sprint 81: fill::Fill) is swum in
+	// where it stands above the point looked at, as a liquid block is
+	auto under_fill = [&](v3f at) {
+		const v3s16 p = floatToInt(at, BS);
+		const fill::Fill *f = map->getFill(p);
+		if (!f)
+			return false;
+		const std::optional<shape::Shape> solid = map->solidShape(p);
+		const float top = p.Y - 0.5f + fill::Room::of(solid ? &*solid : nullptr).surface(f->amount / 255.0f);
+		return at.Y / BS < top;
+	};
+
 	/*
 		Check if player is in liquid (the oscillating value)
 	*/
@@ -274,7 +288,7 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 		node = map->getNode(pp, &is_valid_position);
 		if (is_valid_position) {
 			const ContentFeatures &cf = nodemgr->get(node.getContent());
-			in_liquid = cf.liquid_move_physics;
+			in_liquid = cf.liquid_move_physics || under_fill(position + v3f(0.0f, BS * 0.1f, 0.0f));
 			move_resistance = cf.move_resistance;
 		} else {
 			in_liquid = false;
@@ -286,7 +300,7 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 		node = map->getNode(pp, &is_valid_position);
 		if (is_valid_position) {
 			const ContentFeatures &cf = nodemgr->get(node.getContent());
-			in_liquid = cf.liquid_move_physics;
+			in_liquid = cf.liquid_move_physics || under_fill(position + v3f(0.0f, BS * 0.5f, 0.0f));
 			move_resistance = cf.move_resistance;
 		} else {
 			in_liquid = false;
@@ -300,7 +314,7 @@ void LocalPlayer::move(f32 dtime, Environment *env,
 	pp = floatToInt(position + v3f(0.0f), BS);
 	node = map->getNode(pp, &is_valid_position);
 	if (is_valid_position) {
-		in_liquid_stable = nodemgr->get(node.getContent()).liquid_move_physics;
+		in_liquid_stable = nodemgr->get(node.getContent()).liquid_move_physics || under_fill(position);
 	} else {
 		in_liquid_stable = false;
 	}
@@ -888,6 +902,18 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 	MapNode node;
 	v3s16 pp;
 
+	// Terra Firma: liquid lying in open space (sprint 81: fill::Fill) is swum in
+	// where it stands above the point looked at, as a liquid block is
+	auto under_fill = [&](v3f at) {
+		const v3s16 p = floatToInt(at, BS);
+		const fill::Fill *f = map->getFill(p);
+		if (!f)
+			return false;
+		const std::optional<shape::Shape> solid = map->solidShape(p);
+		const float top = p.Y - 0.5f + fill::Room::of(solid ? &*solid : nullptr).surface(f->amount / 255.0f);
+		return at.Y / BS < top;
+	};
+
 	/*
 		Check if player is in liquid (the oscillating value)
 	*/
@@ -897,7 +923,7 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 		node = map->getNode(pp, &is_valid_position);
 		if (is_valid_position) {
 			const ContentFeatures &cf = nodemgr->get(node.getContent());
-			in_liquid = cf.liquid_move_physics;
+			in_liquid = cf.liquid_move_physics || under_fill(position + v3f(0.0f, BS * 0.1f, 0.0f));
 			move_resistance = cf.move_resistance;
 		} else {
 			in_liquid = false;
@@ -908,7 +934,7 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 		node = map->getNode(pp, &is_valid_position);
 		if (is_valid_position) {
 			const ContentFeatures &cf = nodemgr->get(node.getContent());
-			in_liquid = cf.liquid_move_physics;
+			in_liquid = cf.liquid_move_physics || under_fill(position + v3f(0.0f, BS * 0.5f, 0.0f));
 			move_resistance = cf.move_resistance;
 		} else {
 			in_liquid = false;
@@ -921,7 +947,7 @@ void LocalPlayer::old_move(f32 dtime, Environment *env,
 	pp = floatToInt(position + v3f(0.0f), BS);
 	node = map->getNode(pp, &is_valid_position);
 	if (is_valid_position)
-		in_liquid_stable = nodemgr->get(node.getContent()).liquid_move_physics;
+		in_liquid_stable = nodemgr->get(node.getContent()).liquid_move_physics || under_fill(position);
 	else
 		in_liquid_stable = false;
 

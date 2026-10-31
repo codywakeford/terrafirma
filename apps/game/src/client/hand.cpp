@@ -29,17 +29,21 @@ const Hand::Action Hand::ACTIONS[size_t(Verb::Count)] = {
 	{ "relink", false },
 	{ "socket", false },
 	{ "unsocket", false },
+	{ "copy", false },
+	{ "paste", false },
+	{ "name", false },
+	{ "take", true },
+	{ "forget", true },
+	{ "round", false },
 };
 
 const Hand::BrushKind Hand::BRUSHES[size_t(Brush::Count)] = {
-	{ "add", sculpt::Act::Add, false, false },
-	{ "cut", sculpt::Act::Cut, false, false },
-	{ "paint", sculpt::Act::Paint, false, false },
-	{ "part", sculpt::Act::Add, true, false },
-	{ "pull", sculpt::Act::Add, false, true },
+	{ "add", sculpt::Act::Add, false, false, true },
+	{ "cut", sculpt::Act::Cut, false, false, true },
+	{ "paint", sculpt::Act::Paint, false, false, true },
+	{ "part", sculpt::Act::Add, true, false, false },
+	{ "pull", sculpt::Act::Add, false, true, false },
 };
-
-const char *const Hand::CLICKS[size_t(Click::Count)] = { "draw", "select" };
 
 void Hand::setPartJoint(piece::Joint joint)
 {
@@ -51,18 +55,20 @@ void Hand::setPartJoint(piece::Joint joint)
 void Hand::pickBrush(const std::string &id)
 {
 	for (size_t i = 0; i < size_t(Brush::Count); i++)
-		if (id == BRUSHES[i].id) {
+		if (id == BRUSHES[i].id && BRUSHES[i].picked) {
 			m_brush = Brush(i);
 			return;
 		}
-	throw BaseException("Hand::pickBrush: no brush \"" + id + "\"");
+	throw BaseException("Hand::pickBrush: no brush \"" + id + "\" on the rail");
 }
 
-void Hand::setMode(const Mode &mode)
+void Hand::nextBrush()
 {
-	if (mode.click >= Click::Count)
-		throw BaseException("Hand::setMode: no such mode");
-	m_mode = mode;
+	size_t i = size_t(m_brush);
+	do
+		i = (i + 1) % size_t(Brush::Count);
+	while (!BRUSHES[i].picked);
+	m_brush = Brush(i);
 }
 
 void Hand::relink(u64 other, std::optional<piece::Joint> joint)
@@ -106,11 +112,6 @@ std::vector<Hand::Ask> Hand::take()
 	return std::exchange(m_asked, {});
 }
 
-void Hand::next()
-{
-	m_tool = sculpt::Tool((size_t(m_tool) + 1) % size_t(sculpt::Tool::Count));
-}
-
 void Hand::pick(const std::string &id)
 {
 	for (size_t i = 0; i < size_t(sculpt::Tool::Count); i++)
@@ -134,5 +135,6 @@ std::string Hand::describe() const
 	const std::string size = m_size % steps == 0
 			? std::to_string(m_size / steps) + " block" + (m_size > steps ? "s" : "")
 			: std::to_string(m_size) + "/16";
-	return std::string(sculpt::KINDS[size_t(m_tool)].name) + " · " + size + (m_mirror ? " · mirrored" : "");
+	return std::string(BRUSHES[size_t(m_brush)].id) + " · " + sculpt::KINDS[size_t(m_tool)].name + " · " + size
+			+ (m_mirror ? " · mirrored" : "");
 }

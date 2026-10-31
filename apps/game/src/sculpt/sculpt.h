@@ -9,6 +9,7 @@
 #include "voxel.h"
 #include <line3d.h>
 #include <deque>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -22,6 +23,10 @@ class Map;
 	size, where it's pointed and dig or place: the world's sixteenths it
 	takes or fills. The server applies it (Sculptor); the client outlines
 	it before the click.
+
+	Sprint 75: structure. A frame or truss is drawn as a box is, its
+	members the size thick (a flat one, clicked or not pulled out, is a
+	chassis); a beam from one point to another across the face.
 
 	A shape is drawn by its footprint (sprint 50): dragged out on the face
 	it starts on, from the sixteenth pointed at to `to` (a box corner to
@@ -40,6 +45,10 @@ enum class Tool : u8 {
 	Sphere,
 	Cut,  // a plane: dig shaves what stands past the face, place fills what's short of it
 	Bore, // a round passage into the face (dig only)
+	// sprint 75: structure, its members the size thick
+	Frame, // the box's edges: a chassis, a cage
+	Truss, // the edges and a cross on each side big enough
+	Beam,  // a straight member from where it's begun to where it's dragged, at any angle across the face
 	Count,
 };
 
@@ -58,6 +67,9 @@ struct Kind
 		Ball,   // the ellipsoid
 		Across, // the ellipse across the normal, all along it
 		Taper,  // the ellipse across the normal, shrinking to a point away from the face
+		Frame,  // within the size of two of the box's sides: its edges
+		Truss,  // the frame, and the diagonals across each side
+		Line,   // within half the size of the line across the face, start to end
 	};
 	const char *id;   // the page's name for it
 	const char *name;
@@ -196,8 +208,16 @@ public:
 	// sixteenth further than that from open space is taken (sprint 50: a
 	// vessel, a chamber, a hull). Open space round the area counts.
 	Edit hollow(const VoxelArea &area, int thickness);
+	// What's in `area` with its edges and corners rounded to `radius`
+	// sixteenths (sprint 75): what a ball that size, rolled round inside
+	// it, can't reach is taken.
+	Edit round(const VoxelArea &area, int radius);
 
 private:
+	struct Solid;
+	std::optional<Solid> solidIn(const VoxelArea &area, int reach) const;
+	Edit takeWhere(const Solid &solid, const std::function<bool(v3s32 cell)> &taken);
+
 	Map &m_map;
 };
 

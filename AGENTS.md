@@ -633,6 +633,110 @@ hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
 gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 (protocol 58). No relay yet: pairs that can't be punched through are told so.
 
+**Built (sprint 81, `planning/sprint-81-liquid-layer.md`):** the liquid
+layer. Liquid lies in a node's open space as a fill (`src/fill`, map
+format 31, `TOCLIENT_FILL`, protocol 86), beside the node: water in a pit
+cut in the sand, the sand staying sand. The world's matter runs it against
+the open sixteenths (`Map::solidShape`: cut or smoothed ground); the
+client draws it on its own (`client/liquids.*`), gliding, never remeshing
+map blocks. Generation fills the shore; `core.matter.set_fill/get_fill`.
+
+**Built (sprint 80, `planning/sprint-80-flow.md`):** flow. Liquids fall
+and run by virtual pipes, powders heap at their angle of repose, open
+surfaces evaporate (a torch over spirit lights it), all in the world's
+matter (`sandbox/pouring.cpp`); levels drawn in sixty-fourths on levelled
+nodes. Still pools sleep keeping their own mixture (`Held`); past the
+budget the busiest blocks step first. The world's water is the matter's,
+not Luanti's. `core.matter.pour`, `core.matter.disturb`; the pour key (X,
+protocol 85). Matter saves are version 4.
+
+**Built (sprint 79, `planning/sprint-79-matter.md`):** matter
+foundations. Formation enthalpies (NASA) and saturation curves (CoolProp)
+baked offline into `assets/matter/thermo.json` (`scripts/matter-data`);
+reaction heats computed from them. 76 substances, 46 reactions (acids,
+alkali metals, thermite, gunpowder, fuels). Solubility and colour as data.
+Still mixtures aren't run; 10 000 awake blocks in 22 ms a simulated
+second. `core.matter.add`, a crucible (vessel), scoop, blowtorch; "set
+upright"; wheels spin the right way between poses. Protocol 84.
+
+**Built (sprint 78, `planning/sprint-78-drive.md`):** drive, first
+pass. An engine is a power and a top rpm (`_machine.power`, kW; `rpm`),
+geared by Jolt with shifts at its revs; fittings weigh their `_machine.mass`,
+not a block of matter. Carried parts aim at a part's whole box and line up
+to the sixteenth (flush or centred when near). Protocol 84.
+
+**Built (sprint 77, `planning/sprint-77-assemble.md`):** assembly. A
+copy's plug keeps the face it hung by (`Machine::plugFace`), so it goes
+back on flush and square with no turning by hand; hold left on a
+workpiece part (tools away) to pull it off with what hangs from it
+(`Machine::pull`, `Workshop::pull`), carried while held, let go on a face
+to put it on; the ground round a benched workpiece isn't dug; parts sit in
+the creative catalogue. Fixed a crash carrying what had just been grabbed.
+Protocol 83.
+
+**Built (sprint 76, `planning/sprint-76-parts.md`):** parts you can
+see and carry. A sprung joint's hub is its own body, riding its wheel's
+suspension (`physics::Hub`); a copy keeps the joint it hung by
+(`Machine::Plug`); starter parts (`workshop/starters.*`: a wheel, sprung
+corners that steer and are driven) in the inventory's Parts tab. Springs
+rest where they're built (preloaded). Protocol 82.
+
+**Built (sprint 75, `planning/sprint-75-suspension.md`):** suspension
+and structure. The sprung joint: a wheel turning on its hub rides its
+spring (travel and firmness picked on the joint's menu; ride height is
+where it's built; TFM5, protocol 81). Frame, Truss and Beam shapes (a
+chassis in one drag, its beams the size thick); Round on the rail;
+right-click stopping a stroke no longer opens the menu.
+
+**Built (sprint 74, `planning/sprint-74-parts-library.md`):** copy,
+paste, keep. Ctrl+C copies the part pointed at and what hangs from it
+(`Machine::extract`), Ctrl+V carries another till the next click, Ctrl+S
+saves it to the parts library, which is every world's now
+(`<user>/parts`; TOSERVER_CLIPBOARD, protocol 80). Building materials
+(`tf_world/materials.lua`: timber, aluminium, steel, rubber, canvas,
+glass); a wheel grips by its tread's material (`treadGrip`).
+
+**Built (sprint 73, `planning/sprint-73-vehicles.md`):** vehicles built,
+not guessed. Wheel joints that steer, are driven, or both (`piece::Joint`
+kinds, picked on the joint's menu); only those steer or take the engines'
+torque. Seats and engines are fittings: a block with a role is added whole,
+facing the way its fitter looks (facedir), and the seat's front is ahead
+(`Assembly::facing`; `Drive::ahead` gone, protocol 79). The driver sits
+lower and the view turns with the machine.
+
+**Built (sprint 72, `planning/sprint-72-joints.md`):** F and Tab are
+separate (F only benches; Esc leaves the workpiece be); delete asks twice
+and isn't offered on a lone part; the workpiece's joints and sockets are
+marked and picked by looking (right-click: their kind, or remove). The
+client rebuilds a block's ground with its neighbours', compiles its copy of
+a machine from the object's current text (a wheel just made was missing, so
+it sank while dragged), and logs where its grabbed copy parts from the
+server's (`World::describe`). A stale pointed object crashed the punch.
+
+**Built (sprint 71, `planning/sprint-71-feel.md`):** feel. A grip sits
+on the voxel clicked and on the body it's on (a wheel's turns with it;
+pulled along the rim it spins the wheel, the rest pushes the car at the hub).
+Wheel groups glide by their middles on the client (they cut through the
+ground). Right-click any object for its menu in the world, drawn as the
+page's buttons (`Hud::Tile`): sit, work on, carry; on the workpiece its
+joints (hovered: shown where they'd be) and its part's edit, detach, delete.
+The joint tool and the page's part menu are gone.
+
+**Built (sprint 70, `planning/sprint-70-build.md`):** one build mode.
+Tab in and out (X and C as ways in are gone; C frees the cursor); Add makes
+objects, and Alt held adds into the world. The rail is Add, Cut, Paint and
+Joint (R steps through them); the shapes are on a bar on the hotbar, picked
+with 1–6. Select is gone. A workpiece has a front
+(`Machine::front`, TFM4, protocol 78), and mirroring follows it.
+
+**Built (sprint 69, `planning/sprint-69-drive.md`):** drive. Seat and
+motor blocks (a material's `role`, `torque`); right-click a machine with
+a seat to drive it (W/S, A/D steer the front axle, Space brakes, Shift
+gets up; `TOSERVER_DRIVE`, protocol 77), the car predicted on the
+driver's client. Fixed: what's in someone's hands kept its ground (it
+fell through after two seconds); machines are pointed at by their
+voxels; the grab's hand stops at the ground, and its grip is drawn.
+
 **Built (sprint 68, `planning/sprint-68-grab.md`):** grab. Left-click
 held on an object pulls the point pressed toward the hand as hard as a
 person (weight decides: lifted, tipped, or barely moved; many can grab

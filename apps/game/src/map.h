@@ -46,6 +46,7 @@ enum MapEditEventType {
 	MEET_OTHER,
 	// Terra Firma: a node's cut shape changed (Map::setShape)
 	MEET_SHAPE,
+	MEET_FILL, // Terra Firma: a node's liquid (sprint 81)
 };
 
 struct MapEditEvent
@@ -85,6 +86,7 @@ struct MapEditEvent
 		case MEET_SWAPNODE:
 		case MEET_BLOCK_NODE_METADATA_CHANGED:
 		case MEET_SHAPE:
+		case MEET_FILL:
 			return VoxelArea(p);
 		case MEET_OTHER:
 		{
@@ -246,6 +248,11 @@ public:
 	// Cuts the node at p to `s`: a whole shape is none. Not empty: that's
 	// the node removed (removeNodeAndUpdate). False if its block isn't here.
 	bool setShape(v3s16 p, const shape::Shape &s);
+	// Terra Firma: the liquid in a node's open space (sprint 81: fill::Fill),
+	// nullptr: none. Setting it tells the clients (MEET_FILL), not the mesh;
+	// false where its block isn't loaded.
+	const fill::Fill *getFill(v3s16 p);
+	bool setFill(v3s16 p, const fill::Fill &f);
 	/*
 		The boxes the node at p is stood on and pointed at, if it isn't
 		its definition's: a cut node's sixteenths, smoothed ground's
@@ -254,6 +261,11 @@ public:
 	bool getShapedBoxes(v3s16 p, std::vector<aabb3f> &out);
 	// The shape smoothed ground at p takes, if it's smoothed (not cut).
 	std::optional<ground::Top> groundTop(v3s16 p);
+	// Terra Firma (sprint 81): the sixteenths of the node at p that are
+	// solid, where it's partly there: cut, smoothed ground (its own cell),
+	// or the air a smoothed block below rises into. nullopt: whole (it's
+	// all there or all open, as its node is). Where liquid can lie.
+	std::optional<shape::Shape> solidShape(v3s16 p);
 	/*
 		Smoothed ground at p becomes cut nodes of the shape it had: its own
 		cell, and what rises into the cell above (if that's open). Before

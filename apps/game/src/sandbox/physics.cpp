@@ -131,6 +131,14 @@ double Physics::react(matter::Mixture &b, double dt, std::vector<double> *out) c
 	return released;
 }
 
+void Physics::conduct(matter::Mixture &a, matter::Mixture &b, double ka, double kb, double ca, double cb, double dt) const
+{
+	double k = ka + kb > 0 ? 2 * ka * kb / (ka + kb) : 0;
+	double q = k * area() / m_block * (b.temperature - a.temperature) * dt;
+	a.temperature = std::max(1.0, a.temperature + q / ca);
+	b.temperature = std::max(1.0, b.temperature - q / cb);
+}
+
 void Physics::conduct(matter::Mixture &a, matter::Mixture &b, double ka, double kb, double dt) const
 {
 	// two halves in series: the harmonic mean
@@ -177,6 +185,10 @@ void Physics::lose(matter::Mixture &b, int faces, double ambient, double dt) con
 
 void Physics::mix(matter::Mixture &a, matter::Mixture &b, bool b_above, double dt) const
 {
+	// rock doesn't breathe through rock (sprint 79: gas stirred between
+	// two solid blocks' pores was most of a warm slab's cost, for nothing)
+	if (condensed(a) > volume() / 2 && condensed(b) > volume() / 2)
+		return;
 	if (gasMoles(a) <= 0 || gasMoles(b) <= 0)
 		return;
 	double rate = MIXING * area() / m_block / volume();

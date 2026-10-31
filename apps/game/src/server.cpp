@@ -1172,6 +1172,10 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 				prof.add("MEET_SHAPE", 1);
 				sendShape(event->p, &far_players, disable_single_change_sending ? 5 : 30);
 				break;
+			case MEET_FILL:
+				prof.add("MEET_FILL", 1);
+				sendFill(event->p, &far_players, disable_single_change_sending ? 5 : 30);
+				break;
 			case MEET_OTHER:
 				prof.add("MEET_OTHER", 1);
 				m_clients.markBlocksNotSent(event->modified_blocks, event->low_priority);
@@ -2617,10 +2621,10 @@ void Server::SendBlueprints(session_t peer_id, const std::string &player)
 void Server::SendMaterials(session_t peer_id)
 {
 	const auto all = m_materials->all();
-	NetworkPacket pkt(TOCLIENT_MATERIALS, 2 + all.size() * 10, peer_id);
+	NetworkPacket pkt(TOCLIENT_MATERIALS, 2 + all.size() * 19, peer_id);
 	pkt << u16(all.size());
 	for (const auto &[c, m] : all)
-		pkt << u16(c) << m.density << m.friction;
+		pkt << u16(c) << m.density << m.friction << u8(m.role) << m.power << m.rpm;
 	Send(&pkt);
 }
 
@@ -2635,6 +2639,19 @@ void Server::sendShape(v3s16 p, std::unordered_set<u16> *far_players, float far_
 		const std::string bytes = os.str();
 		pkt.putRawString(bytes.data(), bytes.size());
 	}
+	sendNodeChangePkt(pkt, getNodeBlockPos(p), intToFloat(p, BS), far_d_nodes, far_players);
+}
+
+// Terra Firma: a node's liquid (sprint 81), drawn by the client's liquid layer, not its mesh
+void Server::sendFill(v3s16 p, std::unordered_set<u16> *far_players, float far_d_nodes)
+{
+	NetworkPacket pkt(TOCLIENT_FILL, 6 + 64 + 4);
+	const fill::Fill *f = m_env->getMap().getFill(p);
+	pkt << p;
+	if (f)
+		pkt << fill::name(f->liquid) << f->amount << f->r << f->g << f->b;
+	else
+		pkt << std::string() << u8(0) << u8(0) << u8(0) << u8(0);
 	sendNodeChangePkt(pkt, getNodeBlockPos(p), intToFloat(p, BS), far_d_nodes, far_players);
 }
 

@@ -34,6 +34,8 @@ public:
 	void testUndo();
 	void testHoldPointsWhereItLooks();
 	void testDrawnByFootprint();
+	void testStructure();
+	void testRounded();
 	void testTurnedByHandle();
 };
 
@@ -52,6 +54,8 @@ void TestSculpt::runTests(IGameDef *gamedef)
 	TEST(testHoldPointsWhereItLooks);
 	TEST(testDrawnByFootprint);
 	TEST(testTurnedByHandle);
+	TEST(testStructure);
+	TEST(testRounded);
 }
 
 namespace {
@@ -464,4 +468,54 @@ void TestSculpt::testTurnedByHandle()
 	lv.reset();
 	UASSERT(turned(lv, v3f(0, 0, 1)).getDistanceFrom(v3f(0, 0, 1)) < 0.001f);
 	UASSERT(turned(lv, v3f(1, 0, 0)).getDistanceFrom(v3f(1, 0, 0)) < 0.001f);
+}
+
+// Sprint 75: a flat frame dragged out is a ring of beams the size wide,
+// open in the middle; a truss is the frame and its diagonals; a beam
+// dragged corner to corner is a diagonal the size thick, not the box.
+void TestSculpt::testStructure()
+{
+	const shape::Sixteenth from{ v3s16(0, 0, 0), v3s16(0, 15, 0) }, to{ v3s16(2, 0, 2), v3s16(15, 15, 15) };
+	auto drawn = [&](Tool tool, int size) {
+		return set(Stroke{ tool, size, from, UP, Act::Add, std::nullopt, to }.cells());
+	};
+	const auto box = drawn(Tool::Box, 4), frame = drawn(Tool::Frame, 4), truss = drawn(Tool::Truss, 4),
+			beam = drawn(Tool::Beam, 4);
+	// 48 × 48 across, 4 up
+	UASSERTEQ(size_t, box.size(), size_t(48 * 48 * 4));
+	UASSERTEQ(size_t, frame.size(), size_t((48 * 48 - 40 * 40) * 4));
+	UASSERT(!frame.count({ 24, 16, 24 }) && frame.count({ 1, 16, 24 }) && frame.count({ 24, 17, 46 }));
+	for (const auto &c : frame)
+		UASSERT(truss.count(c) && box.count(c));
+	UASSERT(truss.count({ 24, 16, 24 }) && truss.size() > frame.size());
+	// the beam: along the diagonal, the corners off it empty
+	UASSERT(beam.count({ 24, 16, 24 }) && beam.count({ 2, 16, 2 }) && beam.count({ 45, 16, 45 }));
+	UASSERT(!beam.count({ 45, 16, 2 }) && !beam.count({ 2, 16, 45 }));
+	UTEST(beam.size() < box.size() / 4, "a beam of %zu", beam.size());
+	// across a face of the frame, and no deeper than the size
+	for (const auto &c : beam)
+		UASSERT(c[1] >= 16 && c[1] < 20);
+}
+
+// A block rounded keeps its middle and loses its corners and edges, not
+// its faces' middles; rounded again it's as it was (an opening is idempotent).
+void TestSculpt::testRounded()
+{
+	World w;
+	Map &map = *w.map;
+	for (s16 x = -2; x < 4; x++)
+		for (s16 z = -2; z < 4; z++)
+			for (s16 y = -2; y < 4; y++)
+				map.setNode({ x, y, z }, MapNode(x >= 0 && y >= 0 && z >= 0 && x < 2 && y < 2 && z < 2 ? w.stone : CONTENT_AIR));
+	Sculptor sculptor(map);
+	const VoxelArea area(v3s16(-2), v3s16(3));
+	const Edit edit = sculptor.round(area, 6);
+	UASSERT(!edit.was.empty());
+	const shape::Shape *corner = map.getShape({ 0, 0, 0 });
+	UASSERT(corner && !corner->has({ 0, 0, 0 }) && corner->has({ 15, 15, 15 }));
+	UASSERT(corner->has({ 15, 15, 0 })); // a face's middle (of the 2-block cube) stays
+	UASSERT(!corner->has({ 0, 0, 15 })); // an edge goes
+	UASSERT(sculptor.round(area, 6).was.empty());
+	edit.restore(map);
+	UASSERT(!map.getShape({ 0, 0, 0 }));
 }

@@ -1390,10 +1390,10 @@ void Client::sendHold(u16 object, workshop::Grip grip)
 	Send(&pkt);
 }
 
-void Client::sendHollow(u16 object, u64 part, int thickness)
+void Client::sendHollow(u16 object, u64 part, int thickness, bool rounded)
 {
-	NetworkPacket pkt(TOSERVER_HOLLOW, 11);
-	pkt << object << part << u8(thickness);
+	NetworkPacket pkt(TOSERVER_HOLLOW, 12);
+	pkt << object << part << u8(thickness) << u8(rounded);
 	Send(&pkt);
 }
 
@@ -1403,12 +1403,13 @@ static void writeFace(NetworkPacket &pkt, const piece::Machine::Face &f)
 }
 
 void Client::sendLink(u16 object, u64 a, u64 b, std::optional<piece::Joint> joint,
-		const std::optional<piece::Machine::Face> &at)
+		const std::optional<piece::Machine::Face> &at, std::optional<piece::Spring> spring)
 {
-	NetworkPacket pkt(TOSERVER_LINK, 2 + 16 + 2 + 23);
+	NetworkPacket pkt(TOSERVER_LINK, 2 + 16 + 2 + 23 + 2);
 	pkt << object << a << b << u8(joint ? u8(*joint) : 255) << u8(at.has_value());
 	if (at)
 		writeFace(pkt, *at);
+	pkt << u8(spring ? spring->travel : 255) << u8(spring ? spring->firmness : 255);
 	Send(&pkt);
 }
 
@@ -1480,6 +1481,15 @@ void Client::sendGrab(u16 object, std::optional<std::pair<v3f, v3f>> grip)
 	Send(&pkt);
 }
 
+void Client::sendDrive(u16 object, std::optional<physics::Drive> drive)
+{
+	NetworkPacket pkt(TOSERVER_DRIVE, 2 + 1 + 13);
+	pkt << object << u8(drive.has_value());
+	if (drive)
+		pkt << drive->forward << drive->right << drive->brake;
+	Send(&pkt);
+}
+
 void Client::sendPose(u16 object, v3f position, v3f rotation)
 {
 	NetworkPacket pkt(TOSERVER_OBJECT_POSE, 2 + 12 + 12);
@@ -1507,10 +1517,52 @@ void Client::sendUndo()
 	Send(&pkt);
 }
 
-void Client::sendBlueprintSave(u16 piece, const std::string &name)
+void Client::sendBlueprintSave(u16 piece, u64 part, const std::string &name)
 {
-	NetworkPacket pkt(TOSERVER_BLUEPRINT_SAVE, 2 + 2 + name.size());
-	pkt << piece << name;
+	NetworkPacket pkt(TOSERVER_BLUEPRINT_SAVE, 2 + 8 + 2 + name.size());
+	pkt << piece << part << name;
+	Send(&pkt);
+}
+
+void Client::sendCopy(u16 piece, u64 part)
+{
+	NetworkPacket pkt(TOSERVER_CLIPBOARD, 1 + 2 + 8);
+	pkt << u8(workshop::Clip::Copy) << piece << part;
+	Send(&pkt);
+}
+
+void Client::sendPull(u16 piece, u64 part)
+{
+	NetworkPacket pkt(TOSERVER_CLIPBOARD, 1 + 2 + 8);
+	pkt << u8(workshop::Clip::Pull) << piece << part;
+	Send(&pkt);
+}
+
+void Client::sendUpright(u16 piece)
+{
+	NetworkPacket pkt(TOSERVER_UPRIGHT, 2);
+	pkt << piece;
+	Send(&pkt);
+}
+
+void Client::sendPaste()
+{
+	NetworkPacket pkt(TOSERVER_CLIPBOARD, 1);
+	pkt << u8(workshop::Clip::Paste);
+	Send(&pkt);
+}
+
+void Client::sendTake(const std::string &name)
+{
+	NetworkPacket pkt(TOSERVER_CLIPBOARD, 1 + 2 + name.size());
+	pkt << u8(workshop::Clip::Take) << name;
+	Send(&pkt);
+}
+
+void Client::sendForget(const std::string &name)
+{
+	NetworkPacket pkt(TOSERVER_CLIPBOARD, 1 + 2 + name.size());
+	pkt << u8(workshop::Clip::Forget) << name;
 	Send(&pkt);
 }
 
@@ -1995,8 +2047,14 @@ void Client::addUpdateMeshTaskWithEdge(v3s16 blockpos, bool ack_to_server, bool 
 {
 	m_mesh_update_manager->updateBlock(&m_env.getMap(), blockpos, ack_to_server, urgent, true);
 	updateMeshReaders(blockpos, urgent); // Terra Firma
-	if (m_body) // Terra Firma: what the player walks on is as the map is
-		m_body->groundChanged(blockpos);
+	// Terra Firma: what the player walks on is as the map is; a smoothed
+	// top at a block's edge is shaped by the next block too, so those are
+	// built again as well (sprint 72: a block that came before its
+	// neighbours kept a wrong edge under one side of a car)
+	if (m_body)
+		for (const v3s16 &d : { v3s16(0, 0, 0), v3s16(1, 0, 0), v3s16(-1, 0, 0), v3s16(0, 1, 0),
+				v3s16(0, -1, 0), v3s16(0, 0, 1), v3s16(0, 0, -1) })
+			m_body->groundChanged(blockpos + d);
 }
 
 Body &Client::getBody()

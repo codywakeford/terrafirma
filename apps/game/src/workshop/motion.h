@@ -27,16 +27,39 @@ namespace workshop {
 
 // What a block is as a thing that moves: from its matter (Lua says, by
 // core.physics.material).
+// What a block does in a machine besides weigh (sprint 69): nothing, a seat
+// (sat on, its sitter drives), a motor (an engine: turns its machine's
+// driven wheels). A block with a role is a fitting (sprint 73): fitted whole,
+// facing a way, never drawn in sixteenths.
+enum class Role : u8 { None, Seat, Motor, Count };
+struct RoleKind
+{
+	const char *id; // Lua's name for it
+};
+extern const RoleKind ROLES[size_t(Role::Count)];
+
 struct Material
 {
 	float density;  // kg/m³
 	float friction; // Coulomb
+	Role role = Role::None;
+	// a motor's (sprint 78): its power at full throttle (W) and how fast
+	// it turns at most (rpm); an engine's a fitting, not a block of iron
+	float power = 0, rpm = 0;
 };
 
 // How a machine is held (TOSERVER_OBJECT_HOLD's u8): not at all, still
 // where its holder poses it (the workbench), or carried (pulled toward the
 // hands as hard as the carrier can: sprint 58).
 enum class Grip : u8 { Free = 0, Still = 1, Carried = 2 };
+
+// What TOSERVER_CLIPBOARD asks (sprint 74), by its u8.
+enum class Clip : u8 { Copy, Paste, Take, Forget, Pull, Count };
+
+// How a new object is handed to its player (TOCLIENT_HELD's u8): focused
+// on the bench; carried till the next click (a paste); carried while the
+// button that pulled it off is down (sprint 77).
+enum class Handed : u8 { Focused, Carried, Pulled, Count };
 
 // How hard a player pulls what they carry (N): in creative, as hard as
 // they like; else as a strong person (about 150 kg held up).
@@ -108,6 +131,12 @@ public:
 	void grab(LuaEntitySAO &obj, u16 who, std::optional<Grab> grab);
 	// Whether `who` has it grabbed.
 	bool grabbing(const LuaEntitySAO &obj, u16 who) const;
+	// Driven by `who` (their object id) so, or got up from (none): a
+	// driver isn't a body in its way (sprint 69). The machine's seat, if
+	// it has one (BS, in its frame).
+	void drive(LuaEntitySAO &obj, u16 who, std::optional<physics::Drive> drive);
+	std::optional<u16> driver(const LuaEntitySAO &obj) const;
+	std::optional<v3f> seat(u16 object) const;
 
 	// For core.physics: nothing if it isn't a machine physics moves.
 	std::optional<v3f> velocity(u16 object) const; // BS/s
@@ -115,12 +144,15 @@ public:
 	// kg·BS/s, from where its giver stands (BS) if it's given; throws on
 	// what isn't one
 	void impulse(u16 object, v3f impulse, std::optional<v3f> from = std::nullopt);
+	// Set back on its feet, lifted `lift` (nodes): physics::World::upright.
+	void upright(LuaEntitySAO &obj, float lift);
 
 private:
 	struct Tracked
 	{
 		physics::World::Id id;
 		size_t text;    // its piece text's hash: when it changes, it's rebuilt
+		std::optional<v3f> seat; // its driver's (nodes, its frame)
 		std::string parts_sent;
 	};
 
@@ -136,8 +168,23 @@ private:
 	std::set<u16> m_held;                             // held, tracked yet or not
 	std::map<u16, float> m_carried;                   // carried, how hard, tracked yet or not
 	std::map<u16, std::map<u16, Grab>> m_grabbed;     // grabbed, by whom, tracked yet or not
+	struct Driven
+	{
+		u16 who;
+		physics::Drive drive;
+	};
+	std::map<u16, Driven> m_driven;                   // driven, by whom, tracked yet or not
 	void grip(u16 object, u16 who, const Grab &g, bool fresh);
 };
+
+// A fitting's front (sprint 73) from its facedir (the level four of it),
+// and the facedir nearest a level look.
+v3s16 facing2(u8 param2);
+u8 facedirOf(v3f look);
+// Where a fitting set flat on the face of sixteenth `at` (outward `normal`)
+// has its least sixteenth: against the face along it, on the block grid
+// across it. The client outlines what the server fits.
+v3s32 fittingCorner(v3s32 at, v3s16 normal);
 
 // A machine compiled as physics sees it (its frame: nodes, from its node
 // (0, 0, 0)'s centre): each rigid group a body of its built blocks' boxes,
@@ -147,6 +194,8 @@ physics::Assembly compile(const piece::Machine &m, const Materials &materials, I
 
 // A turn as the server sets an entity's (degrees: piece::frame) and back.
 physics::Quat quatOf(v3f rotation);
+// v turned by q
+v3f turned(const physics::Quat &q, v3f v);
 v3f rotationOf(const physics::Quat &q);
 
 } // namespace workshop

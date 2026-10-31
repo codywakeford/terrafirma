@@ -144,11 +144,41 @@
 		middle out (sculpt::Stroke::cells)
 	PROTOCOL VERSION 76 (Terra Firma)
 		Grabbing (sprint 68): TOSERVER_OBJECT_GRAB
-		Only 76 is accepted on either side.
+	PROTOCOL VERSION 77 (Terra Firma)
+		Driving (sprint 69): TOCLIENT_MATERIALS gives each its role and
+		torque; TOSERVER_DRIVE
+	PROTOCOL VERSION 78 (Terra Firma)
+		Build mode (sprint 70): a machine's text is TFM4, ending in its
+		front
+	PROTOCOL VERSION 79 (Terra Firma)
+		Vehicles (sprint 73): joints that steer and are driven (new
+		numbers where a joint's kind is sent); TOSERVER_DRIVE has no
+		facing (the seat's front is ahead)
+	PROTOCOL VERSION 80 (Terra Firma)
+		Copy and paste (sprint 74): TOSERVER_CLIPBOARD; TOSERVER_BLUEPRINT_SAVE
+		names a part; TOCLIENT_HELD says whether it's to be carried
+	PROTOCOL VERSION 81 (Terra Firma)
+		Suspension (sprint 75): a machine's text is TFM5 (each joint's
+		spring), the sprung joint; TOSERVER_LINK ends in the spring;
+		TOSERVER_HOLLOW ends in rounded; frame, truss and beam tools
+	PROTOCOL VERSION 82 (Terra Firma)
+		Parts (sprint 76): a sprung joint's hub is a body of its own (the
+		rigid groups changed); a machine's text may end in its plug
+	PROTOCOL VERSION 83 (Terra Firma)
+		Assembly (sprint 77): a plug may end in the face it hung by;
+		TOSERVER_CLIPBOARD pulls a part off; TOCLIENT_HELD says how it's handed
+	PROTOCOL VERSION 84 (Terra Firma)
+		Engines (sprint 78): TOCLIENT_MATERIALS gives a motor's power and
+		rpm, not its torque; TOSERVER_UPRIGHT
+	PROTOCOL VERSION 85 (Terra Firma)
+		Flow (sprint 80): the player's keys carry pour (bit 10)
+	PROTOCOL VERSION 86 (Terra Firma)
+		The liquid layer (sprint 81): map format 31 (fills); TOCLIENT_FILL
+		Only 86 is accepted on either side.
 */
 
 // Note: Also update core.protocol_versions in builtin when bumping
-const u16 LATEST_PROTOCOL_VERSION = 76;
+const u16 LATEST_PROTOCOL_VERSION = 86;
 
 // See also formspec [Version History] in doc/lua_api.md
 const u16 FORMSPEC_API_VERSION = 12;

@@ -267,6 +267,9 @@ public:
 	void handleCommand_ObjectPose(NetworkPacket *pkt);
 	void handleCommand_ObjectPush(NetworkPacket *pkt);
 	void handleCommand_ObjectGrab(NetworkPacket *pkt);
+	void handleCommand_Drive(NetworkPacket *pkt);
+	void handleCommand_Clipboard(NetworkPacket *pkt); // Terra Firma
+	void handleCommand_Upright(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_PlugAgain(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Hollow(NetworkPacket *pkt); // Terra Firma
 	void handleCommand_Link(NetworkPacket *pkt); // Terra Firma
@@ -669,6 +672,7 @@ private:
 			std::unordered_set<u16> *far_players = nullptr,
 			float far_d_nodes = 100, bool remove_metadata = true);
 	// Terra Firma: a node's cut shape, as the map has it now
+	void sendFill(v3s16 p, std::unordered_set<u16> *far_players = nullptr, float far_d_nodes = 100); // Terra Firma (sprint 81)
 	void sendShape(v3s16 p, std::unordered_set<u16> *far_players, float far_d_nodes);
 	void sendNodeChangePkt(NetworkPacket &pkt, v3s16 block_pos,
 			v3f p, float far_d_nodes, std::unordered_set<u16> *far_players);

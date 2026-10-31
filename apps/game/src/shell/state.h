@@ -28,6 +28,7 @@ struct HudView
 	bool crosshair;
 	bool focused; // Terra Firma: an object's on the workbench
 	bool cursor;  // Terra Firma: the cursor's free (the page is clicked)
+	bool naming;  // Terra Firma: a part's to be saved, the page asks its name (sprint 74)
 };
 
 /*

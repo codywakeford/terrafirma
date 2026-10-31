@@ -8,6 +8,7 @@
 #include "content_cao.h"
 #include "localplayer.h"
 #include "log.h"
+#include "porting.h"
 #include "nodedef.h"
 #include "piece/machine.h"
 #include "planet/atlas.h"
@@ -42,6 +43,8 @@ Body::~Body() = default;
 
 bool Body::moves(LocalPlayer &p)
 {
+	if (m_driving)
+		return true; // in their seat, whatever else they were doing
 	PlayerSettings &s = p.getPlayerSettings();
 	const bool fly = m_client->checkLocalPrivilege("fly") && s.free_move;
 	const bool noclip = m_client->checkLocalPrivilege("noclip") && s.noclip;
@@ -83,6 +86,7 @@ void Body::ensureWorld()
 	if (m_carrying)
 		m_carrying.reset(); // its mirror's gone with the world; Game lets it go
 	m_grabbing.reset();
+	m_driving.reset();
 }
 
 void Body::nudge(v3f by)
@@ -120,15 +124,22 @@ void Body::mirror(LocalPlayer &p)
 		if (it != m_mirrors.end() && it->second.text == text)
 			continue;
 		try {
-			const physics::Assembly a = workshop::compile(*cao->getMachine(), m_client->getMaterials(), m_client);
+			// from its text as it is now, not the machine it's drawn as: that's
+			// read when it's next drawn, a frame or more behind (sprint 72: a
+			// wheel just made was missing here, and sank while it was dragged)
+			piece::Machine machine(m_client);
+			machine.read(cao->getProperties().piece);
+			const physics::Assembly a = workshop::compile(machine, m_client->getMaterials(), m_client);
 			if (it != m_mirrors.end()) {
 				m_world->rebuild(it->second.id, a);
 				it->second.text = text;
+				it->second.seat = a.seat;
+				it->second.facing = a.facing;
 			} else {
 				const physics::Pose at{ v3d::from(cao->getPosition() / BS), workshop::quatOf(cao->getRotation()) };
 				const physics::World::Id w = m_world->add(a, at);
 				m_world->hold(w, true); // the server's: it goes where it's drawn
-				m_mirrors[id] = { w, text };
+				m_mirrors[id] = { w, text, a.seat, a.facing };
 			}
 			m_unweighed.erase(id);
 		} catch (const std::runtime_error &e) {
@@ -145,14 +156,19 @@ void Body::mirror(LocalPlayer &p)
 	}
 	for (auto it = m_mirrors.begin(); it != m_mirrors.end();) {
 		const bool carried = m_carrying && m_carrying->first == it->first;
-		const bool grabbed = m_grabbing && *m_grabbing == it->first;
+		const bool coasting = !carried && m_coasting.count(it->first) > 0;
+		const bool grabbed = (m_grabbing && *m_grabbing == it->first) || (m_driving && *m_driving == it->first)
+				|| coasting;
 		auto s = seen.find(it->first);
 		if (s == seen.end()) {
 			m_world->remove(it->second.id);
 			if (carried)
 				m_carrying.reset();
-			if (grabbed)
+			if (m_grabbing == it->first)
 				m_grabbing.reset();
+			if (m_driving == it->first)
+				m_driving.reset(); // Game sees it's gone and gets them up
+			m_coasting.erase(it->first);
 			it = m_mirrors.erase(it);
 			continue;
 		}
@@ -161,8 +177,34 @@ void Body::mirror(LocalPlayer &p)
 			// took to come; a share each frame, or put there if far off
 			constexpr float LATE = 0.1f, SHARE = 0.05f, SNAP = 1.5f; // s; of the gap; nodes
 			const GenericCAO::Served &s_ = s->second->served();
+			// what's wrong when they part (sprint 72: a car sank on one side
+			// while grabbed): both poses, its wheels and the ground under it,
+			// to the log, at most twice a second
+			const v3d here = m_world->pose(it->second.id).position, there = v3d::from(s_.position / BS);
+			if (!coasting && (here - there).getLength() > 0.2 && porting::getTimeMs() - m_parted_said > 500) {
+				m_parted_said = porting::getTimeMs();
+				warningstream << "physics: the client's " << it->first << " is " << (here - there).getLength()
+						<< " nodes off the server's (" << there.X << "," << there.Y << "," << there.Z << "): "
+						<< m_world->describe(it->second.id) << std::endl;
+			}
 			m_world->correct(it->second.id, { v3d::from((s_.position + s_.velocity * LATE) / BS),
 					workshop::quatOf(s_.rotation) }, SHARE, SNAP);
+			// let go, it's this client's till the server has it still a while
+			// (sprint 72: drawn from the server's word as it rolled, it
+			// jittered); then the server's again
+			if (coasting) {
+				constexpr float STILL = 0.05f * BS; // BS/s
+				constexpr u64 SETTLED = 500;        // ms
+				u64 &since = m_coasting.at(it->first);
+				if (s_.velocity.getLength() > STILL)
+					since = 0;
+				else if (since == 0)
+					since = porting::getTimeMs();
+				else if (porting::getTimeMs() - since > SETTLED) {
+					m_coasting.erase(it->first);
+					m_world->hold(it->second.id, true);
+				}
+			}
 		} else if (!carried) // what's carried is this client's to move
 			m_world->moveTo(it->second.id, { v3d::from(s->second->getPosition() / BS),
 					workshop::quatOf(s->second->getRotation()) });
@@ -174,6 +216,10 @@ void Body::move(LocalPlayer &p, float dtime, std::vector<CollisionInfo> *collisi
 {
 	ensureWorld();
 	m_scale = p.physics_override.gravity;
+	if (m_driving) {
+		ride(p, dtime);
+		return;
+	}
 	const aabb3f &box = p.getCollisionbox();
 	const v3f at = p.getPosition();
 	if (!m_me) {
@@ -348,6 +394,9 @@ void Body::carry(u16 object, float strength)
 	auto it = m_mirrors.find(object);
 	if (!m_world || it == m_mirrors.end())
 		return; // not in its world (it can't be weighed): the server's drawing is all there is
+	// a coast's settling would hold it again, ending the carry under the
+	// hand (the next pull threw: "only what's carried is pulled")
+	m_coasting.erase(object);
 	m_world->hold(it->second.id, false);
 	m_world->carry(it->second.id, strength);
 	m_carrying = { object, strength };
@@ -379,6 +428,7 @@ void Body::grab(u16 object, v3f point, float strength)
 	if (!m_world || it == m_mirrors.end())
 		return; // not in its world: the server's drawing is all there is
 	m_world->hold(it->second.id, false);
+	m_coasting.erase(object);
 	m_world->grab(it->second.id, ME, point / BS, strength);
 	m_grabbing = object;
 }
@@ -399,15 +449,116 @@ void Body::release(u16 object)
 	if (it == m_mirrors.end())
 		return;
 	m_world->release(it->second.id, ME);
+	m_coasting[object] = 0; // it rolls on here till it's still (stepMirrors)
+}
+
+std::vector<u16> Body::coasting() const
+{
+	std::vector<u16> out;
+	for (const auto &[object, since] : m_coasting)
+		out.push_back(object);
+	return out;
+}
+
+bool Body::hasSeat(u16 object) const
+{
+	auto it = m_mirrors.find(object);
+	return it != m_mirrors.end() && it->second.seat;
+}
+
+bool Body::sit(u16 object)
+{
+	auto it = m_mirrors.find(object);
+	if (!m_world || it == m_mirrors.end() || !it->second.seat)
+		return false;
+	if (m_grabbing)
+		release(*m_grabbing);
+	m_world->hold(it->second.id, false);
+	m_world->drive(it->second.id, physics::Drive{});
+	// the player's body isn't in the way of their own machine: it's made
+	// again where they get up
+	if (m_me) {
+		m_world->removeCharacter(*m_me);
+		m_me.reset();
+	}
+	m_driving = object;
+	m_ride_yaw.reset(); // the view's turned to the seat's front as they sit
+	return true;
+}
+
+void Body::steer(u16 object, const physics::Drive &drive)
+{
+	if (m_driving != object)
+		return;
+	m_world->drive(m_mirrors.at(object).id, drive);
+}
+
+void Body::getUp(u16 object)
+{
+	if (m_driving != object)
+		return;
+	m_driving.reset();
+	auto it = m_mirrors.find(object);
+	if (it == m_mirrors.end())
+		return;
+	m_world->drive(it->second.id, std::nullopt);
 	m_world->hold(it->second.id, true); // the server's again: where it's drawn
+}
+
+void Body::ride(LocalPlayer &p, float dtime)
+{
+	mirror(p);
+	if (!m_driving)
+		return; // its machine's gone
+	m_moved = true;
+	m_behind += dtime;
+	while (m_behind >= physics::STEP) {
+		m_world->step(physics::STEP);
+		m_behind -= physics::STEP;
+	}
+	const Mirror &m = m_mirrors.at(*m_driving);
+	const physics::Pose pose = m_world->pose(m.id);
+	// sat: their hips on the seat, not their feet (sprint 73)
+	constexpr float SIT = 0.5f; // nodes the foot is below the seat's top
+	const v3f seat = v3f::from(pose.position) + workshop::turned(pose.rotation, *m.seat) - v3f(0, SIT, 0);
+	p.setPosition(seat * BS);
+	p.setSpeed(m_world->velocity(m.id) * BS);
+	m_set = seat * BS;
+	// the view turned to the seat's front as they sit, then with the
+	// machine as it turns (the mouse still looks about)
+	const v3f facing = workshop::turned(pose.rotation, m.facing);
+	const f32 yaw = std::atan2(-facing.X, facing.Z);
+	const f32 from = m_ride_yaw ? *m_ride_yaw : p.getYaw() * core::DEGTORAD;
+	p.turnWithGround(std::remainder(yaw - from, 2 * core::PI));
+	m_ride_yaw = yaw;
+}
+
+std::optional<u16> Body::standingOn() const
+{
+	if (!m_world || !m_me)
+		return std::nullopt;
+	const std::optional<physics::World::Id> on = m_world->character(*m_me).standing_on;
+	if (on)
+		for (const auto &[object, mirror] : m_mirrors)
+			if (mirror.id == *on)
+				return object;
+	return std::nullopt;
 }
 
 std::optional<std::pair<v3f, v3f>> Body::grabbed(u16 object) const
 {
-	if (!m_grabbing || *m_grabbing != object)
+	if (m_grabbing != object && m_driving != object && !m_coasting.count(object))
 		return std::nullopt;
 	const physics::Pose p = m_world->pose(m_mirrors.at(object).id);
 	return std::make_pair(v3f::from(p.position * BS), workshop::rotationOf(p.rotation));
+}
+
+std::optional<v3f> Body::gripAt(u16 object) const
+{
+	if (m_grabbing != object)
+		return std::nullopt;
+	const std::optional<v3d> at = m_world->gripAt(m_mirrors.at(object).id, ME);
+	return at ? std::optional<v3f>(v3f::from(*at * BS)) : std::nullopt;
 }
 
 std::optional<std::pair<v3f, v3f>> Body::carried(u16 object) const

@@ -640,9 +640,10 @@ bool PlayerSAO::checkMovementCheat()
 	static thread_local const u32 anticheat_flags =
 		g_settings->getFlagStr("anticheat_flags", flagdesc_anticheat, nullptr);
 
-	// Terra Firma: who may fly may thrust (sprint 59): any speed, the orbit's too
+	// Terra Firma: who may fly may thrust (sprint 59): any speed, the orbit's too;
+	// a driver goes where their machine takes them (sprint 69)
 	if (m_is_singleplayer ||
-			isAttached() ||
+			isAttached() || m_driving ||
 			!(anticheat_flags & AC_MOVEMENT) ||
 			m_privs.count("fly") != 0) {
 		m_last_good_position = getBasePosition();

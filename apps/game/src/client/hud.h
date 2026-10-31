@@ -81,6 +81,9 @@ public:
 		video::SColor colour;
 	};
 	std::vector<Guide> *getGuides() { return &m_guides; }
+	// Terra Firma: the world's block grid in build mode (sprint 73): lines
+	// as guides are, their colours' alpha blended (they fade out)
+	std::vector<Guide> *getGrid() { return &m_grid; }
 	// Terra Firma: words at a place in the world (BS, the world's), drawn
 	// over it (sprint 63: the joint menu's)
 	struct Label
@@ -90,6 +93,18 @@ public:
 		video::SColor colour;
 	};
 	std::vector<Label> *getLabels() { return &m_labels; }
+	// Terra Firma: a button in the world (sprint 71: the part menu), drawn
+	// as the page's are (a stone face, lit from the top left, the accent
+	// under it when lit) with its sign's strokes on it, over the world
+	// (never in the ground). BS, the camera offset taken off: its middle
+	// and half its width and height along its plane.
+	struct Tile
+	{
+		v3f centre, u, w;
+		bool lit;
+		std::vector<std::pair<v2f, v2f>> strokes; // in its halves, -1..1
+	};
+	std::vector<Tile> *getTiles() { return &m_tiles; }
 
 	void setSelectionPos(const v3f &pos, const v3s16 &camera_offset);
 
@@ -156,7 +171,10 @@ private:
 	std::vector<std::pair<v3f, v3f>> m_selection_lines; // Terra Firma
 	bool m_selection_through = false; // Terra Firma: the lines seen through what's in front, dim
 	std::vector<Guide> m_guides; // Terra Firma
+	std::vector<Guide> m_grid;   // Terra Firma
 	std::vector<Label> m_labels; // Terra Firma
+	std::vector<Tile> m_tiles; // Terra Firma
+	void drawTiles(video::IVideoDriver *driver); // Terra Firma
 	void drawLabels(const v3s16 &camera_offset); // Terra Firma
 	std::vector<aabb3f> m_halo_boxes;
 	v3f m_selection_pos;

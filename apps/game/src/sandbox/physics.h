@@ -61,6 +61,8 @@ public:
 	// Heat between two neighbouring blocks for dt (conductivities given, so
 	// a caller computes each block's once per step).
 	void conduct(matter::Mixture &a, matter::Mixture &b, double ka, double kb, double dt) const;
+	// The same with each one's heat capacity given (J/K: a block's, worked out once a step).
+	void conduct(matter::Mixture &a, matter::Mixture &b, double ka, double kb, double ca, double cb, double dt) const;
 	// Heat radiated across the face two neighbours share, where at least one
 	// is mostly gas (a flame shining on the wood beside it; between two
 	// solids, conduction is the path).
