@@ -2,17 +2,18 @@
 import { computed, ref, watch } from "vue"
 import { useBridge } from "../../bridge/use.ts"
 import { useStore } from "../store.ts"
+import type { PlanetariumLayer } from "../../bridge/types.ts"
 import { Button, IconTile, Notice } from "../../kit/index.ts"
 import PixelIcon from "../PixelIcon.vue"
 import MapView from "../../worldgen/MapView.vue"
 import LayerRail from "../../worldgen/LayerRail.vue"
-import { OVERLAYS, paint, type OverlayId } from "../../worldgen/fields.ts"
+import { OVERLAYS, type OverlayId } from "../../worldgen/fields.ts"
 import { usePlanetarium } from "../../planetarium/use.ts"
 import HoverCard from "../../planetarium/HoverCard.vue"
 import BodyStrip from "../../system/BodyStrip.vue"
 import { STAR } from "../../system/model.ts"
 import { MapBodies } from "./bodies.ts"
-import { mapCoordinates, mapImage, mapKey, mapUv, worldMapData } from "./data.ts"
+import { mapImage, mapKey, mapUv, worldMapData } from "./data.ts"
 
 /**
  * The map: the whole window. The globe is the native Planetarium under the
@@ -37,7 +38,6 @@ const position = computed(() => store.ui.map_position?.body === map.value?.body 
 const pose = computed(() => store.state.mapPose ?? (position.value && map.value ? {
     ...mapUv(position.value.x, position.value.z, map.value.size), heading: 0, height: map.value.sea,
 } : null))
-const coordinates = computed(() => pose.value && map.value ? mapCoordinates(pose.value, map.value.size) : null)
 const view = ref<"globe" | "flat">("globe")
 // the world model charted for what's on screen: the flat map's (the player's body), or the globe's shown body
 const charting = computed(() => map.value ? { code: map.value.code, ...(view.value === "flat" || !shown.value ? (map.value.body ? { body: map.value.body } : {}) : { body: shown.value }) } : null)
@@ -69,10 +69,14 @@ const viewIcons = {
     system: { rows: ["....A....", "..A...A..", ".A.....A.", "A...B...A", "...BCB...", "A...B...A", ".A.....A.", "..A...A..", "....A...."], palette: { A: "#d5e0e8", B: "#f2c84b", C: "#fff3b0" } },
 } as const
 const image = computed(() => map.value && fields.value ? mapImage(fields.value, map.value, overlay.value) : null)
-// on the globe: the shown body's layer over its land (another body's isn't the player's explored map)
-const globeLayer = computed(() => {
-    if (view.value !== "globe" || looked.value || overlay.value === "terrain" || !fields.value || !map.value) return null
-    return onShown.value ? mapImage(fields.value, map.value, overlay.value) : paint(fields.value, overlay.value)
+// on the globe: the overlay painted natively on every body (in survival, the player's own masked to what
+// they've explored; the others aren't offered)
+const globeLayer = computed<Extract<PlanetariumLayer, { overlay: string }> | null>(() => {
+    const shownOverlay = overlay.value
+    if (view.value !== "globe" || looked.value || shownOverlay === "terrain" || shownOverlay === "weather" || !map.value) return null
+    return map.value.mode === "survival" && onShown.value
+        ? { overlay: shownOverlay, explored: { grid: map.value.grid, mask: map.value.explored } }
+        : { overlay: shownOverlay }
 })
 watch(globeLayer, (layer) => planet.layer(layer))
 const PLAYER = "#ffe36a"
@@ -96,18 +100,22 @@ function findMe() {
 }
 // another body of the world: its own land drawn round it, the camera flown there
 function choose(id: string) {
-    if (id === STAR) return outToSystem()
+    if (id === STAR) {
+        // the star close up; out from it, the whole system
+        looked.value = STAR
+        return planet.fly({ body: STAR, radii: 2.5, seconds: 3 })
+    }
     if (!standable(id)) {
         // only looked at: the camera to it, the land shown stays
         looked.value = id
-        return planet.fly({ body: id, radii: 2.5, seconds: 2 })
+        return planet.fly({ body: id, radii: 2.5, seconds: 3 })
     }
     looked.value = null
-    if (id === shown.value) return planet.fly({ body: id, radii: 2.5, seconds: 2 })
+    if (id === shown.value) return planet.fly({ body: id, radii: 2.5, seconds: 3 })
     shown.value = id
     store.picked = null
 }
-watch(shown, (id, was) => { if (id && was) planet.fly({ body: id, radii: 2.5, seconds: 2 }) })
+watch(shown, (id, was) => { if (id && was) planet.fly({ body: id, radii: 2.5, seconds: 3 }) })
 // the whole system, the shown body at its middle
 function outToSystem() {
     looked.value = STAR
@@ -145,16 +153,6 @@ const picked = computed(() => store.picked ? {
     cell: `${store.picked.cell.region} ${store.picked.cell.index} · ${store.picked.cell.i}, ${store.picked.cell.j}`,
 } : null)
 const flatMarker = ref<{ x: number; z: number } | null>(null)
-const explored = computed(() => {
-    if (!map.value || map.value.mode === "creative") return "Whole planet"
-    const bytes = Uint8Array.from(atob(map.value.explored), (c) => c.charCodeAt(0))
-    let count = 0
-    for (const byte of bytes) {
-        let bits = byte
-        while (bits) { bits &= bits - 1; count++ }
-    }
-    return `${(100 * count / (map.value.grid * map.value.grid)).toFixed(1)}% explored`
-})
 
 watch(() => charting.value ? mapKey(charting.value) : null, () => { if (charting.value) void data.ensure(bridge, charting.value) }, { immediate: true })
 watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
@@ -168,6 +166,8 @@ watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
         <HoverCard v-if="view === 'globe'" />
         <header class="top">
             <strong class="title">{{ view === 'flat' ? (map?.name ?? 'World') : shownName }}</strong>
+            <BodyStrip v-if="view === 'globe' && bodies.world.value" class="strip" :system="bodies.world.value.system" :star="bodies.world.value.star"
+                :selected="selected" :image="bodies.image" :tag="youTag" @pick="choose" />
             <Button size="sm" @click="bridge.send('screen.close', {})">Done</Button>
         </header>
         <template v-if="view === 'flat'">
@@ -189,15 +189,9 @@ watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
             </IconTile>
         </nav>
         <LayerRail v-if="layers.length" v-model="overlay" class="overlays" :ids="layers" />
-        <BodyStrip v-if="view === 'globe' && bodies.world.value" class="strip" :system="bodies.world.value.system" :star="bodies.world.value.star"
-            :selected="selected" :image="bodies.image" :tag="youTag" @pick="choose" />
-        <div class="map-readout">
-            <strong>{{ explored }}</strong>
-            <span v-if="coordinates && (view === 'flat' || onShown)">{{ coordinates.x }}, {{ coordinates.z }}</span>
-            <span v-if="pose && map && (view === 'flat' || onShown)">{{ Math.round(pose.height - map.sea).toLocaleString() }} m ASL</span>
-            <span v-if="picked && view === 'globe'">{{ picked.lat }}°, {{ picked.lon }}° · {{ picked.cell }}</span>
-            <Button v-if="picked && view === 'globe' && map?.mode === 'creative'" size="sm" @click="goThere">Go there</Button>
-            <span>Drag to explore · scroll to zoom · V or Esc to close</span>
+        <div v-if="picked && view === 'globe'" class="picked">
+            <span>{{ picked.lat }}°, {{ picked.lon }}° · {{ picked.cell }}</span>
+            <Button v-if="map?.mode === 'creative'" size="sm" @click="goThere">Go there</Button>
         </div>
         <Notice v-if="problem ?? planet.problem.value ?? data.problem.value ?? bodies.problem.value" class="problem" tone="danger">{{ problem ?? planet.problem.value ?? data.problem.value ?? bodies.problem.value }}</Notice>
     </div>
@@ -207,18 +201,19 @@ watch(() => [pose.value?.u, pose.value?.v, map.value?.size], ([u, v, size]) => {
 .map-screen { position: fixed; inset: 0; z-index: 5; background: #07111a; }
 /* the globe is the native planet under the page: let it show through */
 .map-screen.planet { background: transparent; }
-.top { position: absolute; z-index: 3; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 12px 14px; background: linear-gradient(rgb(4 9 13 / .82), transparent); }
-.title { color: var(--accent-hi); font: 14px var(--font-display); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.top { position: absolute; z-index: 3; top: 0; left: 0; right: 0; pointer-events: none; display: flex; align-items: flex-start; gap: 16px; padding: 12px 14px; background: linear-gradient(rgb(4 9 13 / .82), transparent); }
+.title { color: var(--accent-hi); font: 14px var(--font-display); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; margin-top: 7px; }
 .top > :last-child { margin-left: auto; }
-/* the bodies to go to, bottom right over space (as the builder has them) */
-.strip { position: absolute; z-index: 2; right: 14px; bottom: 10px; max-width: calc(100% - 28px - 420px); }
+/* the bar is as tall as the strip; between its pieces the tools under it take the clicks */
+.top > * { pointer-events: auto; }
+/* the bodies to go to, top centre between the title and Done */
+.strip { flex: 0 1 auto; min-width: 0; margin-left: auto; }
 .flat-stage { position: absolute; inset: 56px 14px 60px; display: grid; place-items: center; }
 .flat-stage :deep(.map) { width: min(100%, calc(100vh - 140px)); aspect-ratio: 1; border: 0; }
 .view-tools, .overlays { position: absolute; z-index: 2; top: 64px; display: grid; gap: 6px; }
 .view-tools { left: 14px; }
 .overlays { right: 14px; }
-.map-readout { position: absolute; z-index: 2; left: 14px; bottom: 14px; display: flex; flex-wrap: wrap; gap: 9px 20px; align-items: baseline; max-width: calc(100% - 28px); padding: 8px 10px; border: var(--b) solid var(--edge); background: rgb(12 18 24 / .9); color: var(--ink-dim); font: 10px var(--font-body); }
-.map-readout strong { color: var(--accent-hi); font: 11px var(--font-display); text-transform: uppercase; }
+.picked { position: absolute; z-index: 2; left: 14px; bottom: 14px; display: flex; gap: 12px; align-items: center; padding: 8px 10px; border: var(--b) solid var(--edge); background: rgb(12 18 24 / .9); color: var(--ink-dim); font: 10px var(--font-body); box-shadow: var(--raised); }
 .pending { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-dim); font: 13px var(--font-display); }
-.problem { position: absolute; z-index: 2; left: 14px; bottom: 55px; }
+.problem { position: absolute; z-index: 2; left: 14px; bottom: 56px; }
 </style>

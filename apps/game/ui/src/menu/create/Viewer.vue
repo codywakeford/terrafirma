@@ -66,15 +66,19 @@ const playableId = computed(() => props.draft.system.bodies.find((b) => b.playab
 // screen opens, across the system when another is picked; out to the whole
 // system for the star
 watch(selected, (id, was) => {
-    const seconds = was === undefined ? 2.5 : 2
-    planet.fly(id === STAR ? { body: playableId.value, radii: 400, seconds: seconds } : { body: id, radii: 2.5, seconds: seconds })
+    const seconds = was === undefined ? 2.5 : 3
+    planet.fly({ body: id, radii: 2.5, seconds: seconds })
 }, { immediate: true })
 // what's over the land: the overlay's painting (the playable world's), the
 // body cut open, or the land itself
-watch([overlay, image, selected], () => {
-    if (overlay.value === "inside" && selected.value !== STAR) planet.layer("inside")
-    else if (playable.value && overlay.value !== "terrain" && image.value) planet.layer(image.value)
-    else planet.layer(null)
+watch([overlay, image, selected, () => overlay.value === "temperature" ? date.value : null], () => {
+    const shown = overlay.value
+    if (shown === "inside") planet.layer(selected.value !== STAR ? { inside: true } : null)
+    else if (shown === "terrain") planet.layer(null)
+    // the weather is a year the page simulated: its painting; the rest painted natively, every body's
+    else if (shown === "weather") planet.layer(playable.value && image.value ? image.value : null)
+    // (only the temperature changes with the date)
+    else planet.layer(shown === "temperature" ? { overlay: shown, date: date.value } : { overlay: shown })
 }, { immediate: true })
 // a click on the playable world is where to start: its column, as the
 // engine rounds a place to one (src/mapgen/terra_column.cpp: equirect)

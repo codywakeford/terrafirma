@@ -84,6 +84,7 @@ void Planetarium::serve(Body body, std::optional<Json::Value> backdrop)
 	m_markers.clear();
 	m_view.reset();
 	m_insets = Insets{};
+	m_parked.reset(); // the last window's bodies
 	m_body = std::move(body);
 	m_backdrop = std::move(backdrop);
 	if (m_backdrop)
@@ -96,7 +97,16 @@ void Planetarium::ask(const Json::Value &body)
 		throw Refused("planetarium.show: no planet can be shown here now");
 	if (shown() && body == m_asked)
 		return; // that one's on screen (or coming): kept, not made again
-	show(m_body(body));
+	View::Opts opts = m_body(body);
+	if (m_parked && !shown() && m_parked->body() == opts.body && m_parked->code() == opts.horizon.code) {
+		// the one hidden last (or prepared): back as it was, its land already built
+		m_current = std::move(m_parked);
+		m_current->markers(m_markers);
+		m_current->layer(m_layer);
+		apply(*m_current);
+	} else {
+		show(std::move(opts));
+	}
 	m_asked = body;
 }
 
@@ -198,9 +208,34 @@ void Planetarium::hide()
 		ask(*m_backdrop);
 		return;
 	}
+	if (std::unique_ptr<View> &shown = m_current ? m_current : m_next)
+		m_parked = std::move(shown);
 	m_current.reset();
 	m_next.reset();
 	m_asked = Json::Value();
+}
+
+void Planetarium::prepare(View::Opts body)
+{
+	if (shown() || m_parked)
+		return;
+	m_parked = std::make_unique<View>(std::move(body));
+	apply(*m_parked);
+}
+
+void Planetarium::idle(std::optional<std::pair<double, double>> player)
+{
+	if (!m_parked || shown())
+		return;
+	// moved far enough to see other tiles (a hundredth of a radian: tens of
+	// blocks): over them now, not on every step
+	if (player && (!m_over || std::abs(player->first - m_over->first) > 0.01 ||
+			std::abs(std::remainder(player->second - m_over->second, 2 * M_PI)) > 0.01)) {
+		m_parked->focus(player->first, player->second, std::nullopt);
+		m_over = player;
+	}
+	if (!m_parked->settled())
+		m_parked->update(m_screen);
 }
 
 Json::Value Planetarium::show(const Json::Value &intent)
@@ -242,6 +277,8 @@ size_t Planetarium::bodyIndex(const View &p, const Json::Value &id) const
 {
 	if (!id.isString())
 		throw Refused("planetarium: a body is named by its id");
+	if (id.asString() == "star")
+		return p.star();
 	const auto &bodies = p.system().spec().bodies;
 	for (size_t i = 0; i < bodies.size(); i++)
 		if (bodies[i].id == id.asString())
@@ -273,12 +310,12 @@ Json::Value Planetarium::fly(const Json::Value &intent)
 Json::Value Planetarium::layer(const Json::Value &intent)
 {
 	if (!intent.isObject())
-		throw Refused("planetarium.layer takes { width, height, rgba } (base64 RGBA, the preview's layout), { inside: true } or { none: true }");
+		throw Refused("planetarium.layer takes { overlay, date?, explored? }, { width, height, rgba } (the weather: base64 RGBA, the preview's layout), { inside: true } or { none: true }");
 	const bool inside = intent.isMember("inside");
 	if (inside && !(intent["inside"].isBool() && intent["inside"].asBool()))
 		throw Refused("planetarium.layer: 'inside' is true or absent");
 	std::optional<View::Layer> layer;
-	if (!inside && !intent.isMember("none")) {
+	if (!inside && !intent.isMember("none") && intent.isMember("rgba")) {
 		const double w = needed(intent, "width"), h = needed(intent, "height");
 		if (w < 1 || h < 1 || w > 4096 || h > 4096 || w != std::floor(w) || h != std::floor(h))
 			throw Refused("planetarium.layer: a size is 1 to 4096 whole pixels");
@@ -288,14 +325,38 @@ Json::Value Planetarium::layer(const Json::Value &intent)
 		if (bytes.size() != (size_t)w * h * 4)
 			throw Refused("planetarium.layer: " + std::to_string(bytes.size()) + " bytes for a " + std::to_string((int)w) + "×" +
 					std::to_string((int)h) + " image");
-		layer = View::Layer{ (u32)w, (u32)h, std::vector<u8>(bytes.begin(), bytes.end()) };
+		layer = View::Layer{ planetarium::Overlay::Biomes,
+			std::make_shared<const planetarium::Painter::Opts::Image>(planetarium::Painter::Opts::Image{ (u32)w, (u32)h, std::vector<u8>(bytes.begin(), bytes.end()) }) };
+	} else if (!inside && !intent.isMember("none")) {
+		if (!intent["overlay"].isString())
+			throw Refused("planetarium.layer: 'overlay' is an overlay's name");
+		const std::optional<planetarium::Overlay> overlay = planetarium::overlayNamed(intent["overlay"].asString());
+		if (!overlay)
+			throw Refused("planetarium.layer: no overlay '" + intent["overlay"].asString() + "' is painted on the land");
+		layer = View::Layer{ *overlay, nullptr, number(intent, "date"), std::nullopt, 0 };
+		if (layer->date && (*layer->date < 0 || *layer->date >= 1))
+			throw Refused("planetarium.layer: 'date' is 0 to 1, through the year");
+		if (intent.isMember("explored")) {
+			// survival: what the player's seen (tf_player's mask, a bit a cell)
+			const Json::Value &e = intent["explored"];
+			if (!e.isObject() || !e["grid"].isUInt() || e["grid"].asUInt() < 1 || e["grid"].asUInt() > 4096 ||
+					!e["mask"].isString() || !base64_is_valid(e["mask"].asString()))
+				throw Refused("planetarium.layer: 'explored' is { grid, mask } (base64, a bit a cell)");
+			const std::string bytes = base64_decode(e["mask"].asString());
+			const u32 grid = e["grid"].asUInt();
+			if (bytes.size() * 8 != (size_t)grid * grid)
+				throw Refused("planetarium.layer: an explored mask of " + std::to_string(bytes.size()) + " bytes isn't a " +
+						std::to_string(grid) + "² grid");
+			layer->explored = std::vector<u8>(bytes.begin(), bytes.end());
+			layer->grid = grid;
+		}
 	}
 	m_layer = layer;
 	for (View *p : { m_current.get(), m_next.get() })
 		if (p) {
 			p->layer(layer);
 			// cut open: the body the camera's round (or going to)
-			p->cutaway(inside ? std::optional<size_t>(p->heading()) : std::nullopt);
+			p->cutaway(inside && p->heading() < p->star() ? std::optional<size_t>(p->heading()) : std::nullopt);
 		}
 	return Json::Value();
 }
@@ -352,6 +413,7 @@ bool Planetarium::handle(const SEvent &event)
 void Planetarium::draw(video::IVideoDriver *driver)
 {
 	const core::dimension2du screen = driver->getScreenSize();
+	m_screen = v2u32(screen.Width, screen.Height);
 	if (m_next) {
 		// the old body stays until the new one is whole, if coarsely
 		if (!m_current || (m_next->update(v2u32(screen.Width, screen.Height)), m_next->ready()))

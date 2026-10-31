@@ -52,12 +52,12 @@ public:
 	void update(const HudView &view);
 	// The page has reloaded: send everything again.
 	void forget();
+	// Where the player is on the planet's map (u, v, heading, height), and
+	// which way they face; none past the atlas's top
+	std::optional<Json::Value> mapPose(LocalPlayer &player) const;
 
 private:
 	Json::Value player(LocalPlayer &player) const;
-	// Where the player is on the planet's map, and which way they face; none
-	// past the atlas's top
-	std::optional<Json::Value> mapPose(LocalPlayer &player) const;
 	Json::Value hud(LocalPlayer &player, const HudView &view) const;
 	Json::Value hotbar(LocalPlayer &player) const;
 	Json::Value inventory(LocalPlayer &player);

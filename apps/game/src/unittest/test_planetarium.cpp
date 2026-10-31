@@ -5,6 +5,10 @@
 
 #include "constants.h"
 #include "planetarium/camera.h"
+#include "planetarium/paint.h"
+#include "terragen/code.h"
+#include <chrono>
+#include <set>
 #include <algorithm>
 #include <cmath>
 
@@ -28,6 +32,8 @@ public:
 	void testSpinTurnsTheBody();
 	void testDragOverThePole();
 	void testCentreIsAhead();
+	void testOverlaySharpUpClose();
+	void testOverlayKeepsWater();
 };
 
 static TestPlanetarium g_test_instance;
@@ -41,6 +47,8 @@ void TestPlanetarium::runTests(IGameDef *gamedef)
 	TEST(testSpinTurnsTheBody);
 	TEST(testDragOverThePole);
 	TEST(testCentreIsAhead);
+	TEST(testOverlaySharpUpClose);
+	TEST(testOverlayKeepsWater);
 }
 
 static constexpr double SEA = 1305;
@@ -173,4 +181,55 @@ void TestPlanetarium::testCentreIsAhead()
 	core::vector3df north((f32)-p.x, (f32)(-p.y + SEA), (f32)-p.z);
 	c.view().transformVect(north);
 	UASSERT(north.Y > 0);
+}
+
+// Across one pixel of the page's 256² painting (what the globe was tinted
+// by), the native overlay keeps changing: as sharp as the tiles it's on.
+// And its cost per vertex, for the tile budget.
+void TestPlanetarium::testOverlaySharpUpClose()
+{
+	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF5.dGVycmE"));
+	planetarium::Painter painter({ world, planetarium::Overlay::Elevation, nullptr, std::nullopt, std::nullopt, 0 });
+	const video::SColor land(255, 200, 200, 200);
+	std::set<u32> seen;
+	const double lat = 0.3, from = 0.1, pixel = 2 * M_PI / 256;
+	for (int i = 0; i < 64; i++) {
+		const double lon = from + pixel * i / 64;
+		const far::Tiling::Vec at{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
+		seen.insert(painter.colour(land, at).color);
+	}
+	infostream << "TestPlanetarium: " << seen.size() << " colours across a pixel" << std::endl;
+	UASSERT(seen.size() > 4);
+
+	const auto start = std::chrono::steady_clock::now();
+	const int n = 20000;
+	for (int i = 0; i < n; i++) {
+		const double lon = 2 * M_PI * i / n, la = 1.2 * std::sin(i * 0.37);
+		painter.colour(land, { std::cos(la) * std::cos(lon), std::sin(la), std::cos(la) * std::sin(lon) });
+	}
+	const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count() / n;
+	infostream << "TestPlanetarium: an overlay's fresh sample takes " << us << " µs" << std::endl;
+	UASSERT(us < 50); // a 2k-vertex tile in well under the frame's paint budget twice over
+}
+
+// A liquid's top on land (a lake, a river) stays the land's water under the
+// water overlays; the climate ones paint over it.
+void TestPlanetarium::testOverlayKeepsWater()
+{
+	const auto world = std::make_shared<const terragen::World>(terragen::WorldCode::decode("TF5.dGVycmE"));
+	const video::SColor river(0, 40, 120, 215);
+	// a place on land
+	for (int i = 0; i < 4096; i++) {
+		const double lon = 2 * M_PI * i / 4096, lat = 0.4 * std::sin(i * 0.11);
+		const far::Tiling::Vec at{ std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon) };
+		const terragen::fix u = (terragen::fix)((lon / (2 * M_PI) + 0.5) * terragen::ONE), v = (terragen::fix)((0.5 - lat / M_PI) * terragen::ONE);
+		if (world->column(u, v, world->sunlight(v, std::nullopt)).elevation <= terragen::ONE / 20)
+			continue;
+		planetarium::Painter biomes({ world, planetarium::Overlay::Biomes, nullptr, std::nullopt, std::nullopt, 0 });
+		planetarium::Painter heat({ world, planetarium::Overlay::Temperature, nullptr, std::nullopt, std::nullopt, 0 });
+		UASSERT(biomes.colour(river, at) == river);
+		UASSERT(heat.colour(river, at) != river);
+		return;
+	}
+	UASSERT(!"no land found");
 }

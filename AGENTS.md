@@ -659,6 +659,14 @@ shapes; the client predicts its own presses and is corrected. Materials
 are node groups (`pile_repose`, `pile_yield`, `pile_bearing`,
 `pile_give`).
 
+**Built (sprint 83, `planning/sprint-83-planetarium.md`):** the
+planetarium, sharpened. Overlays are painted natively per tile vertex
+from the world model (`planetarium/paint.*`), as sharp as the land and on
+every body; the other bodies are drawn from their own tiles
+(`Planetarium::m_baked`); the star is a body to fly to and go round
+(`planetarium.fly { body: "star" }`); orbits are ribbons
+(`planetarium/ribbon.*`); the game sky uses the game camera's FOV.
+
 **Built (sprint 82, `planning/sprint-82-fine-water.md`):** fine water.
 Near the camera the client runs each wet node as 16×16 columns of shallow
 water (waves, sloshing, wakes from what moves), held to the server's

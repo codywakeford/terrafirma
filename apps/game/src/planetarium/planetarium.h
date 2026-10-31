@@ -9,9 +9,13 @@
 #include "planet/atlas.h"
 #include "planetarium/camera.h"
 #include "planetarium/markers.h"
+#include "planetarium/paint.h"
 #include "planetarium/seams.h"
 #include "planetarium/system.h"
 #include <chrono>
+#include <future>
+#include <map>
+#include <set>
 #include <memory>
 
 struct SEvent;
@@ -81,6 +85,8 @@ public:
 
 	// Whether the whole body is drawn, if coarsely (its coarse tiles built).
 	bool ready() const { return m_tiles.based(); }
+	// Whether all the camera's own tiles are built (the detail it wants, not just the coarse whole).
+	bool settled() const { return m_tiles.based() && m_tiles.pending() == 0; }
 
 	// Over a place on the tiled body (Opts::body) (its ground's latitude and longitude):
 	// the camera goes round to it as the body is turned now.
@@ -103,14 +109,18 @@ public:
 	// OrbitCamera::perspective's shift).
 	void frame(v2f shift) { m_shift = shift; }
 
-	// A layer over the tiled body's land (planning/sprint-37-layers.md): an image
-	// round it, equirectangular as the world model's preview is (row 0 the
-	// north edge, column 0 longitude −π), RGBA; the land drawn in its
-	// colours, its relief kept as shading. None: the land as it is.
+	// An overlay on the land (planning/sprint-83-planetarium.md): painted
+	// from the world model's fields as each tile is built (Painter), the
+	// land's relief kept as shading; on every body drawn from tiles, but
+	// only the tiled body's when it's masked by what's been explored. None:
+	// the land as it is.
 	struct Layer
 	{
-		u32 width, height;
-		std::vector<u8> rgba;
+		Overlay overlay;
+		std::shared_ptr<const Painter::Opts::Image> image; // instead (Painter::Opts)
+		std::optional<double> date; // 0..1 through the year; none: the year's mean
+		std::optional<std::vector<u8>> explored; // Painter::Opts
+		u32 grid = 0;
 	};
 	void layer(std::optional<Layer> layer);
 	// Whether the atlas's seams (where its regions meet) are drawn.
@@ -123,8 +133,12 @@ public:
 	void keep(const Planetarium &was);
 	// Goes to another body of the system (its index there): the camera in
 	// orbit round it, at its scale. The tiled body's the one picked on.
+	// (The star is a body too, to fly to and go round: index star().)
 	void focusBody(size_t body);
+	size_t star() const { return m_system.system().spec().bodies.size(); }
 	size_t target() const { return m_target; }
+	int body() const { return m_body; } // the atlas's body it's made for (Opts::body)
+	const std::string &code() const { return m_horizon.code; }
 	// the body it is round, or a flight is taking it to
 	size_t heading() const { return m_flight ? m_flight->to : m_target; }
 	const terragen::System &system() const { return m_system.system(); }
@@ -170,7 +184,32 @@ private:
 	double m_day = 0;
 	double m_spin = 0; // radians: the tiled body turned, its ground to space
 	v2f m_shift;       // where the view's middle is drawn (frame)
-	std::shared_ptr<const Layer> m_layer; // the tint's image, shared with it
+	std::optional<Layer> m_layer;
+	// the land's colours under a layer, from that body's world model (an atlas body's)
+	// (none while its world's still being built: then it's tinted when it is)
+	std::shared_ptr<const far::Tiles::Tint> tintFor(int body);
+	void tint(int body); // that body's tiles, as the layer has them
+	// an atlas body's world model, once built (on another thread: seconds, the first time)
+	std::shared_ptr<const terragen::World> worldOf(int body);
+	std::map<int, std::shared_future<std::shared_ptr<const terragen::World>>> m_worlds;
+	std::set<int> m_untinted; // bodies whose tint waits for their world
+	// The rest of the atlas's bodies, drawn from their own tiles once big
+	// enough on screen, for an eye as far off as the camera is: their
+	// coarsest land from afar, finer on the way in.
+	struct Baked
+	{
+		int body;     // the atlas's
+		size_t index; // the system's
+		double sea;   // its sea's radius (its own blocks)
+		std::unique_ptr<far::Tiles> tiles; // made when first drawn
+	};
+	std::vector<Baked> m_baked;
+	const planet::Atlas m_world;
+	const far::Horizon m_horizon;
+	// a baked body in its place (SystemLayer::Surface); false: not one, or not built yet
+	bool drawBaked(video::IVideoDriver *driver, const core::matrix4 &look, float aspect, size_t index,
+			const terragen::System::Vec &at, double pixels, float near, float far);
+	double spinOf(size_t index) const; // a body's turn on its axis now (radians), by its own day
 	// where the camera is from the tiled body's centre (blocks), and how it looks
 	OrbitCamera::Vec eye() const;
 	core::matrix4 view() const;
@@ -187,7 +226,9 @@ private:
 		size_t to;
 		OrbitCamera end;
 		double seconds, t = 0;
+		OrbitCamera::Vec up; // the camera's up as it set off: turned to the end's on the way
 	};
+	OrbitCamera::Vec endUp() const; // a flight's camera's up where it lands (the scene's)
 	std::optional<Flying> m_flight;
 	struct Pose
 	{
@@ -195,6 +236,7 @@ private:
 	};
 	Pose pose() const; // the camera now, flying or not
 	OrbitCamera::Vec centreOf(size_t body) const; // in the scene
+	double radiusOf(size_t body) const;           // blocks (the tiled body: its sea)
 	std::chrono::steady_clock::time_point m_last; // the last update, for flights
 	bool m_dragging = false;
 	s32 m_x = 0, m_y = 0;          // the mouse, while dragging

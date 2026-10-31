@@ -65,19 +65,14 @@ void runStandalone(const std::string &code, std::optional<double> bench)
 		if (bench) {
 			if (t > *bench)
 				break;
-			// a layer each second: three synthetic images, then none
+			// a layer each second: three overlays, then none
 			if (t > SETTLE && (int)(t - SETTLE) >= switches) {
 				const int k = switches++ % 4;
 				if (k == 3)
 					planet->layer(std::nullopt);
 				else {
-					Planetarium::Layer layer{ 256, 256, std::vector<u8>(256 * 256 * 4) };
-					for (size_t i = 0; i < layer.rgba.size(); i += 4) {
-						layer.rgba[i] = (u8)(i * (k + 1) / 1021);
-						layer.rgba[i + 1] = (u8)(80 * k);
-						layer.rgba[i + 2] = (u8)(255 - i / 1024);
-						layer.rgba[i + 3] = 255;
-					}
+					static const Overlay OVERLAYS[] = { Overlay::Elevation, Overlay::Temperature, Overlay::Plates };
+					Planetarium::Layer layer{ OVERLAYS[k], nullptr, std::nullopt, std::nullopt, 0 };
 					planet->layer(std::move(layer));
 				}
 				lastSwitch = start;

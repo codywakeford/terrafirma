@@ -65,7 +65,7 @@ public:
 	// A perspective, its middle moved `shift` (the screen's half widths and
 	// heights, +x right, +y up): what's ahead is drawn there, not at the
 	// screen's middle (the free part of a screen half under a panel).
-	static core::matrix4 perspective(float aspect, float near, float far, v2f shift);
+	static core::matrix4 perspective(float aspect, float near, float far, v2f shift, float fov = FOV);
 
 	// A body that spins: a point of its own frame (its ground's) where it
 	// is in space, the body turned by `spin` radians about its axis (y),

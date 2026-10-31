@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include "menu.h"
+#include "terragen/worlds.h"
 #include "lab.h"
 #include "system.h"
 #include "terragen/system.h"
@@ -316,10 +317,17 @@ planetarium::Planetarium::Opts Menu::body(const Json::Value &body)
 	}
 	if (!m_baked)
 		m_baked = far::Baked::load(g_settings->get("game_id"));
-	// laid out once a size (tens of ms): a changed seed or setting keeps the size
-	auto laid = m_atlases.find(world.size);
-	if (laid == m_atlases.end())
-		laid = m_atlases.emplace(world.size, planet::Atlas(terragen::Atlas::standard(world.size / (2 * M_PI)))).first;
+	// every body of its system, as the server lays them out (server.cpp), so
+	// the others show their land too; laid out once a code (tens of ms)
+	auto laid = m_atlases.find(code);
+	if (laid == m_atlases.end()) {
+		if (m_atlases.size() >= 8)
+			m_atlases.clear(); // a setting dragged through many: only the latest few kept
+		std::vector<terragen::Atlas::Params> bodies;
+		for (const terragen::BodyWorld &b : terragen::bodyWorlds(world, terragen::Atlas::standard(world.size / (2 * M_PI))))
+			bodies.push_back(b.atlas);
+		laid = m_atlases.emplace(code, planet::Atlas(bodies)).first;
+	}
 	const planet::Atlas &atlas = laid->second;
 	return { atlas, far::Horizon{ code, MapgenParams().water_level, m_baked->content }, m_baked->palette,
 		std::make_shared<const terragen::System>(terragen::SystemSpec::forWorld(world)) };

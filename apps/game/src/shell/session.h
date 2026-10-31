@@ -72,7 +72,8 @@ private:
 	Actions m_actions;
 	Client *m_client;
 	Planetarium &m_planetarium; // the window's (Shell::planetarium), showing this world
-	mutable int32_t m_year = 0;  // this world's, once world() has read its code
+	mutable int32_t m_year = 0;
+	bool m_prepared = false; // the planet's been made ready (Planetarium::prepare)  // this world's, once world() has read its code
 };
 
 } // namespace shell

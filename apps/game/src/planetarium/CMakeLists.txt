@@ -2,6 +2,8 @@
 set(planetarium_client_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/camera.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/seams.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ribbon.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/paint.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/markers.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/system.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/sky.cpp

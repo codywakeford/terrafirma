@@ -57,7 +57,16 @@ public:
 	bool shown() const { return m_current != nullptr || m_next != nullptr; }
 	// Shows a body directly (a key, a command line), as `planetarium.show` does.
 	void show(planetarium::Planetarium::Opts body);
+	// Hidden, the view's kept (parked) and shown again at once when the
+	// same body's asked for next.
 	void hide();
+	// A body made ready while nothing's shown (a game's, as it joins): its
+	// coarse land built in the background, so the first show is instant.
+	void prepare(planetarium::Planetarium::Opts body);
+	// Once a frame while hidden: a parked body's land goes on building, for
+	// its camera kept over where the player is (latitude and longitude of
+	// the ground, radians), so it opens at the detail it will be seen at.
+	void idle(std::optional<std::pair<double, double>> player);
 	// The player's orbit, drawn round its body (Planetarium::path); none: none.
 	void path(std::optional<planetarium::Planetarium::Path> path);
 	// The system's moment shown: a world's date (days into it, its year's
@@ -93,6 +102,9 @@ private:
 	Json::Value m_asked; // the body shown (or being made), as asked for
 	std::unique_ptr<planetarium::Planetarium> m_current; // on screen
 	std::unique_ptr<planetarium::Planetarium> m_next;    // being made ready to take its place
+	std::unique_ptr<planetarium::Planetarium> m_parked;  // hidden, kept to show again
+	std::optional<std::pair<double, double>> m_over; // where the parked camera's over (idle)
+	v2u32 m_screen{ 1280, 720 }; // the window, as last drawn (a parked body builds for it)
 	std::vector<planetarium::MarkerLayer::Marker> m_markers; // the page's, kept across a swap
 	// where the page leaves room for it (page pixels); none: the whole window
 	struct Rect

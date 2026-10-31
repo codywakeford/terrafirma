@@ -54,8 +54,12 @@ public:
 	};
 	// The system `day` days after its day 0, the scene begun. `focused`
 	// draws the focused body, given the depth range it may use (BS units).
+	// `surface` may draw another body's land in its place (its index, where
+	// it is from the camera and how wide it is drawn, pixels, in the depth
+	// range given), saying whether it did: if not, it's a sphere in its colour.
+	using Surface = std::function<bool(size_t body, const terragen::System::Vec &at, double pixels, float near, float far)>;
 	void draw(video::IVideoDriver *driver, const Camera &camera, double day,
-			const std::function<void(float near, float far)> &focused);
+			const std::function<void(float near, float far)> &focused, const Surface &surface = nullptr);
 
 	// The farthest any body is from the focused one (blocks): how far out a
 	// camera may want to go to see it all.
@@ -99,9 +103,10 @@ private:
 	double m_extent = 0;
 	std::optional<size_t> m_cutaway;
 	std::optional<size_t> m_highlight;
-	// the sky's stars: squares round the unit sphere, made for a screen's height
+	// the sky: soft dots round the unit sphere and the galaxy's band behind
+	// them, made for a screen's height
 	std::vector<video::S3DVertex> m_stars;
-	std::vector<u16> m_starIndices;
+	std::vector<u32> m_starIndices;
 	u32 m_starsFor = 0;
 	std::vector<u16> m_window; // a cut sphere's triangles, this frame
 	irr_ptr<scene::SMeshBuffer> m_sphere; // unit, its normals its points

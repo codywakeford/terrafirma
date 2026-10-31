@@ -57,11 +57,11 @@ export function usePlanetarium(opts: {
     function fly(flight: PlanetariumFlight) {
         if (shown) void opts.bridge.send("planetarium.fly", flight).catch(fail("planetarium.fly"))
     }
-    /** What's over the land: a painted image (the preview's layout), the body cut open, or nothing. */
-    function layer(what: ImageData | "inside" | null) {
+    /** What's over the land: an overlay painted natively, an image the page painted (the weather), the body cut open, or nothing. */
+    function layer(what: Exclude<PlanetariumLayer, { width: number }> | ImageData | null) {
         if (!shown) return
-        const request: PlanetariumLayer = what === null ? { none: true } : what === "inside" ? { inside: true }
-            : { width: what.width, height: what.height, rgba: base64(what.data) }
+        const request: PlanetariumLayer = what === null ? { none: true }
+            : what instanceof ImageData ? { width: what.width, height: what.height, rgba: base64(what.data) } : what
         void opts.bridge.send("planetarium.layer", request).catch(fail("planetarium.layer"))
     }
     /** The host's clock: stopped or running, and the date (0..1 through the year). */

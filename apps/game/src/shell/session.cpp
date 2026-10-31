@@ -192,6 +192,17 @@ void Session::update(const HudView &view)
 	m_state.update(view);
 	m_ui.update();
 	m_director.update();
+	// the planet made ready as soon as the world's known, so V shows it at once
+	if (!m_prepared && !m_planetarium.shown() && m_client->getAtlas() && m_client->getHorizon()) {
+		m_planetarium.prepare(world(bodyHere()));
+		m_prepared = true;
+	}
+	std::optional<std::pair<double, double>> over;
+	if (!m_planetarium.shown() && m_client->getAtlas())
+		if (LocalPlayer *player = m_client->getEnv().getLocalPlayer())
+			if (const std::optional<Json::Value> pose = m_state.mapPose(*player))
+				over = { (0.5 - (*pose)["v"].asDouble()) * M_PI, ((*pose)["u"].asDouble() - 0.5) * 2 * M_PI };
+	m_planetarium.idle(over);
 	// the system as the world's date has it (its year's share of the orbit)
 	if (m_planetarium.shown() && m_year > 0)
 		m_planetarium.dayIn(m_client->getEnv().getDayCount() + m_client->getEnv().getTimeOfDayF(), m_year);

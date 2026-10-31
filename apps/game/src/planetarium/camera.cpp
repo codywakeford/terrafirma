@@ -142,10 +142,10 @@ core::matrix4 OrbitCamera::view() const
 	return m;
 }
 
-core::matrix4 OrbitCamera::perspective(float aspect, float near, float far, v2f shift)
+core::matrix4 OrbitCamera::perspective(float aspect, float near, float far, v2f shift, float fov)
 {
 	core::matrix4 m;
-	m.buildProjectionMatrixPerspectiveFovLH(FOV, aspect, near, far);
+	m.buildProjectionMatrixPerspectiveFovLH(fov, aspect, near, far);
 	// clip x and y gain shift · w (w is the depth): the drawing moves by shift
 	m[8] += shift.X;
 	m[9] += shift.Y;

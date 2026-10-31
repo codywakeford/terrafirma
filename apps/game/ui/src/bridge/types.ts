@@ -1,4 +1,4 @@
-import type { PreviewWire } from "../worldgen/fields"
+import type { OverlayId, PreviewWire } from "../worldgen/fields"
 import type { WeatherWire } from "../worldgen/weather"
 import type { StarId } from "../worldgen/config"
 
@@ -407,12 +407,22 @@ export type Social = {
  */
 export type PlanetariumPlace = { latitude: number; longitude: number }
 export type PlanetariumCell = { region: "segment" | "cap" | "core"; index: number; i: number; j: number; k: number }
-/** What's over a body's land (planetarium.layer). */
-export type PlanetariumLayer = { width: number; height: number; rgba: string } | { inside: true } | { none: true }
+/**
+ * What's over a body's land (planetarium.layer): an overlay painted natively from the world
+ * model as each tile is built (as sharp as the land; on every body shown, unless `explored`
+ * masks it to what the player's seen of theirs: tf_player's grid, a bit a cell, base64), on a
+ * date (0..1 through the year; none: the year's mean); an image the page painted (the weather:
+ * RGBA, base64, the preview's layout); the body cut open; or nothing.
+ */
+export type PlanetariumLayer =
+    | { overlay: Exclude<OverlayId, "terrain" | "weather">; date?: number; explored?: { grid: number; mask: string } }
+    | { width: number; height: number; rgba: string }
+    | { inside: true }
+    | { none: true }
 
 /** Where `planetarium.fly` takes the camera: what's left out stays as it is. */
 export type PlanetariumFlight = {
-    body?: string
+    body?: string // a body's id, or "star"
     latitude?: number
     longitude?: number
     altitude?: number // blocks over the sea; or

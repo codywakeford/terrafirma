@@ -17,8 +17,9 @@ void MarkerLayer::draw(video::IVideoDriver *driver, const Vec &eye, double altit
 {
 	if (m_markers.empty())
 		return;
-	// tall enough to stand clear of mountains, and to see from orbit
-	const double mast = std::max(40.0, altitude * 0.08), ring = mast * 0.25;
+	// tall enough to stand clear of mountains, and to see from orbit; never
+	// more than a share of the body (from far out it would dwarf it)
+	const double mast = std::min(std::max(40.0, altitude * 0.08), m_sea * 0.12), ring = mast * 0.25;
 	m_vertices.clear();
 	m_indices.clear();
 	const auto put = [&](const Vec &p, video::SColor c) {
