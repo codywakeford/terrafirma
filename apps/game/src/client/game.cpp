@@ -6070,9 +6070,27 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 				client->getEnv().getDayCount() + client->getEnv().getTimeOfDayF());
 	// Terra Firma: liquid lying in the world (sprint 81), drawn on its own
 	if (!liquid_layer)
-		liquid_layer = make_irr<liquids::Layer>(smgr, client->ndef());
-	liquid_layer->update(client->takeLiquidsChanged(), client->getEnv().getClientMap(), camera->getOffset(),
-			client->getEnv().getDayNightRatio(), dtime);
+		liquid_layer = make_irr<liquids::Layer>(smgr, client->ndef(), shader_src);
+	{
+		// what pushes water aside (sprint 82): the player and the objects near
+		std::vector<liquids::Mover> movers;
+		LocalPlayer *me = client->getEnv().getLocalPlayer();
+		movers.push_back({ 0, me->getPosition() / BS, 0.35f, 1.7f });
+		std::vector<DistanceSortedActiveObject> near;
+		client->getEnv().getActiveObjects(me->getPosition(), 32 * BS, near);
+		for (const DistanceSortedActiveObject &o : near) {
+			aabb3f box{ v3f(0) };
+			if (o.obj->isLocalPlayer() || !o.obj->getSelectionBox(&box))
+				continue;
+			const v3f at = o.obj->getPosition() / BS;
+			movers.push_back({ u32(o.obj->getId()) + 1, at + v3f(0, box.MinEdge.Y / BS, 0),
+					std::max(box.getExtent().X, box.getExtent().Z) / (2 * BS), box.getExtent().Y / BS });
+		}
+		liquid_layer->update(client->takeLiquidsChanged(), client->takeLiquidGround(), client->takeStreams(), movers,
+				client->getEnv().getClientMap(), camera->getOffset(), camera->getPosition() / BS,
+				client->getHorizon() ? std::optional<s16>(client->getHorizon()->water_level) : std::nullopt,
+				client->getEnv().getDayNightRatio(), dtime);
+	}
 	if (far_view) {
 		std::optional<float> fog_limit;
 		if (sky->getFogDistance() >= 0)

@@ -473,6 +473,36 @@ int ModApiMatter::l_set_fill(lua_State *L)
 	});
 }
 
+// core.matter.stream(from, to, colour, cups) (sprint 82): liquid poured
+// from a spout to where it lands, for the clients near to draw falling (each
+// cup a sixteenth-cube drop). Only a picture: what lands is core.matter.pour's.
+int ModApiMatter::l_stream(lua_State *L)
+{
+	return guarded(L, "stream", [&] {
+		const v3f from = check_v3f(L, 1), to = check_v3f(L, 2);
+		video::SColor colour;
+		if (!read_color(L, 3, &colour))
+			throw LuaError("core.matter.stream: a colour");
+		const lua_Number cups = luaL_checknumber(L, 4);
+		if (cups < 0)
+			throw LuaError("core.matter.stream: cups, 0 or more");
+		getServer(L)->sendStream(from, to, colour, (u16)std::min<lua_Number>(cups, 65535));
+		return 0;
+	});
+}
+
+// core.matter.open(pos) (sprint 82): the share of a node's space that's
+// open (cut away, or smoothed ground's air): where liquid can lie in it
+int ModApiMatter::l_open(lua_State *L)
+{
+	MAP_LOCK_REQUIRED;
+	return guarded(L, "open", [&] {
+		const sandbox::Room room = roomAt(getServer(L)->getEnv().getMap(), getServer(L)->ndef(), check_v3s16(L, 1));
+		lua_pushnumber(L, room.total() / 4096.0);
+		return 1;
+	});
+}
+
 // core.matter.get_fill(pos): the liquid lying in a node's open space,
 // { id, share } (of its open space), or nil (sprint 81)
 int ModApiMatter::l_get_fill(lua_State *L)
@@ -660,6 +690,8 @@ void ModApiMatter::Initialize(lua_State *L, int top)
 		{ "pour", l_pour },
 		{ "disturb", l_disturb },
 		{ "set_fill", l_set_fill },
+		{ "stream", l_stream },
+		{ "open", l_open },
 		{ "get_fill", l_get_fill },
 		{ "step", l_step },
 		{ "ambient", l_ambient },

@@ -1770,6 +1770,7 @@ void Client::removeNode(v3s16 p)
 	}
 	catch(InvalidPositionException &e) {
 	}
+	m_liquid_ground.insert(getNodeBlockPos(p)); // Terra Firma: the liquid beside it meets it anew
 
 	for (const auto &modified_block : modified_blocks) {
 		addUpdateMeshTaskWithEdge(modified_block.first, false, true);
@@ -1832,6 +1833,7 @@ void Client::addNode(v3s16 p, MapNode n, bool remove_metadata)
 	}
 	catch(InvalidPositionException &e) {
 	}
+	m_liquid_ground.insert(getNodeBlockPos(p)); // Terra Firma: the liquid beside it meets it anew
 
 	for (const auto &modified_block : modified_blocks) {
 		addUpdateMeshTaskWithEdge(modified_block.first, false, true);

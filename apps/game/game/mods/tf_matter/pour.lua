@@ -46,14 +46,20 @@ local function target(user)
 			local def = core.registered_nodes[core.get_node(thing.under).name]
 			local m = def and def._matter
 			local into = type(m) == "table" and (m.vessel or m.loose or m.state == "liquid")
-			return into and thing.under or thing.above, eye
+			-- and the point looked at, for the stream to fall on (sprint 82: not the block's middle)
+			return into and thing.under or thing.above, eye, thing.intersection_point
 		end
 	end
 end
 
--- the stream, drawn from the hand to where it lands
-local function stream(user, eye, pos, colour, rate)
+-- the stream, drawn from the hand to where it lands: a liquid's as drops,
+-- a cup each, that the clients' liquid layers splash into the water there
+local function stream(user, eye, pos, colour, rate, cups, liquid)
 	local hand = vector.add(eye, vector.multiply(user:get_look_dir(), 0.6))
+	if liquid then
+		core.matter.stream(vector.offset(hand, 0, -0.2, 0), pos, colour, cups)
+		return
+	end
 	core.add_particlespawner({
 		amount = math.min(30, 4 + math.floor(rate / 8)), time = 0.1,
 		minpos = vector.offset(hand, -0.04, -0.2, -0.04), maxpos = vector.offset(hand, 0.04, -0.15, 0.04),
@@ -70,7 +76,7 @@ local function pour(user, cups, rate)
 	local stack = user:get_wielded_item()
 	local id, endless = contents(stack)
 	if not id then return false end
-	local pos, eye = target(user)
+	local pos, eye, hit = target(user)
 	if not pos then return true end
 	local s = substances[id]
 	local creative = core.is_creative_enabled(user:get_player_name())
@@ -98,7 +104,7 @@ local function pour(user, cups, rate)
 	else
 		core.matter.pour(pos, id, moles)
 	end
-	stream(user, eye, vector.offset(pos, 0, -0.4, 0), s.colour, rate)
+	stream(user, eye, hit or vector.offset(pos, 0, -0.4, 0), s.colour, rate, cups, s.state == "liquid")
 	return true
 end
 
@@ -129,28 +135,16 @@ core.register_globalstep(function(dtime)
 	end
 end)
 
--- A block of liquid placed pours out where it's put over a couple of
--- seconds, rather than landing as a cubic metre at once (sprint 80: that
--- woke a crowd of blocks in one step, a jolt).
-local SPILL = 2   -- s
-local spilling = {}
+-- A placed block of liquid is that much liquid where it was put, all at
+-- once (sprint 82: poured over two seconds, as in sprint 80 to spare a
+-- jolt, it vanished and came back as a trickle); it runs out from there.
 core.register_on_placenode(function(pos, node)
 	local def = core.registered_nodes[node.name]
 	local m = def and def._matter
 	if type(m) ~= "table" or m.state ~= "liquid" or not substances[m.matter] then return end
+	local s = substances[m.matter]
 	core.swap_node(pos, { name = "air" })
-	spilling[#spilling + 1] = { pos = pos, id = m.matter, left = 1, since = 0 }
-end)
-
-core.register_globalstep(function(dtime)
-	for i = #spilling, 1, -1 do
-		local sp = spilling[i]
-		local share = math.min(sp.left, dtime / SPILL)
-		local s = substances[sp.id]
-		-- a liquid at room temperature as it is; a molten one (tin, glass) just over its melting point
-		local hot = s.state ~= "liquid" and s.melts + 50 or nil
-		core.matter.pour(sp.pos, sp.id, share * s.density / (s.molar_mass / 1000), hot)
-		sp.left = sp.left - share
-		if sp.left <= 1e-9 then table.remove(spilling, i) end
-	end
+	-- a liquid at room temperature as it is; a molten one (tin, glass) just over its melting point
+	local hot = s.state ~= "liquid" and s.melts + 50 or nil
+	core.matter.pour(pos, m.matter, s.density / (s.molar_mass / 1000), hot)
 end)

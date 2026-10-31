@@ -633,6 +633,15 @@ hosted for friends (STUN, UPnP, hole punching on the server's socket), Join
 gets a single-use ticket from ArcLabs, and the host's server admits by ticket
 (protocol 58). No relay yet: pairs that can't be punched through are told so.
 
+**Built (sprint 82, `planning/sprint-82-fine-water.md`):** fine water.
+Near the camera the client runs each wet node as 16×16 columns of shallow
+water (waves, sloshing, wakes from what moves), held to the server's
+amount per node, drawn as voxels on the sixteenth (`client/liquids.*`).
+Poured liquid falls as sixteenth-cube drops that splash in
+(`core.matter.stream`, `TOCLIENT_STREAM`, protocol 87). The sea is drawn
+by the layer (group `liquid_layer`), meeting the shore; old shores are
+filled on load.
+
 **Built (sprint 81, `planning/sprint-81-liquid-layer.md`):** the liquid
 layer. Liquid lies in a node's open space as a fill (`src/fill`, map
 format 31, `TOCLIENT_FILL`, protocol 86), beside the node: water in a pit

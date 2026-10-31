@@ -189,6 +189,7 @@ class Server : public con::PeerHandler, public MapEventReceiver,
 		public IGameDef
 {
 public:
+	void sendStream(v3f from, v3f to, video::SColor colour, u16 cups); // Terra Firma (sprint 82)
 	/*
 		NOTE: Every public method should be thread-safe
 	*/

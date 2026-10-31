@@ -66,7 +66,8 @@ local water = {
 	liquid_move_physics = true,
 	drowning = 1,
 	post_effect_color = { a = 110, r = 30, g = 70, b = 140 },
-	groups = { water = 3, liquid = 3 },
+	color = "#3a7fc4", -- water's own colour (the matter's), drawn by the liquid layer
+	groups = { water = 3, liquid = 3, liquid_layer = 1 }, -- drawn by the liquid layer, so it meets the shore's fills (sprint 82)
 	_matter = { matter = "water", share = 1, state = "liquid", form = true }, -- the form liquid water takes
 }
 core.register_node("tf_world:water_source", water)
@@ -83,6 +84,7 @@ puddle.buildable_to = false -- it'd be lost: build into it and it's gone
 puddle.liquid_move_physics = false
 puddle.drowning = 0
 puddle.post_effect_color = nil
+puddle.color = nil
 puddle.groups = { water = 3, liquid = 3, matter_puddle = 1, not_in_creative_inventory = 1 } -- (sprint 81: a fill now; made one on load)
 core.register_node("tf_world:water_puddle", puddle)
 -- worlds from before kept the engine's running water

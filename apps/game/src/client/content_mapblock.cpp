@@ -2040,6 +2040,9 @@ void MapblockMeshGenerator::drawNode()
 		return;
 	}
 	if (cur_node.f->drawtype == NDT_LIQUID) {
+		// Terra Firma: the liquid layer draws it (sprint 82: the sea meets the shore's fills)
+		if (itemgroup_get(cur_node.f->groups, "liquid_layer"))
+			return;
 		drawSolidNode<true>();
 		drawCutFace();
 		return;

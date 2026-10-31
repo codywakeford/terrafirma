@@ -334,7 +334,7 @@ void Client::handleCommand_BlockData(NetworkPacket* pkt)
 		Add it to mesh update queue and set it to be acknowledged after update.
 	*/
 	addUpdateMeshTaskWithEdge(p, true);
-	m_liquids_changed.insert(p); // Terra Firma: its liquid, drawn by the liquid layer (sprint 81)
+	m_liquid_ground.insert(p); // Terra Firma: its liquid and the sea, drawn by the liquid layer (sprint 81)
 }
 
 void Client::handleCommand_Inventory(NetworkPacket* pkt)
@@ -2017,6 +2017,7 @@ void Client::handleCommand_Shape(NetworkPacket *pkt)
 	}
 	if (!m_env.getMap().setShape(p, s))
 		return; // its block isn't here: it comes with the shape when it is
+	m_liquid_ground.insert(getNodeBlockPos(p)); // Terra Firma: its open space changed
 	addUpdateMeshTaskForNode(p, false, true);
 }
 
@@ -2034,6 +2035,15 @@ void Client::handleCommand_Fill(NetworkPacket *pkt)
 		f.amount = 0;
 	if (m_env.getMap().setFill(p, f))
 		m_liquids_changed.insert(getNodeBlockPos(p));
+}
+
+// Terra Firma: liquid poured (sprint 82): drops from a spout to where it lands,
+// drawn falling by the liquid layer, which splashes them into the water there
+void Client::handleCommand_Stream(NetworkPacket *pkt)
+{
+	liquids::Stream s;
+	*pkt >> s.from >> s.to >> s.r >> s.g >> s.b >> s.cups;
+	m_streams.push_back(s);
 }
 
 // Terra Firma: the player's blueprints (sprint 48)

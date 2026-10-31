@@ -40,6 +40,7 @@ public:
 	void testPoolSleeps();
 	void testBudgetPicksBusiest();
 	void testPitFills();
+	void testPitOverflows();
 };
 
 static TestSandbox g_test_instance;
@@ -90,6 +91,7 @@ void TestSandbox::runTests(IGameDef *gamedef)
 	TEST(testPoolSleeps);
 	TEST(testBudgetPicksBusiest);
 	TEST(testPitFills);
+	TEST(testPitOverflows);
 }
 
 void TestSandbox::testRejects()
@@ -606,7 +608,10 @@ void TestSandbox::testPoolSleeps()
 			if (std::abs(x) == 3 || std::abs(z) == 3)
 				m.nodes[{ x, 0, z }] = "granite";
 	const double poured = 3.3 * WATER_PER_M3; // a little over 13 sixty-fourths over the 25 blocks inside
-	m.matter->pour({ 0, 0, 0 }, table().index("water"), poured, 293.15);
+	// over the pool, not all in one block (sprint 82: more than a block holds rises out of it, over the walls)
+	for (int x = -2; x <= 2; x++)
+		for (int z = -2; z <= 2; z++)
+			m.matter->pour({ x, 0, z }, table().index("water"), poured / 25, 293.15);
 	m.matter->step(5);
 	int k = 0;
 	for (; k < 600 && m.matter->awakeCount() > 0; k++)
@@ -667,4 +672,30 @@ void TestSandbox::testPitFills()
 	UASSERT(m.at(1, -1, 0) == "granite");
 	UASSERT(in != m.fills.end() && in->second.share > 0.78); // all of it (0.2 of its 0.25 m³): the lowest place around
 	UASSERT(std::fabs(m.held("water", 4, -1, 0) / (0.2 * WATER_PER_M3) - 1) < 0.01);
+}
+
+// Sprint 82: a pit filled past full overflows. Twice what a pit a quarter
+// deep holds, put in it: the rest rises out and runs over the floor.
+void TestSandbox::testPitOverflows()
+{
+	Plot m;
+	m.floor(4);
+	sandbox::Room pit = sandbox::Room::closed();
+	for (int y = 12; y < 16; y++)
+		pit.layers[y] = 256;
+	m.rooms[{ 0, -1, 0 }] = pit;
+	// into the pit's open space, more than it holds (add: a pour would make the granite a heap)
+	m.matter->add({ 0, -1, 0 }, table().index("water"), 0.5 * WATER_PER_M3, 293.15);
+	for (int k = 0; k < 60; k++)
+		m.matter->step(1);
+	const auto in = m.fills.find({ 0, -1, 0 });
+	double beyond = 0;
+	for (const auto &[at, f] : m.fills)
+		if (at != std::make_tuple(0, -1, 0))
+			beyond += f.share;
+	infostream << "world: a pit filled twice full holds " << (in == m.fills.end() ? 0 : in->second.share) * 100
+			<< "%; " << beyond << " blocks' worth of fills beyond it" << std::endl;
+	UASSERT(in != m.fills.end() && in->second.share > 0.95);
+	UASSERT(beyond > 0.1); // the rest ran out over the floor
+	UASSERT(std::fabs(m.held("water", 4, -1, 0) / (0.5 * WATER_PER_M3) - 1) < 0.01);
 }

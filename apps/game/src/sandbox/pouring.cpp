@@ -243,6 +243,21 @@ void WorldMatter::flow(const std::vector<int64_t> &ids, double dt)
 			if (c.liquid > 0 && space > 0)
 				shift(c, *below, State::Liquid, std::min(c.liquid, space) * rate);
 		}
+		// what's more than a block holds rises into what's over it (sprint 82: a
+		// pit poured past full overflows, and runs off from there)
+		for (size_t i = 0; i < live.size(); i++) {
+			auto found = m_cells.find(live[i]);
+			if (found == m_cells.end())
+				continue;
+			Cell &c = found->second;
+			// (a heap in the air takes room; a sand block's own grains, cut to a pit, don't)
+			const double over = std::min(c.liquid, c.liquid + (m_kinds[c.kind].air ? c.solid : 0) - c.open);
+			if (m_kinds[c.kind].flowing || c.open <= 0 || over <= TRACE || !c.room.layers[15])
+				continue;
+			Cell *above = into(at(c.pos, 0, 1, 0), true, 1);
+			if (above && above != &c && above->open > 0 && above->room.layers[0])
+				shift(c, *above, State::Liquid, over);
+		}
 		// then sideways: each side's pipe speeds up with the difference in
 		// height and slows by viscosity; what can't be paid for is scaled down
 		std::vector<std::pair<int64_t, std::array<Cell *, 4>>> ways;

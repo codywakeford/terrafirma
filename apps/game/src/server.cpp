@@ -2655,6 +2655,16 @@ void Server::sendFill(v3s16 p, std::unordered_set<u16> *far_players, float far_d
 	sendNodeChangePkt(pkt, getNodeBlockPos(p), intToFloat(p, BS), far_d_nodes, far_players);
 }
 
+// Terra Firma: liquid poured (sprint 82), to the players near enough to see it fall
+void Server::sendStream(v3f from, v3f to, video::SColor colour, u16 cups)
+{
+	static const float SEEN = 48; // nodes
+	NetworkPacket pkt(TOCLIENT_STREAM, 12 + 12 + 3 + 2);
+	pkt << from << to << u8(colour.getRed()) << u8(colour.getGreen()) << u8(colour.getBlue()) << cups;
+	std::unordered_set<u16> far; // the far just don't see it
+	sendNodeChangePkt(pkt, getNodeBlockPos(floatToInt(from * BS, BS)), from * BS, SEEN, &far);
+}
+
 void Server::sendNodeChangePkt(NetworkPacket &pkt, v3s16 block_pos,
 		v3f p, float far_d_nodes, std::unordered_set<u16> *far_players)
 {

@@ -10,10 +10,10 @@ extern const u16 LATEST_PROTOCOL_VERSION;
 
 // Server's supported network protocol range. Terra Firma: only our own
 // protocol; stock Luanti peers are refused cleanly.
-constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 86;
+constexpr u16 SERVER_PROTOCOL_VERSION_MIN = 87;
 
 // Client's supported network protocol range
-constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 86;
+constexpr u16 CLIENT_PROTOCOL_VERSION_MIN = 87;
 
 extern const u16 FORMSPEC_API_VERSION;
 
@@ -801,7 +801,13 @@ enum ToClientCommand : u16
 		u8 amount (of its open space, /255), u8 r, g, b
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x70,
+	TOCLIENT_STREAM = 0x70,
+	/*
+		Terra Firma (sprint 82): liquid poured, for the liquid layer to draw falling
+		v3f from, to (nodes), u8 r, g, b, u16 cups (each 1/4096 of a node)
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x71,
 };
 
 enum ToServerCommand : u16
